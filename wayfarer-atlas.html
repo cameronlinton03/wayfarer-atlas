@@ -237,14 +237,7 @@ body.phone .note{top:8px;left:8px;transform:none;max-width:calc(100% - 200px);fo
 /* ============================================================
    SETTINGS — the knobs most worth changing. Colours, sizes, densities.
    ============================================================ */
-const MAP = {
-  ink:'#3a2a1c', water:'#a9c9c6', waterSpeck:'#9dbfbd', coastGlow:'rgba(226,240,235,.95)',
-  land:'#eadfbf', landSpeck:'#dccfa9',
-  roofs:'#b5553c', slate:'#5d6b7a', wall:'#f1e6cb',
-  coastRings:[[9,.55],[20,.38],[34,.22]],   // [distance from shore, strength] for each ripple line
-  landEdge:'rgba(110,78,40,.5)',            // soft shading just inside the coast
-  river:'#a9c9c6', riverEdge:'#3f6f80', road:'#6b4a2b', border:'#a23b2d',
-};
+const MAP = { ink:'#3a2a1c', water:'#a9c9c6', land:'#eadfbf', river:'#a9c9c6', riverEdge:'#3f6f80' };      // the few flat colours still read directly (the rest of the map is ink and washes)
 const TERRAIN = {            // ground paints: g = group in the panel, tex = which texture recipe draws it (see texture())
   meadow: {name:'Meadow',       g:'Grass', color:'#bccf88', tex:'meadow'},
   grass:  {name:'Grassland',    g:'Grass', color:'#a9bf7a', tex:'grass'},
@@ -332,8 +325,7 @@ const STAMP_GROUPS = {         // scatter:true = dragging lays down many, with a
 const KIND_SIZE={highpeak:170}, SOLO_KINDS=new Set(['highpeak']);      // kinds with a size of their own, and kinds that are placed one at a time even in a group that scatters
 const scatterOf=kind=>!!STAMP_GROUPS[groupOf(kind)].scatter && !SOLO_KINDS.has(kind);
 const VARIANTS = {wildflowers:8, wildgrass:4, shrubs:5, thicket:4, saplings:3, ferns:3, highpeak:4, ...Object.fromEntries(GLYPH_KINDS.map(k=>[k,2])), bones:2, pool:2, fieldplot:8, orchard:3, vineyard:3, house:4, stall:3, treetop:3, compass:3, cartouche:3, dragon:4, autumn:4, blossom:4, jungle:2, waves:3, breaker:2, deciduous:4, conifer:4, grove:4, pines:4, mountain:12, snowpeak:12, hill:8};   // how many shapes each stamp has
-const STONES=['stone','slate','rock'], SANDS=['sand','beach','redsand'], GRASSES=['grass','meadow','forest','steppe','marsh'];
-const swatch = k => TERRAIN[k];
+const GRASSES=['grass','meadow','forest','steppe','marsh'];
 /* Stamps that can be tinted, and the grounds whose colour they may take (the colours are TERRAIN's). The tint is laid on the finished picture of the stamp (see sprite), multiplied in faintly, so the ink stays
    black and only the paper in the body takes the wash. A stamp with no tint of its own, which includes every stamp made before tints worked, stays as it was. */
 const TINTS = {mountain:['stone','slate','rock'], snowpeak:['stone','slate'], highpeak:['stone','slate','rock'], hill:['grass','meadow','steppe','marsh','sand','forest'], boulders:['rock','stone','slate'], dunes:['sand','beach','redsand']};
@@ -351,7 +343,7 @@ const LABEL_STYLES = {      // lettering in the manner of engraved maps: roman f
   note:   {name:'Note',         font:'"IM Fell Double Pica", "IM Fell English", Georgia, serif',         italic:true,  caps:false, spacing:0.01, fx:{shadow:true}},
 };
 const INK = '#1f1c19';
-const SK = () => true, PAPER = () => '#efe4c8';      // the whole map is ink on parchment: SK marks the engraved drawing path, PAPER is the sheet colour
+const PAPER = () => '#efe4c8';      // the whole map is ink on parchment; PAPER is the sheet colour
 const MASK_SCALE = 0.5;      // terrain paint resolution relative to the map
 const STORE_KEY = 'wayfarer-atlas-v1';
 
@@ -470,7 +462,7 @@ function blankState(w,h){ return {w,h,kind:'world',hm:false,height:null,dun:{...
 const layers = { terrain:{name:'Ground & water paint',v:true}, cliffs:{name:'Cliffs',v:true}, lines:{name:'Rivers, roads, borders',v:true,lock:false}, stamps:{name:'Stamps',v:true,lock:false}, labels:{name:'Labels',v:true,lock:false} };
 const opts = { tool:'land', reshape:'pull', reach:160, cliffMode:'outline', cliffBrush:120, cliffRough:.4, cliffH:26, cliffPrimary:'up', paintLayer:'land', water:'deep', landPrimary:'land', hard:.6, bop:1, landMode:'outline', landBrush:140, landRough:0.55, terrain:'grass', brush:110, scatter:60,
   stampSizes:Object.fromEntries(Object.entries(STAMP_GROUPS).map(([g,v])=>[g,v.size])), lineRough:0.35, lineWidth:{river:4,road:2.5,border:2.5,realm:2.5,street:8,wall:7,fence:3,dwall:5}, fenceStyle:'hedge', realmFill:'band',
-  wallKind:'town', roadMode:false, rotSnap:false, cliffTaper:0, cliffDir:-90, stampOpacity:100, scatterDensity:1, scatterGap:.5, sizeVar:.18, floorMode:'paint', floorTex:'flag', floorBrush:90, settingsOpen:false, historyOpen:false, roomShape:'rect', roomCut:false, roomTex:'flag', corrW:1, snap:true, snapFine:false, caveRough:.55, partW:5, stamp:'town', stampRot:0, stampSet:'world', stampFlip:'shuffle', stampMode:'place', fillDensity:1, stampVar:'shuffle', stampTint:{}, labelStyle:'place', labelSize:30 };
+  wallKind:'town', roadMode:false, rotSnap:false, cliffTaper:0, cliffDir:-90, stampOpacity:100, scatterDensity:1, scatterGap:.5, sizeVar:.18, floorMode:'paint', floorTex:'flag', floorBrush:90, settingsOpen:false, historyOpen:false, roomShape:'rect', roomCut:false, roomTex:'flag', corrW:1, snap:true, snapFine:false, caveRough:.55,  stamp:'town', stampRot:0, stampSet:'world', stampFlip:'shuffle', stampMode:'place', fillDensity:1, stampVar:'shuffle', stampTint:{}, labelStyle:'place', labelSize:30 };
 let sel = null;                        // {type:'land'|'line'|'stamp'|'label', obj}
 let undoStack=[], redoStack=[], editing=false;
 /* Layers: rivers, roads, borders, realms, stamps and labels each sit on one layer (S.layers, bottom first). A layer can be hidden, locked,
@@ -640,26 +632,8 @@ function texture(base, kind, seed, sk){   // sk = sketch: keep only the marks da
   const many=(n,rad,draw)=>{ for(let i=0;i<n;i++){ const a=r(),b=r(),c=r(),d=r(); W(r()*T,r()*T,rad,()=>draw(a,b,c,d)); } };
   const mottle=(n,cols,a,lo=28,hi=72)=>sk||many(n,hi,(p,q)=>{ const R=lo+p*(hi-lo), col=cols[Math.floor(q*cols.length)], g=x.createRadialGradient(0,0,0,0,0,R); g.addColorStop(0,withA(col,a)); g.addColorStop(1,withA(col,0)); x.fillStyle=g; x.fillRect(-R,-R,2*R,2*R); });
   const stipple=(n,col,a,sz=1.3)=>many(n,3,p=>{ x.fillStyle=withA(col,a*(.5+p*.5)); x.beginPath(); x.arc(0,0,sz*(.5+p*.6),0,7); x.fill(); });
-  const tufts=(n,cols,h)=>many(n,h+3,(p,q,u)=>{ x.strokeStyle=withA(cols[Math.floor(q*cols.length)],.75); x.lineWidth=.9; const hh=h*(.6+p*.6); x.beginPath(); x.moveTo(0,0); x.lineTo(-hh*.35,-hh*.8); x.moveTo(.6,0); x.lineTo(.4+u,-hh); x.moveTo(1.2,0); x.lineTo(hh*.45,-hh*.75); x.stroke(); });
-  const ripples=(n,col,a,len)=>many(n,len,(p,q,u)=>{ const L=len*(.5+p*.5); x.strokeStyle=withA(col,a); x.lineWidth=.9; x.beginPath(); x.moveTo(-L/2,0); x.bezierCurveTo(-L/4,-3-q*2,L/4,3+u*2,L/2,0); x.stroke(); });
-  const cracks=(n,col,a)=>many(n,26,(p,q,u,v)=>{ x.strokeStyle=withA(col,a); x.lineWidth=.8; x.rotate(p*6.28); x.beginPath(); x.moveTo(-12,0); x.lineTo(-4,(q-.5)*8); x.lineTo(3,(u-.5)*8); x.lineTo(11,(v-.5)*6); x.moveTo(-4,(q-.5)*8); x.lineTo(-1,(q-.5)*8+6); x.stroke(); });
-  const pebbles=(n,light,dark)=>many(n,6,(p,q,u)=>{ const rx=1.6+p*2.6, ry=rx*(.55+q*.3); x.rotate(u-.5); x.fillStyle=withA(dark,.5); x.beginPath(); x.ellipse(.5,.8,rx,ry,0,0,7); x.fill(); x.fillStyle=withA(light,.9); x.beginPath(); x.ellipse(0,0,rx,ry,0,0,7); x.fill(); });
-  const L1=tone(base,.22), L2=tone(base,.1), D1=tone(base,-.1), D2=tone(base,-.2), D3=tone(base,-.34);
-  ({
-    grass(){ mottle(26,[L2,D1,D1],.3); stipple(160,D2,.25); tufts(120,[D2,D3,D1],5); },
-    meadow(){ mottle(26,[L1,D1],.3); tufts(110,[D2,D1],5); many(26,3,(p,q)=>{ x.fillStyle=q>.5?'#fbf6dc':'#f0d86a'; x.beginPath(); x.arc(0,0,1.1,0,7); x.fill(); }); },
-    forest(){ mottle(30,[D1,D2,L2],.32); stipple(240,D3,.35,1.5); stipple(90,'#b08a4a',.5,1.2); tufts(50,[D3],4); },
-    steppe(){ mottle(24,[L1,D1],.3); stipple(200,D2,.3); tufts(70,[D2,D3],6); },
-    marsh(){ mottle(26,[D1,L2],.3); many(9,14,(p,q,u)=>{ x.rotate((u-.5)*.6); x.fillStyle='rgba(120,160,165,.75)'; x.strokeStyle=withA(D3,.5); x.lineWidth=.8; x.beginPath(); x.ellipse(0,0,5+p*7,2+q*2.5,0,0,7); x.fill(); x.stroke(); }); tufts(130,[D3,D2],7); },
-    stone(){ mottle(30,[L1,D1,D2],.3,18,55); stipple(220,D2,.3); cracks(16,D3,.45); pebbles(26,L1,D3); },
-    barrens(){ mottle(26,[L2,D1],.3); stipple(260,D2,.35); pebbles(34,L2,D3); cracks(6,D3,.35); tufts(14,[D3],4); },
-    sand(){ mottle(22,[L1,D1],.28); stipple(300,D2,.3,1); ripples(34,D2,.4,30); },
-    beach(){ mottle(20,[L1,D1],.25); stipple(340,D2,.3,1); stipple(30,'#ffffff',.8,1.2); },
-    snow(){ mottle(24,['#b9cbd6','#ffffff'],.35); ripples(22,'#9db3c2',.4,36); stipple(60,'#ffffff',.9,1); },
-    ice(){ mottle(24,['#ffffff','#9fc0cc'],.35); cracks(18,'#ffffff',.7); cracks(8,'#7fa5b3',.4); },
-    floes(){ mottle(24,[L1,D1],.2,30,80); many(34,12,(p,q,u,v)=>{ x.rotate(p*6.28); x.fillStyle='rgba(250,253,254,.92)'; x.strokeStyle=withA(D2,.5); x.lineWidth=.7; const r=2.5+q*5; x.beginPath(); x.moveTo(-r,0); x.lineTo(-r*.3,-r*(.5+u*.3)); x.lineTo(r*.8,-r*.4); x.lineTo(r,r*.3*v); x.lineTo(r*.1,r*.6); x.closePath(); x.fill(); x.stroke(); }); },
-    storm(){ mottle(30,[D2,L2,D1],.3,24,70); many(60,16,(p,q)=>{ const L=7+p*8; x.strokeStyle='rgba(245,250,250,.75)'; x.lineWidth=1.4; x.beginPath(); x.moveTo(-L,0); x.quadraticCurveTo(-L/2,-4-q*2,0,0); x.quadraticCurveTo(L/2,-4,L,0); x.stroke(); x.strokeStyle=withA(D3,.5); x.lineWidth=.8; x.beginPath(); x.moveTo(-L,2); x.quadraticCurveTo(-L/2,-2-q*2,0,2); x.quadraticCurveTo(L/2,-2,L,2); x.stroke(); }); },
-    murk(){ mottle(30,[D1,D2,L2],.3,20,60); stipple(220,D3,.3,1.3); many(20,10,p=>{ x.strokeStyle=withA(D3,.35); x.lineWidth=.9; const L=5+p*6; x.beginPath(); x.moveTo(-L,0); x.quadraticCurveTo(0,-2.5,L,0); x.stroke(); }); },
+  const L1=tone(base,.22), L2=tone(base,.1), D1=tone(base,-.1), D2=tone(base,-.2);
+  ({      // the three that are not ink tiles: the sheet, and the plain land and sea colours (the other grounds are INK_TILES)
     paper(){ mottle(34,[L1,D1,D2,'#b08a4a'],.035,30,95); stipple(220,D2,.16,1); many(40,10,(p,q)=>{ x.strokeStyle=withA(D2,.12); x.lineWidth=.5; x.rotate(p*6.28); x.beginPath(); x.moveTo(-6*q-2,0); x.lineTo(6*q+2,.6); x.stroke(); }); },
     land(){ mottle(26,[L1,D1],.18); stipple(260,D2,.22,1); },
     water(){ mottle(26,[L2,D1],.12,30,80); many(34,14,p=>{ x.strokeStyle=withA(D2,.4); x.lineWidth=.9; const L=6+p*6; x.beginPath(); x.moveTo(-L,0); x.quadraticCurveTo(-L/2,-3,0,0); x.quadraticCurveTo(L/2,3,L,0); x.stroke(); }); },
@@ -684,7 +658,7 @@ function initBuffers(){
   [sbC,sb]=mkCanvas(mw,mh); [clipC,cl]=mkCanvas(mw,mh);   // one brush stroke as opacity; and the land it is allowed to land on
   if(S.kind==='dungeon'){ [dgF,dgFx]=full(); [dgT,dgTx]=full(); [dgS,dgSx]=full(); }      // the dungeon's floor plan, and the textures laid on it
   synced={lands:null,paints:null}; tcache.length=0; wSynced=[]; sprites.clear(); spriteArea=0; hitMaps.clear();
-  const mkPat=(col,kind,seed,sk=SK())=>{ const p=bc.createPattern(texture(col,kind,seed,sk),'repeat'); p.setTransform(new DOMMatrix().scale(1/Math.min(R,3))); return p; };   // one tile always covers 256 map units
+  const mkPat=(col,kind,seed,sk=true)=>{ const p=bc.createPattern(texture(col,kind,seed,sk),'repeat'); p.setTransform(new DOMMatrix().scale(1/Math.min(R,3))); return p; };   // one tile always covers 256 map units
   pat.paper = mkPat(PAPER(),'paper',9,false);
   { const [ac,ag]=mkCanvas(W/4,H/4), rn=mulberry(4177); ag.scale(.25,.25);                    // the sheet's age: uneven staining over the whole map (no repeat) and darkened, foxed edges
     for(let i=0,n=Math.round(W*H/22000);i<n;i++){ const x=rn()*W, y=rn()*H, r=90+rn()*260, g=ag.createRadialGradient(x,y,0,x,y,r), col=rn()<.62?'120,86,40':'255,247,224', a=.05+rn()*.07; g.addColorStop(0,`rgba(${col},${a})`); g.addColorStop(1,`rgba(${col},0)`); ag.fillStyle=g; ag.fillRect(x-r,y-r,2*r,2*r); }
@@ -725,7 +699,7 @@ function cliffGrip(c){ const x=cliffAxis(c); return [x.mid[0], x.bb[3]+22/view.k
 function rebuildCliffs(){
   cf.globalCompositeOperation='source-over'; cf.clearRect(0,0,S.w,S.h); cliffBuilt={cliffs:S.cliffs,landVer}; csx.clearRect(0,0,S.w,S.h); cleanFor=null;
   if(!layers.cliffs.v) return;
-  const downs=S.cliffs.filter(c=>c.mode==='down'), ink=SK()?INK:MAP.ink;
+  const downs=S.cliffs.filter(c=>c.mode==='down'), ink=INK;
   const shape=(x,c)=>{ landPath(c); const b=built.get(c); x.fillStyle=x.strokeStyle='#000'; x.fill(b.path); if(b.core){ x.lineWidth=b.cw; x.lineCap=x.lineJoin='round'; x.stroke(b.core); } };
   for(const c of S.cliffs){ if(c.mode==='down') continue;
     const {bb,u,mid,L}=cliffAxis(c), H=c.h ?? 26, tp=c.taper||0, pad=6, bx=Math.floor(bb[0]-pad), by=Math.floor(bb[1]-pad), bw=Math.ceil(bb[2]-bb[0]+pad*2), bh=Math.ceil(bb[3]-bb[1]+pad*2+Math.max(H,0));
@@ -742,8 +716,8 @@ function rebuildCliffs(){
     const hatchRows=(x,X0,Y0,Wd,Ht,sp,lw,sd)=>{ x.strokeStyle=INK; x.lineCap='round'; x.lineWidth=lw; x.beginPath(); for(let Y=Y0+sp*.5,j=0;Y<Y0+Ht;Y+=sp,j++){ let X=X0+hash(j,c.seed,sd)*5; while(X<X0+Wd){ const run=3+hash(j,X|0,c.seed+sd)*9; x.moveTo(X,Y); x.lineTo(X+run,Y+(hash(X|0,j,c.seed+sd+1)-.5)*.4); X+=run+1+hash(X|0,j,c.seed+sd+2)*2.6; } } x.stroke(); };      // level broken strokes, the way the stamps throw their shadows
     const inked=(...src)=>{ d.globalCompositeOperation='source-over'; d.clearRect(bx,by,bw,bh); src.forEach(q=>d.drawImage(q,bx,by,bw,bh)); d.globalCompositeOperation='source-in'; d.fillStyle=ink; d.fillRect(bx,by,bw,bh);
       for(let i=0;i<8;i++){ const t=i*Math.PI/4; (od||cx).drawImage(D,bx+Math.cos(t)*1.4,by+Math.sin(t)*1.4,bw,bh); } };
-    /* pit: a hollow is lit the other way round. With the light from the left, its left wall is in shadow and its right wall catches the light */ const rock=(x,dark,pit)=>{ x.globalCompositeOperation='source-in'; x.fillStyle=SK()?PAPER():pat.stone; x.fillRect(bx,by,bw,bh);                // turns a mask into hatched rock face
-      x.globalCompositeOperation='source-atop'; if(!SK()){ x.fillStyle=`rgba(58,42,28,${dark})`; x.fillRect(bx,by,bw,bh); }
+    /* pit: a hollow is lit the other way round. With the light from the left, its left wall is in shadow and its right wall catches the light */ const rock=(x,dark,pit)=>{ x.globalCompositeOperation='source-in'; x.fillStyle=PAPER(); x.fillRect(bx,by,bw,bh);                // turns a mask into hatched rock face
+      x.globalCompositeOperation='source-atop';
       x.strokeStyle=INK; x.lineCap='round';      // the face is engraved the way the stamps are: close broken strokes down the rock, heavier toward the right, crossed where it is darkest
       for(let X=bx,i=0;X<bx+bw;X+=2.7,i++){ const f0=(X-bx)/bw, f=pit?1-f0:f0, lean=(hash(i,c.seed,8)-.5)*1.6; x.lineWidth=(pit?.28+f*f*.75:.45+f*.3)*(.8+hash(i,c.seed,9)*.4); x.beginPath(); let y=by+hash(i,c.seed,7)*4;
         while(y<by+bh){ const run=3+hash(i,y|0,c.seed)*(7+f*8), gap=(1+hash(y|0,i,c.seed+1)*3.4)*(pit?2.6-f*2.3:1.35-f); x.moveTo(X+lean*(y-by)/bh,y); x.lineTo(X+lean*(y+run-by)/bh+(hash(i,y|0,c.seed+2)-.5)*.5,y+run); y+=run+gap; } x.stroke(); }
@@ -904,7 +878,7 @@ function paintInto(T,p,replace){      // lays one stroke onto T at the stroke's 
   if(p.type==='erase'){ T.globalCompositeOperation='destination-out'; T.drawImage(sbC,...src,...bb); }
   else if(pat[p.type]){ tc.save(); tc.beginPath(); tc.rect(bb[0]-4,bb[1]-4,bb[2]+8,bb[3]+8); tc.clip(); tc.globalAlpha=1; tc.globalCompositeOperation='source-over'; tc.clearRect(bb[0]-4,bb[1]-4,bb[2]+8,bb[3]+8); tc.drawImage(sbC,...src,...bb);
     tc.globalCompositeOperation='source-in'; tc.fillStyle=pat[p.type]; tc.fillRect(bb[0]-4,bb[1]-4,bb[2]+8,bb[3]+8); tc.restore();
-    if(replace && SK()){ T.globalCompositeOperation='destination-out'; T.drawImage(sbC,...src,...bb); T.globalCompositeOperation='source-over'; }   // sketch marks are see-through, so clear what was under them first
+    if(replace){ T.globalCompositeOperation='destination-out'; T.drawImage(sbC,...src,...bb); T.globalCompositeOperation='source-over'; }   // sketch marks are see-through, so clear what was under them first
     T.drawImage(tmpC,bb[0]*R,bb[1]*R,bb[2]*R,bb[3]*R,...bb); }
   T.restore();
   const Wc = T===tx ? wtx : T===wx ? wwx : null, col=washOf(p.type), K=WASH_SCALE, tint=()=>{ wtt.save(); wtt.globalAlpha=1; wtt.globalCompositeOperation='source-over'; wtt.clearRect(bb[0]-8,bb[1]-8,bb[2]+16,bb[3]+16); wtt.beginPath(); wtt.rect(...bb); wtt.clip(); wtt.drawImage(sbC,...src,...bb); wtt.globalCompositeOperation='source-in'; wtt.fillStyle=col; wtt.fillRect(...bb); wtt.restore(); };
@@ -950,22 +924,16 @@ function ridersOn(lands){    // everything sitting on these land shapes: lakes a
   const mid=o=>{ landPath(o); const b=built.get(o).bb; return [(b[0]+b[2])/2,(b[1]+b[3])/2]; };
   return [['lands',S.lands.filter(o=>o.mode==='sea' && free(o) && on(mid(o)))], ['cliffs',S.cliffs.filter(o=>free(o) && on(mid(o)))], ['paints',paintsOn(lands)], ['lines',S.lines.filter(o=>free(o) && on(o.pts[o.pts.length>>1]))],
           ['stamps',S.stamps.filter(o=>free(o) && on([o.x,o.y]))], ['labels',S.labels.filter(o=>free(o) && on([o.x,o.y]))]].filter(r=>r[1].length); }
-function stampsOn(lands){     // the stamps standing on these land shapes, leaving out any that are already selected themselves
-  const ls=lands.filter(l=>l.mode!=='sea'); if(!ls.length) return []; const picked=new Set(selItems().map(it=>it.obj));
-  return S.stamps.filter(o=>!picked.has(o) && ls.some(l=>inLand(l,[o.x,o.y]))); }
 /* Shore decoration, rebuilt only when the land changes: ripple lines and a pale glow in the water, soft shading inside the coast. */
 function rebuildCoast(){
   const w=coastC.width, h=coastC.height;
   hc.clearRect(0,0,w,h); hc.drawImage(landMask,0,0,w,h);
   const grow=(x,d)=>{ for(let i=0;i<16;i++){ const a=i*Math.PI/8; x.drawImage(halfC,Math.cos(a)*d*R/2,Math.sin(a)*d*R/2); } };
   cc.globalCompositeOperation='source-over'; cc.clearRect(0,0,w,h);
-  if(SK()){ for(const [d,alpha] of [[30,.5],[14,1]]){ rc.globalCompositeOperation='source-over'; rc.clearRect(0,0,w,h); grow(rc,d); rc.globalCompositeOperation='destination-out'; rc.drawImage(halfC,0,0); cc.globalAlpha=alpha; cc.drawImage(ringC,0,0); } }   // sketch: a band hugging the shore, darker close in
-  else for(const [d,alpha] of MAP.coastRings){ rc.globalCompositeOperation='source-over'; rc.clearRect(0,0,w,h); grow(rc,d); rc.globalCompositeOperation='destination-out'; grow(rc,d-Math.max(2.6,2.2/R)); rc.drawImage(halfC,0,0);
-    cc.globalAlpha=alpha; cc.drawImage(ringC,0,0); }
-  cc.globalAlpha=1; if(!SK()){ cc.globalCompositeOperation='source-in'; cc.fillStyle=MAP.riverEdge; cc.fillRect(0,0,w,h); }
-  if(!SK()){ cc.globalCompositeOperation='destination-over'; cc.save(); cc.shadowColor=MAP.coastGlow; cc.shadowBlur=17*R; cc.drawImage(halfC,0,0); cc.shadowBlur=6*R; cc.drawImage(halfC,0,0); cc.restore(); }
+  { for(const [d,alpha] of [[30,.5],[14,1]]){ rc.globalCompositeOperation='source-over'; rc.clearRect(0,0,w,h); grow(rc,d); rc.globalCompositeOperation='destination-out'; rc.drawImage(halfC,0,0); cc.globalAlpha=alpha; cc.drawImage(ringC,0,0); } }   // sketch: a band hugging the shore, darker close in
+  cc.globalAlpha=1;
   cc.globalCompositeOperation='source-over';
-  ic.globalCompositeOperation='source-over'; ic.clearRect(0,0,S.w,S.h); if(!SK()){ ic.save(); ic.shadowColor=MAP.landEdge; ic.shadowBlur=13*R; ic.drawImage(invC,0,0,S.w,S.h); ic.restore(); }
+  ic.globalCompositeOperation='source-over'; ic.clearRect(0,0,S.w,S.h);
   ic.globalCompositeOperation='destination-out'; ic.drawImage(invC,0,0,S.w,S.h); ic.globalCompositeOperation='source-over';
   if(layers.lines.v){ const rivers=S.lines.filter(l=>l.kind==='river' && lyVisible(l));      // no shore lining or shading inside a river: where a thin river meets the sea the band stops at its mouth (same visibility rule as rebuildLand, which carves them)
     if(rivers.length){ cc.save(); cc.setTransform(R/2,0,0,R/2,0,0); cc.globalCompositeOperation='destination-out'; cc.fillStyle='#000'; for(const l of rivers) cc.fill(riverPath(l,false)); cc.restore();
@@ -978,21 +946,21 @@ function compose(full){
   const W=S.w,H=S.h, live = act && act.type==='paint' && act.pts.length ? act.stroke : null;
   if(full){ if(coastDirty) rebuildCoast(); syncTerrain(); syncWater(); }
   if(cliffBuilt.cliffs!==S.cliffs || (full && cliffBuilt.landVer!==landVer)) rebuildCliffs();
-  lc.globalAlpha=1; lc.globalCompositeOperation='source-over'; if(SK()){ lc.fillStyle=pat.paper||PAPER(); lc.fillRect(0,0,W,H); lc.drawImage(ageC,0,0,W,H); } lc.fillStyle=pat.land; lc.fillRect(0,0,W,H);
+  lc.globalAlpha=1; lc.globalCompositeOperation='source-over'; { lc.fillStyle=pat.paper||PAPER(); lc.fillRect(0,0,W,H); lc.drawImage(ageC,0,0,W,H); } lc.fillStyle=pat.land; lc.fillRect(0,0,W,H);
   const inkOK=cleanFor && cleanFor.p===S.paints && cleanFor.l===S.lands && cleanFor.c===S.cliffs && cleanFor.v===landVer && cleanFor.cv===cleanC;
   if(layers.terrain.v) drawLayer(lc,(inkOK || (full && !live && cleanInk())) ? cleanC : terrainC,live && !live.w ? live : null);
   if(layers.terrain.v){ if(full && !(ecoFor && ecoFor.p===S.paints && ecoFor.l===S.lands && ecoFor.c===S.cliffs && ecoFor.v===landVer && ecoFor.cv===ecoC && ecoFor.cl===layers.cliffs.v && ecoFor.ln===layers.lines.v)) rebuildEco(); lc.drawImage(ecoC,0,0,W,H); }      // the woodland edge, over the ground
   lc.globalCompositeOperation='destination-in'; lc.drawImage(landMask,0,0,W,H);
   if(!coastDirty){ lc.globalCompositeOperation='source-atop'; lc.drawImage(innerC,0,0,W,H); }
   lc.globalCompositeOperation='source-over';
-  bc.globalAlpha=1; bc.globalCompositeOperation='source-over'; if(SK()){ bc.fillStyle=pat.paper||PAPER(); bc.fillRect(0,0,W,H); bc.drawImage(ageC,0,0,W,H); } bc.fillStyle=pat.water; bc.fillRect(0,0,W,H);      // a breath of blue-grey over all the water, so the sea sits with the tinted land
+  bc.globalAlpha=1; bc.globalCompositeOperation='source-over'; { bc.fillStyle=pat.paper||PAPER(); bc.fillRect(0,0,W,H); bc.drawImage(ageC,0,0,W,H); } bc.fillStyle=pat.water; bc.fillRect(0,0,W,H);      // a breath of blue-grey over all the water, so the sea sits with the tinted land
   buildTint();      // sea depth changes over a long distance, so it is blended much more widely than the land
   if(layers.terrain.v) drawLayer(bc,waterC,live && live.w ? live : null);
-  if(!coastDirty){ if(SK()){ tc.globalAlpha=1; tc.globalCompositeOperation='copy'; tc.drawImage(coastC,0,0,W,H); tc.globalCompositeOperation='source-in'; tc.fillStyle=pat.lining; tc.fillRect(0,0,W,H); tc.globalCompositeOperation='source-over'; bc.drawImage(tmpC,0,0,W,H); }   // the shore band becomes engraver's water lining
-    else bc.drawImage(coastC,0,0,W,H); }
+  if(!coastDirty){ { tc.globalAlpha=1; tc.globalCompositeOperation='copy'; tc.drawImage(coastC,0,0,W,H); tc.globalCompositeOperation='source-in'; tc.fillStyle=pat.lining; tc.fillRect(0,0,W,H); tc.globalCompositeOperation='source-over'; bc.drawImage(tmpC,0,0,W,H); }   // the shore band becomes engraver's water lining
+  }
   if(S.rhumb && layers.stamps.v){ const far=Math.hypot(W,H); bc.strokeStyle=INK; for(const st of S.stamps){ if(st.kind!=='compass') continue;                                       // rhumb lines run out from every compass across the sea; the land is laid over them next
       for(let k=0;k<32;k++){ const a=(st.rot||0)*Math.PI/180+k*Math.PI/16; bc.globalAlpha=k%4===0?.62:k%2===0?.45:.28; bc.lineWidth=k%4===0?1:.7; bc.beginPath(); bc.moveTo(st.x+Math.sin(a)*st.size*.45,st.y-Math.cos(a)*st.size*.45); bc.lineTo(st.x+Math.sin(a)*far,st.y-Math.cos(a)*far); bc.stroke(); } } bc.globalAlpha=1; }
-  tc.globalAlpha=1; tc.globalCompositeOperation='copy'; tc.drawImage(landMask,0,0,W,H); tc.globalCompositeOperation='source-in'; tc.fillStyle=SK()?INK:MAP.ink; tc.fillRect(0,0,W,H); tc.globalCompositeOperation='source-over';   // the land's shape in ink...
+  tc.globalAlpha=1; tc.globalCompositeOperation='copy'; tc.drawImage(landMask,0,0,W,H); tc.globalCompositeOperation='source-in'; tc.fillStyle=INK; tc.fillRect(0,0,W,H); tc.globalCompositeOperation='source-over';   // the land's shape in ink...
   for(let i=0;i<8;i++){ const a=i*Math.PI/4; bc.drawImage(tmpC,Math.cos(a)*1.5,Math.sin(a)*1.5,W,H); }                                                                 // ...nudged eight ways makes the coastline
   bc.drawImage(landLayer,0,0,W,H);
   drawRealms(W,H);
@@ -1079,7 +1047,7 @@ function drawLine(c,l){
   if(l.kind==='river' || l.kind==='realm' || l.kind==='street' || l.kind==='wall' || l.kind==='road') return;      // roads are drawn together so that they join (see drawRoads)
      // rivers and realms are drawn with the land (see riverPath, drawRealms)
   if(l.kind==='river'){ c.setLineDash([]); c.strokeStyle=MAP.riverEdge; c.lineWidth=l.width+1.8; c.stroke(b.path); c.strokeStyle=MAP.river; c.lineWidth=l.width; c.stroke(b.path); }
-  else { c.setLineDash(st.dash.map(d=>d*l.width/2.5)); c.strokeStyle=SK()?INK:MAP[l.kind]; c.lineWidth=l.width; c.globalAlpha=l.kind==='border'?.85:1; c.stroke(b.path); c.globalAlpha=1; c.setLineDash([]); }
+  else { c.setLineDash(st.dash.map(d=>d*l.width/2.5)); c.strokeStyle=INK; c.lineWidth=l.width; c.globalAlpha=l.kind==='border'?.85:1; c.stroke(b.path); c.globalAlpha=1; c.setLineDash([]); }
 }
 /* ---- stamp art. Everything is drawn in a 40-unit box centred on 0,0 with the ground at y = 14.
    Corners get a tiny fixed wobble so lines read as pen strokes rather than ruler lines. ---- */
@@ -1829,7 +1797,6 @@ function mHead(c,x,y,dx,dy,len,w,o={}){ const px=-dy, py=dx; return mBody(c,[[x+
 const mRot=(dx,dy,a)=>[dx*Math.cos(a)-dy*Math.sin(a),dx*Math.sin(a)+dy*Math.cos(a)];
 function mJaws(c,x,y,dx,dy,len,w){ for(const s of [-1,1]){ const [rx,ry]=mRot(dx,dy,s*.3), px=-ry, py=rx; mBody(c,[[x+rx*len,y+ry*len],[x+px*w*.5+rx*len*.4,y+py*w*.5+ry*len*.4],[x+px*w*.5-rx*len*.2,y+py*w*.5-ry*len*.2],[x-px*w*.5-rx*len*.2,y-py*w*.5-ry*len*.2],[x-px*w*.5+rx*len*.4,y-py*w*.5+ry*len*.4]].map((q,i)=>i?q:[q[0],q[1],1]),{sp:.5,lw:.4}); engDot(c,x+rx*len*.94,y+ry*len*.94,.5); } for(const s of [-1,1]) engInk(c,[[EX(x+s*2.4-dy*0),y+dy*0+1.4],[EX(x+s*4.4),y+3]],.35,false,{gap:0}); }      // an open-mouthed serpent's head
 function mStone(c,x,y,rx,ry,seed,o={}){ const rn=mulberry(seed*31+5), n=o.n||8, pts=[]; for(let i=0;i<n;i++){ const a=i/n*Math.PI*2+rn()*.3, r=.8+rn()*.36; pts.push([x+Math.cos(a)*rx*r,y+Math.sin(a)*ry*r,1]); } return mBody(c,pts,{sp:.7,thr:.12,...o}); }      // an angular boulder
-function mRag(c,x,y0,w,L,n,seed,o={}){ const rn=mulberry(seed*17+3), pts=[[x-w*.5,y0],[x+w*.5,y0],[x+w*.56,y0+L*.5]]; for(let k=n;k>=0;k--) pts.push([x+w*.52-k/n*w*1.04,y0+L*(k%2?.9:1)+rn()*L*.08,1]); pts.push([x-w*.56,y0+L*.5]); return mBody(c,pts,{sp:.8,...o}); }      // a ragged length of cloth
 const mFur=(c,x,y,rx,ry,n,o={})=>mBody(c,Array.from({length:n*2},(_,i)=>{ const a=i/(n*2)*Math.PI*2, r=i%2?.9:1.04; return [x+Math.cos(a)*rx*r,y+Math.sin(a)*ry*r,i%2?0:1]; }),{sp:.7,...o});      // a shaggy mantle
 const HEADS={
   goblin(c,hy){ for(const s of [-1,1]){ mBody(c,[[s*2.4,hy-1.2,1],[s*6,hy-3.2],[s*13.4,hy+2.4,1],[s*8.4,hy+3],[s*3,hy+1.8]],{sp:.7,lw:.4}); engInk(c,[[EX(s*3.6),hy-.2],[EX(s*9),hy+.8]],.28,false,{gap:.1}); } mBody(c,mRing(0,hy,3.3,3.5,8),{sp:.45,dark:.1}); for(let k=0;k<3;k++) engPoly(c,[[(k-1)*1.4-.6,hy+2.8],[(k-1)*1.4,hy+5.6],[(k-1)*1.4+.6,hy+2.8]],{j:.05,lw:.3,ink:true}); engInk(c,[[EX(-2.4),hy-1.8],[EX(0),hy-2.6],[EX(2.4),hy-1.8]],.4,false,{gap:0}); },
@@ -1992,7 +1959,6 @@ Object.assign(SKETCH_DRAW,{
     else { for(let k=0;k<15;k++){ const x=-9.5+k*1.4+(rn()-.5)*1.2, h=7+rn()*8, lean=(k-7)*1.05+(rn()-.5)*2; engStroke(c,[[x*.5,14.6],[x*.5+lean*.25,14-h*.55],[x*.5+lean,14-h]],.75,.18); } for(let k=0;k<5;k++) engDot(c,-9+k*4.5+(rn()-.5)*2,13.8,.28); }      // a wind-bent tussock
   },
 });
-const SH=(c,x,y,s,seed,o={})=>engTree(c,x,y,s,{seed,wr:1.6,hr:.7,...o});
 function plLump(c,cx,cy,rx,ry,seed,o={}){ const rn=mulberry(seed*97+5), n=o.n||12, P=[]; for(let i=0;i<n*2;i++){ const a=i/(n*2)*6.2832, out=i%2===0, r=(out?1.02:.8)+rn()*.14, sn=Math.sin(a); P.push([cx+Math.cos(a)*rx*r,cy+sn*ry*r*(sn>0?.45:1),out?0:1]); }      // a mass of leaves: a scalloped outline, loosely hatched on the right, with a flat foot
   const q=engForm(c,P,{sp:1.5,ang:1.15,thr:.35,seg:3,lw:.4,hw:.22,cross:0,...o.form});
   for(let k=0,m=o.ticks??8;k<m;k++){ const a=-3.1+rn()*2.4, r=.45+rn()*.4, x=cx+Math.cos(a)*rx*r, y=cy+Math.sin(a)*ry*r; plLeaf(c,x,y,(rn()-.5)*2.2,2.4+rn()*1.2,.75,{lw:.24}); } return q; }
@@ -2042,11 +2008,9 @@ function sprite(s,px,lazy){ const k=stampLook(s), pen=penOf(s.size), K=b=>[s.kin
   sp=cn; sprites.set(key,sp); spriteArea+=side*side; spriteBudgetMs-=performance.now()-t0;
   while(spriteArea>SPRITE_PIXELS && sprites.size>1){ const [k0,v0]=sprites.entries().next().value; sprites.delete(k0); spriteArea-=v0.width*v0.height; }
   return sp; }
-const STAMP_ALPHA={};      // (opacity is now each stamp's own setting, s.op, 0-100; nothing is drawn at a fixed opacity)      // ground cover is drawn in a lighter, greyer ink than the trees and hills, so that a drift sits back on the page
 function drawStamp(c,s,k){ c.save(); if(s.op!==undefined && s.op<100) c.globalAlpha*=clamp(s.op,0,100)/100; c.translate(s.x,s.y); c.rotate(s.rot*Math.PI/180);   // a mirrored stamp has its own picture (see paintStamp), so nothing is flipped here
   const px=k?s.size*k:0;
-  if(SK() || (k && px<=500)){ const want=px||s.size*2, cap=exporting?1024:512; let b=48; while(b<want && b<cap) b*=2; const side=s.size*sprSide(s.kind), sp=sprite(s,b,!!k && !exporting); if(sp) c.drawImage(sp,-side/2,-side/2,side,side); }
-  else { c.scale(s.size/40,s.size/40); paintStamp(c,s); }
+  { const want=px||s.size*2, cap=exporting?1024:512; let b=48; while(b<want && b<cap) b*=2; const side=s.size*sprSide(s.kind), sp=sprite(s,b,!!k && !exporting); if(sp) c.drawImage(sp,-side/2,-side/2,side,side); }
   if(s.kind==='scalebar'){ const u=s.size/40, f=Math.max(7,s.size*.075); c.font=`italic ${f}px "IM Fell English", Georgia, serif`; c.fillStyle=INK; c.textBaseline='top'; c.textAlign='center'; c.fillText('0',-18*u,9.6*u); c.fillText(fmtDist(36*u),18*u-f*1.2,9.6*u); }      // a scale bar reads off the map's scale
   c.restore(); }
 let sortedFor=null, sorted=[];
@@ -2226,7 +2190,7 @@ function roadNet(rs){ if(roadNetKey && roadNetKey.length===rs.length && rs.every
     const marks=[0,...sl,total]; for(let m=1;m<marks.length;m++){ const s0=marks[m-1], s1=marks[m], seg=[at(s0)]; for(let k=1;k<cum.length-1;k++) if(cum[k]>s0&&cum[k]<s1) seg.push(pts[k]); seg.push(at(s1)); pieces.push({i,pts:seg,len:s1-s0}); }
     for(const v of sl) dots.push({i,p:at(v)}); });
   roadNetKey=rs.slice(); return roadNetVal={pieces,dots}; }
-function drawRoads(c,ls){ const rs=ls.filter(l=>l.kind==='road'); if(!rs.length) return; const net=roadNet(rs); c.save(); c.lineCap='round'; c.lineJoin='round'; c.strokeStyle=c.fillStyle=SK()?INK:MAP.road;
+function drawRoads(c,ls){ const rs=ls.filter(l=>l.kind==='road'); if(!rs.length) return; const net=roadNet(rs); c.save(); c.lineCap='round'; c.lineJoin='round'; c.strokeStyle=c.fillStyle=INK;
   for(const pc of net.pieces){ const w=rs[pc.i].width||2.5, k=w/2.5, D=9*k, G=6*k, n=Math.max(1,Math.round((pc.len+G)/(D+G))), d=(pc.len-(n-1)*G)/n; c.lineWidth=w; c.setLineDash(n===1?[]:[d,G]); c.stroke(toPath(pc.pts,false)); }
   c.setLineDash([]); for(const dt of net.dots){ c.beginPath(); c.arc(dt.p[0],dt.p[1],(rs[dt.i].width||2.5)*.62,0,7); c.fill(); } c.restore(); }
 function drawStreets(c,ls){ const st=ls.filter(l=>l.kind==='street'); if(!st.length) return; c.save(); c.lineCap='round'; c.lineJoin='round'; c.setLineDash([]);
