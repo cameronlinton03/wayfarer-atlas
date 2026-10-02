@@ -713,7 +713,7 @@ function rebuildCliffs(){
       for(let k=2;k<=len;k+=2){ sh.save(); sh.translate(k,k*.24); if(tp>0){ const sj=1-(1-k/len)/tp; if(sj>1){ sh.restore(); break; } if(sj>0){ plane(sh,sj,0,true); sh.clip(); } }      // only the part of the plateau that stands at least this high throws a shadow this long
         sh.drawImage(A,bx,by,bw,bh); sh.drawImage(B,bx,by,bw,bh); sh.restore(); } sh.globalCompositeOperation='destination-out'; sh.drawImage(A,bx,by,bw,bh); sh.drawImage(B,bx,by,bw,bh);
       if(!tp) for(let k=len*.55;k<=len;k+=2){ sh.globalAlpha=.05; sh.drawImage(A,bx+len+2+k-len*.55,by+len*.24,bw,bh); } sh.globalAlpha=1;
-      hatchRows(hh,bx,by,sw,shh,1.55,.42,41); sh.globalCompositeOperation='source-in'; sh.drawImage(Hh,bx,by,sw,shh); sh.globalCompositeOperation='destination-in'; sh.drawImage(landMask,0,0,S.w,S.h);
+      hatchRows(hh,bx,by,sw,shh,1.55,.42,41); sh.globalCompositeOperation='source-in'; sh.drawImage(Hh,bx,by,sw,shh);
       fadeLow(sh,sw,shh,.14,.22); cf.globalCompositeOperation='source-over'; cf.drawImage(Sh,bx,by,sw,shh); }
     fadeLow(cx,bw,bh,.14,.22); fadeLow(ox,bw,bh,.2,.27); cx.globalCompositeOperation='source-over'; cx.drawImage(O,bx,by,bw,bh); od=null;      // hatching thins out gradually; the edge goes sooner
     cf.globalCompositeOperation='destination-out'; cf.drawImage(A,bx,by,bw,bh); cf.globalCompositeOperation='source-over'; cf.drawImage(C,bx,by,bw,bh);
@@ -732,6 +732,8 @@ function cleanInk(){      // a tuft, pebble or crack that a coast, river bank or
 function rebuildLand(fresh){ landVer++;
   lm.globalCompositeOperation='source-over'; lm.clearRect(0,0,S.w,S.h); lm.fillStyle='#000';
   for(const l of S.lands){ lm.globalCompositeOperation = l.mode==='sea' ? 'destination-out' : 'source-over'; lm.fill(landPath(l)); const b=built.get(l);
+    if(b.core){ lm.lineWidth=b.cw; lm.lineCap=lm.lineJoin='round'; lm.strokeStyle='#000'; lm.stroke(b.core); } }
+  if(layers.cliffs.v) for(const c of S.cliffs){ if(c.mode!=='up' || (c.h ?? 26)<=0) continue; lm.globalCompositeOperation='source-over'; lm.fill(landPath(c)); const b=built.get(c);      // a raised cliff stands on land of its own: where it reaches past the coast the landmass grows to meet it (a pit or a lowered area does not)
     if(b.core){ lm.lineWidth=b.cw; lm.lineCap=lm.lineJoin='round'; lm.strokeStyle='#000'; lm.stroke(b.core); } }
   if(layers.lines.v){ lm.globalCompositeOperation='destination-out'; for(const l of S.lines) if(l.kind==='river' && lyVisible(l)) lm.fill(riverPath(l,fresh)); }
   lm.globalCompositeOperation='source-over';
@@ -1940,9 +1942,11 @@ function drawFrame(c){ const W=S.w, H=S.h, u=Math.min(W,H), m=Math.round(u*.016)
   c.lineWidth=Math.max(2,u*.0035); c.strokeRect(x0,y0,x1-x0,y1-y0); c.lineWidth=1.2; c.strokeRect(x0+bw,y0+bw,x1-x0-2*bw,y1-y0-2*bw); c.lineWidth=.8; c.strokeRect(x0+bw*1.5,y0+bw*1.5,x1-x0-3*bw,y1-y0-3*bw);
   for(const [x,y] of [[x0,y0],[x1-bw,y0],[x0,y1-bw],[x1-bw,y1-bw]]){ c.fillStyle=PAPER(); c.fillRect(x,y,bw,bw); c.strokeRect(x,y,bw,bw); c.fillStyle=INK; c.fillRect(x+bw*.3,y+bw*.3,bw*.4,bw*.4); } c.restore(); }
 let rhumbFor=null;
+let cliffLandFor=null;
 function invalidate(){ if(dirty) return; dirty=true; requestAnimationFrame(()=>{ dirty=false;
   { const rs=layers.lines.v ? S.lines.filter(l=>l.kind==='realm' && lyVisible(l)) : []; if(rs.length!==realmSig.length || rs.some((l,i)=>l!==realmSig[i])) need.compose=need.compose||true; }      // a realm was drawn, moved, reshaped or removed
   if(S.rhumb && rhumbFor!==S.stamps){ const sig=S.stamps.filter(s=>s.kind==='compass').map(s=>[s.x,s.y,s.rot,s.size].join()).join(';'); if(sig!==invalidate.sig){ invalidate.sig=sig; need.compose=need.compose||true; } rhumbFor=S.stamps; }
+  if(cliffLandFor!==S.cliffs){ cliffLandFor=S.cliffs; need.land=true; need.compose=need.compose||(act?'fast':'full'); }      // cliffs are part of the land, so changing them changes the coast
   if(need.land){ rebuildLand(need.compose==='full'); need.land=false; }
   if(need.compose){ compose(need.compose==='full'); need.compose=null; }
   draw(); }); }
