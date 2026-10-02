@@ -21,6 +21,9 @@ Open `wayfarer-atlas.html` in a browser. That is the whole app. Maps are stored 
 - `rebuildLand()` builds the land mask (rivers are carved out of it). `compose(full)` builds the base picture: paper, sea, coast lining, land, realms, cliffs. `drawVectors(c,k)` draws lines, stamps, labels per layer, then multiplies `tintC` (all colour washes) over everything.
 - Terrain: ink marks are tiles from `INK_TILES` painted into `terrainC`; washes go to small blurred layers `washLand` / `washSea`; `buildTint()` combines them. `cleanInk()` removes marks cut by coasts, rivers and cliff edges.
 - Stamps: `STAMP_SETS` → `STAMP_GROUPS` → `SKETCH_DRAW[kind](c,n)` drawn in a 40-unit box, ground at y≈14. Helpers: `engInk`, `engScratch`, `engShade`, `engPoly`, `engForm`, `engLimb`, `engHump`, `engTree`, `engHouse`, `engTower`, plan-view `cRoof`, `cSpire`, `cRound`. Use `EX(x)` for x positions so mirroring works (`ENG_M`). `paintStamp` scales pen weight (`penOf`) and hatch density (`ENG_K`) with stamp size. Sprites are cached in `sprites`.
+- Hand-placed hatching in building stamps (`engHouse`, `engTower`, `cRoof`, cottage) divides its spacing by `ENG_K` so bigger stamps get more strokes; keep doing this for any new hatch loop. `engFurrow` lays ploughed rows across a field polygon.
+- Fields: `fieldplot` (8 variants), `orchard` and `vineyard` (3 each) are listed in `VARIANTS`; the city generator mixes them in the outskirts.
+- Roads: `drawRoads` / `roadNet` cut roads at crossings and at ends that land within 12 units of another road, fit the dashes per piece so every arm starts with a dash at the junction, and add a small blot. Drawing only; the saved lines are untouched.
 - Cliffs: `rebuildCliffs()` (plateaus h>0, pits h<0, taper, facets, cast shadows).
 - Lines: `LINES` kinds river, road, border, realm, street, wall, fence. Streets are drawn in two passes so junctions merge (`drawStreets`).
 - Generators: `generateMap(W,H,kind,G)` (island/continent/archipelago) and `generateCity(W,H,G)`; `housesAlong()` lines buildings along streets.
@@ -36,7 +39,5 @@ Open `wayfarer-atlas.html` in a browser. That is the whole app. Maps are stored 
 ## Known gaps
 
 - Dungeon stamp set is empty; battle maps are undecided.
-- Hand-placed hatching on houses and plan-view city buildings does not scale its density with stamp size.
 - City district names are not placed to avoid streets.
 - Brush hardness no longer affects washes (they are always soft).
-- Region roads do not merge at crossings (only city streets do).

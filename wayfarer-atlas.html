@@ -285,7 +285,7 @@ const STAMP_GROUPS = {         // scatter:true = dragging lays down many, with a
   Waterfront: {kinds:['pier','boat','barge','crane'], size:44},      // map furniture: one of each is usual
   Creatures:  {kinds:['dragon','griffin','giant','spider','unicorn','stag','horse','wolf','bear','mammoth','camel','sheep','eagle','birds','bats'], size:50},
 };
-const VARIANTS = {house:4, stall:3, treetop:3, compass:3, cartouche:3, dragon:4, autumn:4, blossom:4, jungle:2, waves:3, breaker:2, deciduous:4, conifer:4, grove:4, pines:4, mountain:12, snowpeak:12, hill:8};   // how many shapes each stamp has
+const VARIANTS = {fieldplot:8, orchard:3, vineyard:3, house:4, stall:3, treetop:3, compass:3, cartouche:3, dragon:4, autumn:4, blossom:4, jungle:2, waves:3, breaker:2, deciduous:4, conifer:4, grove:4, pines:4, mountain:12, snowpeak:12, hill:8};   // how many shapes each stamp has
 const STONES=['stone','slate','rock'], SANDS=['sand','beach','redsand'], GRASSES=['grass','meadow','forest','steppe','marsh'];
 const swatch = k => TERRAIN[k];
 const TINTS = {};      // stamps are ink only, so none of them takes a colour
@@ -815,7 +815,8 @@ function rebuildAll(){ rebuildLand(true); compose(true); invalidate(); }
 function drawLine(c,l){
   const b=lineBuilt(l), st=LINES[l.kind]; c.lineCap='round'; c.lineJoin='round';
   if(l.kind==='fence'){ drawFence(c,l,b.pts); return; }
-  if(l.kind==='river' || l.kind==='realm' || l.kind==='street' || l.kind==='wall') return;   // rivers and realms are drawn with the land (see riverPath, drawRealms)
+  if(l.kind==='river' || l.kind==='realm' || l.kind==='street' || l.kind==='wall' || l.kind==='road') return;      // roads are drawn together so that they join (see drawRoads)
+     // rivers and realms are drawn with the land (see riverPath, drawRealms)
   if(l.kind==='river'){ c.setLineDash([]); c.strokeStyle=MAP.riverEdge; c.lineWidth=l.width+1.8; c.stroke(b.path); c.strokeStyle=MAP.river; c.lineWidth=l.width; c.stroke(b.path); }
   else { c.setLineDash(st.dash.map(d=>d*l.width/2.5)); c.strokeStyle=SK()?INK:MAP[l.kind]; c.lineWidth=l.width; c.globalAlpha=l.kind==='border'?.85:1; c.stroke(b.path); c.globalAlpha=1; c.setLineDash([]); }
 }
@@ -900,18 +901,18 @@ const engRows=(a,b,n,dx,dy)=>Array.from({length:n},(_,k)=>[[a[0]+dx*(k+.6),a[1]+
    door, the side wall is hatched upright, the roof is hatched down its slope and overhangs. No two are quite the same size or pitch. ---- */
 function engHouse(c,x,y,w,d,h,rh,m=1,o={}){ const v=()=>.9+engR()*.2; w*=v(); h*=v(); rh*=v(); if(ENG_M<0) x=-x-m*(w+d); c.save(); c.translate(x,y); c.scale(m,1); const sy=-d*.36, ov=.5, lean=(engR()-.5)*.3, P=(px,py)=>[px+lean*(-py/ (h+rh)),py];
   for(let k=0;k<4;k++) engScratch(c,[w+d-.6+k*.3,sy+.5+k*.42],[w+d+1.4+engR()*2.6-k*.3,sy+.5+k*.42],.24);
-  const side=[P(w,0),P(w+d,sy),P(w+d,sy-h),P(w,-h)], vh=[]; for(let xx=w+.3;xx<w+d;xx+=.42){ const f=(xx-w)/d; vh.push([P(xx,f*sy),P(xx,f*sy-h)]); } for(let k=0;k<3;k++) vh.push([P(w,-h+.5+k*.5),P(w+d,sy-h+.5+k*.5)]); engFace(c,side,vh,.4);
-  const ap=P(w/2,-h-rh), ridge=P(w/2+d,-h-rh+sy+(engR()-.3)*.4), eL=P(w+ov,-h+ov*.7), eR=P(w+d+ov,-h+sy+ov*.7), nr=Math.max(4,Math.round(Math.hypot(d,sy)/.46)), rh2=[]; for(let k=0;k<nr;k++){ const f=(k+.5)/nr; rh2.push([[ap[0]+(ridge[0]-ap[0])*f,ap[1]+(ridge[1]-ap[1])*f],[eL[0]+(eR[0]-eL[0])*f,eL[1]+(eR[1]-eL[1])*f]]); }
+  const side=[P(w,0),P(w+d,sy),P(w+d,sy-h),P(w,-h)], vh=[]; for(let xx=w+.3;xx<w+d;xx+=.42/ENG_K){ const f=(xx-w)/d; vh.push([P(xx,f*sy),P(xx,f*sy-h)]); } for(let k=0;k<Math.max(2,Math.round(3*ENG_K));k++) vh.push([P(w,-h+.5+k*.5/ENG_K),P(w+d,sy-h+.5+k*.5/ENG_K)]); engFace(c,side,vh,.4);
+  const ap=P(w/2,-h-rh), ridge=P(w/2+d,-h-rh+sy+(engR()-.3)*.4), eL=P(w+ov,-h+ov*.7), eR=P(w+d+ov,-h+sy+ov*.7), nr=Math.max(4,Math.round(Math.hypot(d,sy)/.46*ENG_K)), rh2=[]; for(let k=0;k<nr;k++){ const f=(k+.5)/nr; rh2.push([[ap[0]+(ridge[0]-ap[0])*f,ap[1]+(ridge[1]-ap[1])*f],[eL[0]+(eR[0]-eL[0])*f,eL[1]+(eR[1]-eL[1])*f]]); }
   engFace(c,[ap,eL,eR,ridge],rh2,.4); engFace(c,[P(0,0),P(w,0),P(w,-h),ap,P(0,-h)],null,.4); engInk(c,[P(-ov,-h+ov*.7),ap,eL],.5,false); engInk(c,[ap,ridge],.55,false);
   c.fillStyle=INK; c.beginPath(); const dx=w*(.3+engR()*.25), dw=w*.2, dh=h*(.5+engR()*.12); c.moveTo(dx,0); c.lineTo(dx,-dh+dw*.5); c.quadraticCurveTo(dx+dw*.5,-dh-dw*.3,dx+dw,-dh+dw*.5); c.lineTo(dx+dw,0); c.closePath(); c.fill(); c.fillRect(w*.5-.3,-h-rh*.42,.6,.75); if(w>5) c.fillRect(dx>w*.42?w*.14:w*.7,-h*.72,.55,.7);
-  for(let k=0;k<3;k++){ const tx=engR()*w*.8, ty=-engR()*h*.9; engScratch(c,[tx,ty],[tx+.5+engR()*.7,ty],.22); }
+  for(let k=0,n=Math.round(3*ENG_K);k<n;k++){ const tx=engR()*w*.8, ty=-engR()*h*.9; engScratch(c,[tx,ty],[tx+.5+engR()*.7,ty],.22); }
   if(o.ch||engR()<.3){ const f=.35+engR()*.4, bx=ap[0]+(ridge[0]-ap[0])*f, by=ap[1]+(ridge[1]-ap[1])*f; engFace(c,[[bx+.5,by+.3],[bx+1.1,by+.1],[bx+1.1,by-1.8],[bx+.5,by-1.6]],engRows([bx+.5,by+.3],[bx+1.1,by+.1],4,0,-.45),.36); engFace(c,[[bx-.5,by+.5],[bx+.5,by+.3],[bx+.5,by-1.6],[bx-.5,by-1.6]],null,.36); }
   c.restore(); }
 function engTower(c,x,y,w,h,top,m=1){ if(ENG_M<0) x=-x-m*w*1.5; c.save(); c.translate(x,y); c.scale(m,1); const d=w*.5, sy=-d*.36, fl=w*.06, vh=[];
   for(let k=0;k<3;k++) engScratch(c,[w+d-.4+k*.3,sy+.5+k*.42],[w+d+1.6+engR()*2-k*.3,sy+.5+k*.42],.24);
-  for(let xx=w+.28;xx<w+d;xx+=.4){ const f=(xx-w)/d; vh.push([[xx,f*sy],[xx,f*sy-h]]); } for(let k=0;k<4;k++) vh.push([[w,-h+.5+k*.55],[w+d,sy-h+.5+k*.55]]);
+  for(let xx=w+.28;xx<w+d;xx+=.4/ENG_K){ const f=(xx-w)/d; vh.push([[xx,f*sy],[xx,f*sy-h]]); } for(let k=0;k<Math.max(3,Math.round(4*ENG_K));k++) vh.push([[w,-h+.5+k*.55/ENG_K],[w+d,sy-h+.5+k*.55/ENG_K]]);
   engFace(c,[[w+fl,0],[w+d+fl,sy],[w+d,sy-h],[w,-h]],vh,.4); engFace(c,[[-fl,0],[w+fl,0],[w,-h],[0,-h]],null,.4);
-  for(let yy=-1.4;yy>-h+.6;yy-=1.35+engR()*.5){ let xx=engR()*1.2; while(xx<w-.5){ const l=.6+engR()*1.3; if(engR()<.6) engScratch(c,[xx,yy],[Math.min(w-.2,xx+l),yy],.2); xx+=l+.4+engR()*.8; } }
+  for(let yy=-1.4;yy>-h+.6;yy-=(1.35+engR()*.5)/ENG_K){ let xx=engR()*1.2; while(xx<w-.5){ const l=.6+engR()*1.3; if(engR()<.6) engScratch(c,[xx,yy],[Math.min(w-.2,xx+l),yy],.2); xx+=l+.4+engR()*.8; } }
   c.fillStyle=INK; for(let k=0,nw=h>9?2:1;k<nw;k++){ const wy=-h*(nw>1?(.42+k*.34):.62); c.fillRect(w*.5-.28,wy,.56,Math.min(1.5,h*.14)); }
   if(top==='flat'){ engFace(c,[[w-.2,-h],[w+d+.3,-h+sy],[w+d+.3,-h+sy-.7],[w-.2,-h-.7]],[[[w,-h-.35],[w+d,-h+sy-.35]]],.36); engFace(c,[[-.3,-h],[w+.2,-h],[w+.2,-h-.7],[-.3,-h-.7]],null,.36);
     const n=Math.max(3,Math.round(w/1.5)), mw=(w+.5)/(n*2-1); for(let k=0;k<n;k++) engFace(c,[[-.3+k*2*mw,-h-.7],[-.3+k*2*mw+mw,-h-.7],[-.3+k*2*mw+mw,-h-1.8],[-.3+k*2*mw,-h-1.8]],null,.36); for(let k=0;k<2;k++){ const f0=k*.6+.05, f1=f0+.35; engFace(c,[[w+.2+d*f0,-h-.7+sy*f0],[w+.2+d*f1,-h-.7+sy*f1],[w+.2+d*f1,-h-1.8+sy*f1],[w+.2+d*f0,-h-1.8+sy*f0]],[[[w+.2+d*f0,-h-1.2+sy*f0],[w+.2+d*f1,-h-1.2+sy*f1]]],.34); } }
@@ -919,7 +920,7 @@ function engTower(c,x,y,w,h,top,m=1){ if(ENG_M<0) x=-x-m*w*1.5; c.save(); c.tran
     if(top==='spire'){ engInk(c,[ap,[ap[0],ap[1]-1.9]],.4,false); engInk(c,[[ap[0]-.6,ap[1]-1.15],[ap[0]+.6,ap[1]-1.15]],.4,false); } }
   c.restore(); }
 function engRound(c,x,y,w,h,top){ const X=EX(x); for(let k=0;k<3;k++) engScratch(c,[X+w*.4+k*.3,y+.3+k*.42],[X+w*.5+2+engR()*2,y+.3+k*.42],.24); engCyl(c,x,y,w,h,{taper:.92,top:top==='cone'?'cone':'flat',capH:w*1.15,sp:.38});      // a round tower: conical cap, or an open top with battlements
-  for(let yy=y-1.4;yy>y-h+.6;yy-=1.4+engR()*.5){ const xx=X-w*.42+engR()*w*.2; engScratch(c,[xx,yy],[xx+.6+engR()*w*.3,yy],.2); } c.fillStyle=INK; c.fillRect(X-w*.14,y-h*.66,.5,Math.min(1.4,h*.14));
+  for(let yy=y-1.4;yy>y-h+.6;yy-=(1.4+engR()*.5)/ENG_K){ const xx=X-w*.42+engR()*w*.2; engScratch(c,[xx,yy],[xx+.6+engR()*w*.3,yy],.2); } c.fillStyle=INK; c.fillRect(X-w*.14,y-h*.66,.5,Math.min(1.4,h*.14));
   if(top!=='cone'){ const b=w*.46, yt=y-h; for(const f of [-.82,-.3,.24,.74]) engFace(c,[[X+f*b-.45,yt-.1+Math.abs(f)*-.12],[X+f*b+.45,yt-.1+Math.abs(f)*-.12],[X+f*b+.45,yt-1.25],[X+f*b-.45,yt-1.25]],f>.1?[[[X+f*b-.45,yt-.7],[X+f*b+.45,yt-.7]]]:null,.34); } }
 function engWall(c,x0,x1,y,h,gate){ if(ENG_M<0) [x0,x1]=[-x1,-x0]; const hs=[]; for(let yy=y-1.1;yy>y-h+.3;yy-=1.15){ let xx=x0+engR()*1.5; while(xx<x1-.6){ const l=.8+engR()*2; if(engR()<.7) hs.push([[xx,yy],[Math.min(x1-.2,xx+l),yy]]); xx+=l+.3+engR(); } } for(let xx=x1-1.8;xx<x1;xx+=.4) hs.push([[xx,y],[xx,y-h]]);
   engFace(c,[[x0,y],[x1,y],[x1,y-h],[x0,y-h]],hs,.42); const n=Math.max(3,Math.round((x1-x0)/1.9)), mw=(x1-x0)/(n*2-1); for(let k=0;k<n;k++) engFace(c,[[x0+k*2*mw,y-h],[x0+k*2*mw+mw,y-h],[x0+k*2*mw+mw,y-h-1.05],[x0+k*2*mw,y-h-1.05]],null,.36);
@@ -936,6 +937,9 @@ function engShade(c,q,dir='d',sp=.9,o={}){ let x0=1e9,x1=-1e9,y0=1e9,y1=-1e9; fo
   else if(dir==='v') for(let x=x0+sp*.5;x<x1;x+=sp) engScratch(c,[x,y0],[x,y1],lw);
   else { const H=y1-y0; for(let x=x0-H;x<x1;x+=sp) engScratch(c,[x,y1],[x+H,y0],lw); if(dir==='x') for(let x=x0;x<x1+H;x+=sp*1.3) engScratch(c,[x,y1],[x-H,y0],lw); }
   c.restore(); }
+function engFurrow(c,q,ang,sp,o={}){ let x0=1e9,x1=-1e9,y0=1e9,y1=-1e9; for(const p of q){ x0=Math.min(x0,p[0]); x1=Math.max(x1,p[0]); y0=Math.min(y0,p[1]); y1=Math.max(y1,p[1]); }      // ploughed rows laid at an angle across a field, closer together on a bigger one; bend curves them like contours
+  const cx=(x0+x1)/2, cy=(y0+y1)/2, Ld=Math.hypot(x1-x0,y1-y0)/2+2, ux=Math.cos(ang)*ENG_M, uy=Math.sin(ang), nx=-uy, ny=ux, bend=o.bend||0; sp/=ENG_K; c.save(); engPath(c,q,1); c.clip();
+  for(let t=-Ld;t<=Ld;t+=sp){ const pts=[]; for(let k=0;k<=10;k++){ const f=k/10*2-1, off=bend*(1-f*f); pts.push([cx+nx*(t+off)+ux*f*Ld,cy+ny*(t+off)+uy*f*Ld]); } for(let k=0;k<10;k++) engScratch(c,pts[k],pts[k+1],o.lw||.24); } c.restore(); }
 function engPoly(c,pts,o={}){ const q=pts.map(p=>engJt([o.raw?p[0]:EX(p[0]),p[1]],o.j??.4)); if(!o.open){ engPath(c,q,1); c.fillStyle=o.ink?INK:PAPER(); c.fill(); } if(o.shade) engShade(c,q,o.shade,o.sp||.9);
   engInk(c,q,(o.lw||.6)*.72,!o.open,{gap:o.open?.02:.04}); return q; }
 const engLn=(c,pts,lw=.5)=>engPoly(c,pts,{open:1,lw,j:.3});
@@ -1004,7 +1008,8 @@ function engHead(c,hx,hy,a,s,shut){ const T=p=>[hx+(p[0]*Math.cos(a)-p[1]*Math.s
 function cChim(c,x,y){ const X=EX(x); c.fillStyle=PAPER(); c.fillRect(X-1.1,y-1.1,2.2,2.2); engInk(c,[[X-1.1,y-1.1],[X+1.1,y-1.1],[X+1.1,y+1.1],[X-1.1,y+1.1]],.34,true,{gap:0,rough:.05}); c.fillStyle=INK; c.fillRect(X-.4,y-.4,.8,.8); }
 function cRoof(c,x,y,w,d,o={}){ c.save(); c.translate(EX(x),y); if(o.a) c.rotate(o.a*ENG_M); const hw=w/2, hd=d/2, P=[[-hw,-hd],[hw,-hd],[hw,hd],[-hw,hd]], k=o.hip?Math.min(hd*.9,hw*.6):0;      // a roof from above: ridge down the middle, hipped or gabled, the far slope hatched
   engPath(c,P,1); c.fillStyle=PAPER(); c.fill(); engShade(c,o.hip?[[-hw,hd],[hw,hd],[hw-k,0],[-hw+k,0]]:[[-hw,0],[hw,0],[hw,hd],[-hw,hd]],'v',.72); if(o.hip) engShade(c,[[hw,-hd],[hw,hd],[hw-k,0]],'h',.72);
-  for(let i=0;i<Math.round(w/5);i++){ const tx=-hw+1+engR()*(w-2), ty=-hd+.6+engR()*(hd-1.6); engScratch(c,[tx,ty],[tx,ty+.9+engR()],.2); }
+  if(ENG_K>1.12) engShade(c,o.hip?[[-hw,-hd],[hw,-hd],[hw-k,0],[-hw+k,0]]:[[-hw,-hd],[hw,-hd],[hw,0],[-hw,0]],'h',3.6,{lw:.2});      // a big roof also shows its tile courses on the lit slope
+  for(let i=0,n=Math.round(w/5*ENG_K*ENG_K);i<n;i++){ const tx=-hw+1+engR()*(w-2), ty=-hd+.6+engR()*(hd-1.6); engScratch(c,[tx,ty],[tx,ty+.9+engR()],.2); }      // tile flecks on the lit slope: a bigger roof has more of them
   engInk(c,[[-hw+k,0],[hw-k,0]],.5,false,{gap:0}); if(o.hip) for(const [a,b] of [[[-hw+k,0],[-hw,-hd]],[[-hw+k,0],[-hw,hd]],[[hw-k,0],[hw,-hd]],[[hw-k,0],[hw,hd]]]) engInk(c,[a,b],.4,false,{gap:0});
   engInk(c,P,.52,true,{gap:.02}); c.restore(); if(o.ch){ c.save(); c.translate(EX(x),y); if(o.a) c.rotate(o.a*ENG_M); const M=ENG_M; ENG_M=1; cChim(c,hw*.45,-hd*.45); ENG_M=M; c.restore(); } }
 function cSpire(c,x,y,r){ const X=EX(x), P=[[X-r,y-r],[X+r,y-r],[X+r,y+r],[X-r,y+r]]; engPath(c,P,1); c.fillStyle=PAPER(); c.fill(); engShade(c,[[X,y],[X+r,y-r],[X+r,y+r]],'h',.6); engShade(c,[[X,y],[X+r,y+r],[X-r,y+r]],'v',.6); engInk(c,P,.5,true,{gap:0}); engInk(c,[P[0],P[2]],.36,false,{gap:0}); engInk(c,[P[1],P[3]],.36,false,{gap:0}); c.fillStyle=INK; c.beginPath(); c.arc(X,y,.6,0,7); c.fill(); }      // a tower or spire from above: a square with its four hips
@@ -1388,7 +1393,7 @@ const SKETCH_DRAW = {
   house(c,n){ const v=[[26,16,0,1],[22,17,1,0],[28,14,0,1],[20,19,1,0]][n%4]; cRoof(c,0,0,v[0],v[1],{hip:v[2],ch:v[3]}); },
   terrace(c){ cRoof(c,0,0,35,14,{}); for(const x of [-9,0,9]) engInk(c,[[EX(x),-7],[EX(x),7]],.4,false,{gap:0}); for(const x of [-13,-4.5,4.5,13]) cChim(c,x,-3.5); },
   lhouse(c){ cRoof(c,7,4.5,19,12,{a:Math.PI/2,hip:1}); cRoof(c,-3,-4.5,26,12,{ch:1}); },
-  cottage(c){ const g=engPoly(c,[[-2,-9],[15,-9],[15,9],[-2,9]],{j:.5,lw:.4}); for(let y=-6.5;y<9;y+=2.6) engScratch(c,[EX(0),y],[EX(14),y],.22); cRoof(c,-7,-1,15,12,{ch:1}); },
+  cottage(c){ const g=engPoly(c,[[-2,-9],[15,-9],[15,9],[-2,9]],{j:.5,lw:.4}); for(let y=-6.5;y<9;y+=2.6/ENG_K) engScratch(c,[EX(0),y],[EX(14),y],.22); cRoof(c,-7,-1,15,12,{ch:1}); },
   courtyard(c){ const o=[[-15,-13],[15,-13],[15,13],[-15,13]].map(p=>[EX(p[0]),p[1]]), i=[[-7.5,-5.5],[7.5,-5.5],[7.5,5.5],[-7.5,5.5]].map(p=>[EX(p[0]),p[1]]); engPath(c,o,1); c.fillStyle=PAPER(); c.fill();
     engShade(c,[[-15,13],[15,13],[7.5,5.5],[-7.5,5.5]].map(p=>[EX(p[0]),p[1]]),'v',.75); engShade(c,[[EX(15)*1,-13],[EX(15),13],[EX(7.5),5.5],[EX(7.5),-5.5]].sort(()=>0),'h',.75); engInk(c,o,.5,true); engInk(c,i,.45,true); engInk(c,[[-11.2,-9.2],[11.2,-9.2],[11.2,9.2],[-11.2,9.2]].map(p=>[EX(p[0]),p[1]]),.36,true,{gap:.03});
     for(let k=0;k<4;k++) engInk(c,[o[k],i[k]],.36,false,{gap:0}); engDot(c,0,0,.7,1); },
@@ -1415,8 +1420,20 @@ const SKETCH_DRAW = {
   statue(c){ for(let k=0;k<5;k++) engScratch(c,[EX(3+k*.6),1+k*1.3],[EX(13-k*1.2),2.4+k*1.3],.24); engPoly(c,[[-4.5,-4.5],[4.5,-4.5],[4.5,4.5],[-4.5,4.5]],{j:.2,lw:.5}); engPoly(c,[[-2.6,-2.6],[2.6,-2.6],[2.6,2.6],[-2.6,2.6]],{j:.1,lw:.4,shade:'d',sp:.6}); engDot(c,0,0,1.1); },
   garden(c){ engPoly(c,[[-17,-12],[17,-12],[17,12],[-17,12]],{j:.3,lw:.55}); engInk(c,[[-15.6,-10.6],[15.6,-10.6],[15.6,10.6],[-15.6,10.6]].map(p=>[EX(p[0]),p[1]]),.3,true,{gap:.04});
     for(const [x,y] of [[-8,-5.3],[8,-5.3],[-8,5.3],[8,5.3]]){ const q=[[x-5.6,y-3.6],[x+5.6,y-3.6],[x+5.6,y+3.6],[x-5.6,y+3.6]].map(p=>[EX(p[0]),p[1]]); engInk(c,q,.34,true); engShade(c,q,(x*y>0)?'h':'v',.9); } const f=engArc(EX(0),0,2.4,2.4,0,Math.PI*2,10); engPath(c,f,1); c.fillStyle=PAPER(); c.fill(); engInk(c,f,.4,true,{gap:0}); },
-  orchard(c){ engInk(c,[[-17,-12],[17,-12],[17,12],[-17,12]].map(p=>[EX(p[0]),p[1]]),.36,true,{gap:.14}); for(let i=0;i<4;i++) for(let j=0;j<3;j++) cTree(c,-12+i*8+(j%2)*1.5,-7.5+j*7.5,2.9,i*3+j); },
-  fieldplot(c){ const xs=[-18,-7,5,18]; for(let k=0;k<3;k++){ const q=[[xs[k],-11+k],[xs[k+1],-11+k*.5],[xs[k+1],11-k*.5],[xs[k],11]].map(p=>[EX(p[0]),p[1]]); engPath(c,q,1); c.fillStyle=PAPER(); c.fill(); engShade(c,q,['v','h','d'][k],1.5); engInk(c,q,.36,true,{gap:.06}); } },
+  orchard(c,n){ n%=3; engInk(c,[[-17,-12],[17,-12],[17,12],[-17,12]].map(p=>[EX(p[0]),p[1]]),.36,true,{gap:.14});
+    if(n===0){ for(let i=0;i<4;i++) for(let j=0;j<3;j++) cTree(c,-12+i*8+(j%2)*1.5,-7.5+j*7.5,2.9,i*3+j); }      // trees in staggered rows
+    else if(n===1){ for(let i=0;i<5;i++) for(let j=0;j<4;j++) cTree(c,-14.5+i*6.2+(j%2)*3.1,-9+j*6,2.2,i*4+j+20); }      // a close-planted orchard, small trees
+    else { for(let i=0;i<3;i++) for(let j=0;j<2;j++) cTree(c,-10+i*10,-6+j*12,3.8,i*2+j+40); engFurrow(c,[[-17,-12],[17,-12],[17,12],[-17,12]].map(p=>[EX(p[0]),p[1]]),0,3.4,{lw:.18}); } },      // old spreading trees in grass
+  fieldplot(c,n){ const J=q=>q.map(p=>[EX(p[0]),p[1]]), fill=(q)=>{ engPath(c,q,1); c.fillStyle=PAPER(); c.fill(); }, rn=mulberry(n*53+9); n%=8;      // eight kinds of field, all seen from above
+    if(n===0){ const xs=[-18,-7,5,18]; for(let k=0;k<3;k++){ const q=J([[xs[k],-11+k],[xs[k+1],-11+k*.5],[xs[k+1],11-k*.5],[xs[k],11]]); fill(q); engShade(c,q,['v','h','d'][k],1.5); engInk(c,q,.36,true,{gap:.06}); } }
+    else if(n===1){ const q=J([[-18,-10],[17,-12],[19,10],[-17,12]]); fill(q); engFurrow(c,q,.1,1.7,{bend:1.2}); engInk(c,q,.4,true,{gap:.05}); engInk(c,J([[-15,-8],[15,-9.5],[16.5,8],[-14,9.5]]),.22,true,{gap:.3,rough:.3}); }      // one big ploughed field with a headland
+    else if(n===2){ const P=[[[-18,-11],[-3,-12],[-2,0],[-18,1]],[[-18,1],[-2,0],[-3,12],[-17,11]],[[-3,-12],[18,-10],[18,-2],[-2,0]],[[-2,0],[18,-2],[18,11],[-3,12]]]; P.forEach((r,k)=>{ const q=J(r); fill(q); if(k===3){ const a=Math.sqrt(ENG_K); for(let i=0,m=Math.round(46*ENG_K);i<m;i++){ const x=-1+engR()*18, y=-1+engR()*12; if(x<17&&y>-1) engDot(c,x*ENG_M,y,.22); } } else engFurrow(c,q,[.0,Math.PI/2,.5,0][k],1.5); engInk(c,q,.34,true,{gap:.06}); }); }      // a patchwork of small closes
+    else if(n===3){ for(let k=0;k<6;k++){ const x0=-18+k*6, q=J([[x0,-12+k*.4],[x0+6,-12+(k+1)*.4],[x0+6,12-(k+1)*.3],[x0,12-k*.3]]); fill(q); if(k%2===0) engFurrow(c,q,Math.PI/2,1.1); engInk(c,q,.32,true,{gap:.05}); } }      // open-field strips, ploughed and fallow in turn
+    else if(n===4){ const R=[1,.92,1,.84,.94,1,.88,.97,.9,1], q=R.map((r,i)=>{ const a=i/R.length*6.283; return [EX(Math.cos(a)*18*r),Math.sin(a)*11.5*r]; }); fill(q); engFurrow(c,q,.5,1.6,{bend:4}); engInk(c,q,.4,true,{gap:.05}); }      // furrows following the lie of the hill
+    else if(n===5){ const R=[1,.9,.97,.85,.95,1,.88,.96,.92,1], q=R.map((r,i)=>{ const a=i/R.length*6.283; return [EX(Math.cos(a)*17.5*r),Math.sin(a)*11*r]; }); fill(q); engInk(c,q,.36,true,{gap:.12,rough:.35});
+      for(let i=0,m=Math.round(24*ENG_K);i<m;i++){ const x=(engR()*2-1)*15, y=(engR()*2-1)*8.5; if(x*x/270+y*y/80>1) continue; for(let k=-1;k<=1;k++) engInk(c,[[EX(x+k*.5),y],[EX(x+k*.9),y-1.3-engR()*.7]],.3,false,{gap:0}); } }      // meadow, tufted, with a rough edge
+    else if(n===6){ const q=J([[-18,-11],[18,-11],[18,11],[-18,11]]); fill(q); engInk(c,q,.38,true,{gap:.05}); const st=3.6/Math.sqrt(ENG_K); for(let y=-8;y<=9;y+=st) for(let x=-15+((y*7)%2);x<=15;x+=st*1.1){ engInk(c,[[EX(x-.8),y+.9],[EX(x),y-.7],[EX(x+.8),y+.9]],.3,false,{gap:0}); engInk(c,[[EX(x+.3),y+.9],[EX(x+1.1),y+.9]],.2,false,{gap:0}); } }      // a cut field with its stooks standing in rows
+    else { const A=J([[-18,-12],[1,-12],[-3,12],[-18,11]]), B=J([[5,-12],[18,-11],[18,12],[1,12]]); for(const q of [A,B]) fill(q); engFurrow(c,A,.0,1.4); engFurrow(c,B,Math.PI/2.4,1.5); for(const q of [A,B]) engInk(c,q,.36,true,{gap:.06}); for(let y=-11;y<12;y+=2.6) engDot(c,(1-y*.17)*1,y,.3); } },      // two fields either side of a green lane
   cemetery(c){ engPoly(c,[[-15,-11],[15,-11],[15,11],[-15,11]],{j:.4,lw:.6}); for(let i=0;i<5;i++) for(let j=0;j<3;j++){ const x=-11+i*5.5+(j%2), y=-6.5+j*6.5; engInk(c,[[EX(x),y-1.6],[EX(x),y+1.6]],.45,false,{gap:0}); engInk(c,[[EX(x-1.1),y-.5],[EX(x+1.1),y-.5]],.45,false,{gap:0}); } },
   treetop(c,n){ cTree(c,0,0,[10,8.4,11.5][n%3],n+1); },
   treerow(c,n){ for(let k=0;k<4;k++) cTree(c,-14+k*9.2,(k%2?1.2:-1.2),4.6,k+n*5); },
@@ -1435,7 +1452,7 @@ const SKETCH_DRAW = {
   pavilion(c){ const r=11, q=[]; for(let i=0;i<16;i++){ const a=i/16*6.283, rr=r*(i%2?1:.9); q.push([Math.cos(a)*rr,Math.sin(a)*rr]); } engPath(c,q,1); c.fillStyle=PAPER(); c.fill(); for(let i=0;i<8;i++) engShade(c,[[0,0],q[i*2],q[i*2+1],q[(i*2+2)%16]],'d',.7,i%2?{}:{lw:.01}); for(let i=0;i<16;i+=2) engInk(c,[[0,0],q[i]],.34,false,{gap:0}); engInk(c,q,.5,true,{gap:0}); engDot(c,0,0,.9); },
   /* ---- the outskirts: what lies outside the walls ---- */
   farmstead(c){ engInk(c,[[-18,-13],[18,-13],[18,13],[4,13]].map(p=>[EX(p[0]),p[1]]),.36,false,{gap:.1}); engInk(c,[[-3,13],[-18,13],[-18,-13]].map(p=>[EX(p[0]),p[1]]),.36,false,{gap:.1});      // a farmhouse, barn and byre round a fenced yard, with ricks and a kitchen plot
-    cRoof(c,-8,-6.5,17,10,{ch:1}); cRoof(c,10,-3,11,17,{a:Math.PI/2}); cRoof(c,-11,7,10,7,{}); cRound(c,2.5,7.5,2.8); cRound(c,8,9,2.2); for(let y=3;y<12;y+=2.2) engScratch(c,[EX(12),y],[EX(17),y],.22); },
+    cRoof(c,-8,-6.5,17,10,{ch:1}); cRoof(c,10,-3,11,17,{a:Math.PI/2}); cRoof(c,-11,7,10,7,{}); cRound(c,2.5,7.5,2.8); cRound(c,8,9,2.2); for(let y=3;y<12;y+=2.2/ENG_K) engScratch(c,[EX(12),y],[EX(17),y],.22); },
   barn(c){ cRoof(c,0,0,30,17,{}); engInk(c,[[EX(-3),8.5],[EX(-3),11],[EX(3),11],[EX(3),8.5]],.4,false,{gap:0}); },
   haystacks(c){ cRound(c,-8,-2,5.4); cRound(c,4,-5,4.6); cRound(c,2,6,5); cRound(c,11,3,3.4); },
   mill(c){ for(let k=0;k<4;k++){ const a=.5+k*Math.PI/2, d=[Math.cos(a),Math.sin(a)], n=[-d[1],d[0]], P=(t,s)=>[d[0]*t+n[0]*s,d[1]*t+n[1]*s]; engInk(c,[[0,0],P(17,0)],.7,false,{gap:0}); const q=[P(5,0),P(17,0),P(17,3.6),P(5,3.6)]; engPath(c,q,1); c.fillStyle=PAPER(); c.fill(); engInk(c,q,.4,true,{gap:0}); for(let t=7;t<17;t+=2) engInk(c,[P(t,0),P(t,3.6)],.26,false,{gap:0}); }      // a post mill from above: the round house, four sails and the tail pole
@@ -1447,7 +1464,10 @@ const SKETCH_DRAW = {
   shrine(c){ engPoly(c,[[-7,-7],[7,-7],[7,7],[-7,7]],{j:.3,lw:.4}); engPoly(c,[[-4.6,-4.6],[4.6,-4.6],[4.6,4.6],[-4.6,4.6]],{j:.2,lw:.5,shade:'d',sp:.7}); const X=EX(0); c.fillStyle=PAPER(); c.fillRect(X-2.6,-2.6,5.2,5.2); engInk(c,[[X,-2.4],[X,2.4]],.7,false,{gap:0}); engInk(c,[[X-1.7,-.6],[X+1.7,-.6]],.7,false,{gap:0}); },
   paddock(c){ const q=[[-17,-11],[16,-12],[18,10],[-16,12]].map(p=>[EX(p[0]),p[1]]); engInk(c,q,.4,true,{gap:.05}); for(let i=0;i<4;i++){ const a=q[i], b=q[(i+1)%4], n=Math.round(dist(a,b)/4.5); for(let k=0;k<=n;k++){ const x=a[0]+(b[0]-a[0])*k/n, y=a[1]+(b[1]-a[1])*k/n; c.fillStyle=INK; c.beginPath(); c.arc(x,y,.5,0,7); c.fill(); } }
     for(const [x,y,a] of [[-8,-3,.3],[2,-5,-.4],[7,3,.8],[-3,5,-.2],[-11,5,1.2]]){ c.save(); c.translate(EX(x),y); c.rotate(a*ENG_M); c.fillStyle=PAPER(); c.beginPath(); c.ellipse(0,0,2.6,1.3,0,0,7); c.fill(); c.strokeStyle=INK; c.lineWidth=.4; c.stroke(); c.fillStyle=INK; c.beginPath(); c.arc(2.9,0,.75,0,7); c.fill(); c.restore(); } },
-  vineyard(c){ engInk(c,[[-17,-12],[17,-12],[17,12],[-17,12]].map(p=>[EX(p[0]),p[1]]),.36,true,{gap:.08}); for(let y=-9.5;y<12;y+=2.9){ let x=-15; while(x<15){ const l=1.6+engR()*1.4; engInk(c,[[EX(x),y],[EX(Math.min(15,x+l)),y+.3]],.55,false,{gap:0}); x+=l+1.1; } } },
+  vineyard(c,n){ n%=3; const q=[[-17,-12],[17,-12],[17,12],[-17,12]].map(p=>[EX(p[0]),p[1]]); engInk(c,q,.36,true,{gap:.08});
+    if(n===0) { for(let y=-9.5;y<12;y+=2.9/ENG_K){ let x=-15; while(x<15){ const l=1.6+engR()*1.4; engInk(c,[[EX(x),y],[EX(Math.min(15,x+l)),y+.3]],.55,false,{gap:0}); x+=l+1.1; } } }
+    else if(n===1) { c.save(); engPath(c,q,1); c.clip(); for(let t=-26;t<26;t+=3.2/ENG_K){ let x=-19; while(x<19){ const l=1.5+engR()*1.2; engInk(c,[[EX(x),x*.4+t],[EX(x+l),(x+l)*.4+t]],.5,false,{gap:0}); x+=l+1; } } c.restore(); engInk(c,q,.36,true,{gap:.08}); }      // rows set aslant
+    else { c.save(); engPath(c,q,1); c.clip(); for(let y=-9;y<13;y+=3.4/ENG_K){ const pts=[]; for(let x=-18;x<=18;x+=3) pts.push([EX(x),y+Math.sin(x*.16+y*.5)*.9]); for(let i=0;i<pts.length-1;i++) if(engR()<.92) engInk(c,[pts[i],pts[i+1]],.5,false,{gap:0}); } c.restore(); } },      // terraced rows following the slope
   quarry(c){ const o=[[-15,-6],[-8,-12],[4,-11],[14,-7],[16,3],[9,11],[-5,12],[-14,6]], i=o.map(p=>[p[0]*.56+1,p[1]*.56+1]); engPoly(c,o,{j:.6,lw:.55}); const O=o.map(p=>[EX(p[0]),p[1]]), I=i.map(p=>[EX(p[0]),p[1]]); for(let k=0;k<8;k++){ const a=O[k], b=O[(k+1)%8], e=I[(k+1)%8], d=I[k]; engShade(c,[a,b,e,d],k<4?'v':'d',k<4?1.1:.7); engInk(c,[a,d],.3,false,{gap:0}); } engInk(c,I,.45,true,{gap:.03});
     for(const [x,y] of [[0,1],[4,3],[-2,4.4]]) engPoly(c,[[x-1.5,y-1.1],[x+1.5,y-1.1],[x+1.5,y+1.1],[x-1.5,y+1.1]],{j:.2,lw:.4}); },
   tents(c){ for(const [x,y,a] of [[-9,-4,.2],[5,-6,-.3],[-1,6,.1],[11,5,.5]]) cRoof(c,x,y,9,7,{a}); const f=engArc(EX(1),-.5,1.8,1.8,0,Math.PI*2,8); engInk(c,f,.4,true,{gap:.1}); engDot(c,1,-.5,.6); },
@@ -1509,7 +1529,7 @@ function drawVectors(c,k){
   if(S.frame!=='none') drawFrame(c);
   const one=S.layers.length===1, ss=layers.stamps.v?stampsSorted():[];
   for(const L of S.layers){ if(L.v===false) continue; const mine=o=>one || layerOf(o)===L;      // each layer in turn, bottom first: its lines, then its stamps, then its lettering
-    if(layers.lines.v){ const ls=one?S.lines:S.lines.filter(mine); drawWalls(c,ls); drawStreets(c,ls); for(const l of ls) drawLine(c,l); }
+    if(layers.lines.v){ const ls=one?S.lines:S.lines.filter(mine); drawWalls(c,ls); drawStreets(c,ls); drawRoads(c,ls); for(const l of ls) drawLine(c,l); }
     for(const st of ss) if(mine(st)) drawStamp(c,st,k);
     if(layers.labels.v) for(const l of S.labels) if(mine(l)) drawLabel(c,l); }
   c.globalAlpha=1; c.globalCompositeOperation='multiply'; c.drawImage(tintC,0,0,S.w,S.h); c.globalCompositeOperation='source-over';
@@ -1593,6 +1613,28 @@ function drawFence(c,l,pts){ const w=l.width||3, style=l.style||'hedge', rn=mulb
   else if(style==='palisade'){ line(w*.5); walk(w*.95,(x,y,tx,ty)=>{ c.beginPath(); c.moveTo(x-tx*w*.4,y-ty*w*.4); c.lineTo(x-ty*w*.9,y+tx*w*.9); c.lineTo(x+tx*w*.4,y+ty*w*.4); c.closePath(); c.fillStyle=PAPER(); c.fill(); c.lineWidth=.45; c.stroke(); }); }
   else { walk(w*1.25,(x,y,tx,ty)=>{ const r=w*(.62+rn()*.3), ox=(rn()-.5)*w*.3, X=x-ty*ox, Y=y+tx*ox; c.beginPath(); c.arc(X,Y,r,0,7); c.fillStyle=PAPER(); c.fill(); c.lineWidth=.45; c.stroke(); c.lineWidth=.3; c.beginPath(); c.arc(X+r*.15,Y+r*.15,r*.55,-.3,1.5); c.stroke(); }); }
   c.restore(); }
+/* Roads join. Where one road crosses another, or ends on it (within a hand's slip, SNAP units), the road is cut at that point and each piece is dashed on its own, with the
+   dashes fitted so every arm begins with a dash right at the junction; a small blot ties them together. Drawn only: the roads in the map file are not changed. */
+let roadNetKey=null, roadNetVal=null;
+function roadNet(rs){ if(roadNetKey && roadNetKey.length===rs.length && rs.every((l,i)=>l===roadNetKey[i])) return roadNetVal;
+  const SNAP=12, P=rs.map(l=>lineBuilt(l).pts.map(p=>[p[0],p[1]])), J=rs.map(()=>[]);
+  const nearest=(pts,q)=>{ let best={d:1e9,x:0,y:0,s:0}, acc=0; for(let i=1;i<pts.length;i++){ const a=pts[i-1], b=pts[i], dx=b[0]-a[0], dy=b[1]-a[1], L2=dx*dx+dy*dy, L=Math.sqrt(L2), t=L2?clamp(((q[0]-a[0])*dx+(q[1]-a[1])*dy)/L2,0,1):0, x=a[0]+dx*t, y=a[1]+dy*t, d=Math.hypot(q[0]-x,q[1]-y); if(d<best.d) best={d,x,y,s:acc+t*L}; acc+=L; } return best; };
+  const ends=[]; P.forEach((pts,i)=>{ if(pts.length<2) return; for(const end of [0,1]){ const q=end?pts[pts.length-1]:pts[0]; let hit=null, hj=-1; P.forEach((o,j)=>{ if(j===i||o.length<2) return; const n=nearest(o,q); if(n.d<SNAP && (!hit||n.d<hit.d)){ hit=n; hj=j; } }); if(hit) ends.push({i,end,hit,hj}); } });
+  for(const e of ends){ const pts=P[e.i], q=[e.hit.x,e.hit.y]; if(e.hit.d>.5){ if(e.end) pts.push(q); else pts.unshift(q); } J[e.hj].push(q); J[e.i].push(q); }
+  const bb=P.map(pts=>{ let x0=1e9,x1=-1e9,y0=1e9,y1=-1e9; for(const p of pts){ x0=Math.min(x0,p[0]); x1=Math.max(x1,p[0]); y0=Math.min(y0,p[1]); y1=Math.max(y1,p[1]); } return [x0,y0,x1,y1]; });
+  for(let i=0;i<P.length;i++) for(let j=i+1;j<P.length;j++){ const A=bb[i], B=bb[j]; if(A[2]<B[0]||B[2]<A[0]||A[3]<B[1]||B[3]<A[1]) continue;
+    for(let a=1;a<P[i].length;a++) for(let b=1;b<P[j].length;b++){ const p=P[i][a-1], q=P[i][a], r=P[j][b-1], u=P[j][b], d=(q[0]-p[0])*(u[1]-r[1])-(q[1]-p[1])*(u[0]-r[0]); if(Math.abs(d)<1e-9) continue;
+      const t=((r[0]-p[0])*(u[1]-r[1])-(r[1]-p[1])*(u[0]-r[0]))/d, v=((r[0]-p[0])*(q[1]-p[1])-(r[1]-p[1])*(q[0]-p[0]))/d; if(t>0&&t<1&&v>0&&v<1){ const x=p[0]+(q[0]-p[0])*t, y=p[1]+(q[1]-p[1])*t; J[i].push([x,y]); J[j].push([x,y]); } } }
+  const pieces=[], dots=[];
+  P.forEach((pts,i)=>{ if(pts.length<2) return; const cum=[0]; for(let k=1;k<pts.length;k++) cum.push(cum[k-1]+dist(pts[k-1],pts[k])); const total=cum[cum.length-1];
+    const cuts=[...new Set(J[i].map(q=>Math.round(nearest(pts,q).s*4)/4))].sort((a,b)=>a-b).filter(v=>v>2&&v<total-2); const sl=[]; for(const v of cuts) if(!sl.length||v-sl[sl.length-1]>4) sl.push(v);
+    const at=sv=>{ let k=1; while(k<cum.length-1&&cum[k]<sv) k++; const f=(sv-cum[k-1])/((cum[k]-cum[k-1])||1); return [pts[k-1][0]+(pts[k][0]-pts[k-1][0])*f,pts[k-1][1]+(pts[k][1]-pts[k-1][1])*f]; };
+    const marks=[0,...sl,total]; for(let m=1;m<marks.length;m++){ const s0=marks[m-1], s1=marks[m], seg=[at(s0)]; for(let k=1;k<cum.length-1;k++) if(cum[k]>s0&&cum[k]<s1) seg.push(pts[k]); seg.push(at(s1)); pieces.push({i,pts:seg,len:s1-s0}); }
+    for(const v of sl) dots.push({i,p:at(v)}); });
+  roadNetKey=rs.slice(); return roadNetVal={pieces,dots}; }
+function drawRoads(c,ls){ const rs=ls.filter(l=>l.kind==='road'); if(!rs.length) return; const net=roadNet(rs); c.save(); c.lineCap='round'; c.lineJoin='round'; c.strokeStyle=c.fillStyle=SK()?INK:MAP.road;
+  for(const pc of net.pieces){ const w=rs[pc.i].width||2.5, k=w/2.5, D=9*k, G=6*k, n=Math.max(1,Math.round((pc.len+G)/(D+G))), d=(pc.len-(n-1)*G)/n; c.lineWidth=w; c.setLineDash(n===1?[]:[d,G]); c.stroke(toPath(pc.pts,false)); }
+  c.setLineDash([]); for(const dt of net.dots){ c.beginPath(); c.arc(dt.p[0],dt.p[1],(rs[dt.i].width||2.5)*.62,0,7); c.fill(); } c.restore(); }
 function drawStreets(c,ls){ const st=ls.filter(l=>l.kind==='street'); if(!st.length) return; c.save(); c.lineCap='round'; c.lineJoin='round'; c.setLineDash([]);
   c.strokeStyle=INK; for(const l of st){ c.lineWidth=l.width+1.9; c.stroke(lineBuilt(l).path); }
   c.strokeStyle=STREET_FILL; for(const l of st){ c.lineWidth=l.width; c.stroke(lineBuilt(l).path); } c.restore(); }
@@ -1665,9 +1707,9 @@ function generateCity(W,H,G={}){ G={size:1,density:1,walls:true,river:true,coast
   st.stamps.push(...housesAlong(S.filter(s=>s.width===11),{inside:q=>!inWall(q,.95)&&okLand(q)&&gates.some(g=>Math.hypot(g.g[0]-q[0],g.g[1]-q[1])<130+G.size*70),size:23,rows:1,density:Math.min(.8,.3*G.density+.15),rnd,kind:()=>rnd()<.6?'house':'cottage',blocked}));
   /* outside: fields, orchards and trees */
   const outside=(need)=>{ for(let t=0;t<30;t++){ const q=[60+rnd()*(W-120),60+rnd()*(H-120)]; if(!inWall(q,.86) && okLand(q) && q[1]<coastY(q[0])-need-10 && rDist(q)>rw/2+need && free(q,need) && netClear(q)>need*.7) return q; } return null; };
-  { const fields=housesAlong(S.filter(s=>s.width===11),{inside:q=>!inWall(q,.8)&&okLand(q)&&q[1]<coastY(q[0])-60&&q[0]>70&&q[1]>70&&q[0]<W-70&&q[1]<H-70&&free(q,40)&&!gates.some(g=>Math.hypot(g.g[0]-q[0],g.g[1]-q[1])<150+G.size*70),size:132,rows:3,density:.62,rnd,kind:()=>rnd()<.88?'fieldplot':'orchard',blocked});      // fields in belts along the roads, squared up to them
+  { const fields=housesAlong(S.filter(s=>s.width===11),{inside:q=>!inWall(q,.8)&&okLand(q)&&q[1]<coastY(q[0])-60&&q[0]>70&&q[1]>70&&q[0]<W-70&&q[1]<H-70&&free(q,40)&&!gates.some(g=>Math.hypot(g.g[0]-q[0],g.g[1]-q[1])<150+G.size*70),size:132,rows:3,density:.62,rnd,kind:()=>{ const r=rnd(); return r<.74?'fieldplot':r<.84?'orchard':r<.92?'vineyard':'paddock'; },blocked});      // fields in belts along the roads, squared up to them
     fields.forEach(f=>{ f.size=Math.round(f.size*(.62+rnd()*.14)); st.stamps.push(f); blocked.push({x:f.x,y:f.y,r:f.size*.4}); }); }
-  for(let i=0;i<10+G.size*4;i++){ const q=outside(40); if(q) put(rnd()<.8?'fieldplot':'orchard',q,Math.round(80+rnd()*40),turn()*1.5); }
+  for(let i=0;i<10+G.size*4;i++){ const q=outside(40); if(q) put(rnd()<.7?'fieldplot':rnd()<.5?'orchard':'vineyard',q,Math.round(80+rnd()*40),turn()*1.5); }
   for(let w=0;w<9+G.size*3;w++){ const c0=outside(30); if(!c0) continue; const n=8+Math.floor(rnd()*26), sp=40+rnd()*70; for(let i=0;i<n;i++){ const a=rnd()*6.283, r=Math.sqrt(rnd())*sp, q=[c0[0]+Math.cos(a)*r,c0[1]+Math.sin(a)*r*.8];      // woods in clumps
       if(inWall(q,.9) || !okLand(q) || !free(q,6) || netClear(q)<8 || q[0]<40||q[1]<40||q[0]>W-40||q[1]>H-40) continue; const sz=Math.round(22+rnd()*20); st.stamps.push({kind:'treetop',x:Math.round(q[0]),y:Math.round(q[1]),size:sz,rot:Math.round(rnd()*360),v:rnd(),var:Math.floor(rnd()*3)}); blocked.push({x:q[0],y:q[1],r:sz*.2}); } }
   for(let i=0;i<40;i++){ const q=outside(9); if(q){ st.stamps.push({kind:rnd()<.8?'treetop':'treerow',x:Math.round(q[0]),y:Math.round(q[1]),size:Math.round(20+rnd()*16),rot:Math.round(rnd()*360),v:rnd(),var:Math.floor(rnd()*3)}); blocked.push({x:q[0],y:q[1],r:7}); } }
