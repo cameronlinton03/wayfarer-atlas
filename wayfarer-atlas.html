@@ -592,7 +592,7 @@ function initBuffers(){
   [terrainC,tx]=full();                         // every ground paint stroke, already textured, in the order it was painted
   [sbC,sb]=mkCanvas(mw,mh); [clipC,cl]=mkCanvas(mw,mh);   // one brush stroke as opacity; and the land it is allowed to land on
   if(S.kind==='dungeon'){ [dgF,dgFx]=full(); [dgT,dgTx]=full(); }      // the dungeon's floor plan, and the textures laid on it
-  synced={lands:null,paints:null}; tcache.length=0; wSynced=[]; sprites.clear(); hitMaps.clear();
+  synced={lands:null,paints:null}; tcache.length=0; wSynced=[]; sprites.clear(); spriteArea=0; hitMaps.clear();
   const mkPat=(col,kind,seed,sk=SK())=>{ const p=bc.createPattern(texture(col,kind,seed,sk),'repeat'); p.setTransform(new DOMMatrix().scale(1/Math.min(R,3))); return p; };   // one tile always covers 256 map units
   pat.paper = mkPat(PAPER(),'paper',9,false);
   { const [ac,ag]=mkCanvas(W/4,H/4), rn=mulberry(4177); ag.scale(.25,.25);                    // the sheet's age: uneven staining over the whole map (no repeat) and darkened, foxed edges
@@ -1835,13 +1835,23 @@ const GLYPHS='0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
 for(const g of GLYPHS) SKETCH_DRAW['ch_'+g]=function(c,n){ c.save(); const r=15; if(n%2){ c.fillStyle=PAPER(); c.beginPath(); c.arc(0,0,r+1,0,7); c.fill(); engInk(c,engArc(0,0,r+1,r+1,0,Math.PI*2,26),.8,true,{gap:.03,rough:.08}); engInk(c,engArc(0,0,r-1.6,r-1.6,0,Math.PI*2,24),.4,true,{gap:.06,rough:.06}); }
   c.font=`600 ${n%2?25:34}px "IM Fell English", "IM Fell Double Pica", Georgia, serif`; c.textAlign='center'; c.textBaseline='middle'; c.lineJoin='round';
   if(!(n%2)){ c.strokeStyle=PAPER(); c.lineWidth=4.5; c.strokeText(g,0,1.6); } c.fillStyle=INK; c.fillText(g,0,1.6); c.strokeStyle=INK; c.lineWidth=.45; c.strokeText(g,0,1.6); c.restore(); };
-function sprite(s,px){ const k=stampLook(s), g=['Trees','Plants'].includes(groupOf(s.kind))&&k.g, pen=penOf(s.size), key=[s.kind,k.n,k.tint,g,px,s.flip?1:0,pen].join('|'); let sp=sprites.get(key);
-  if(!sp){ const side=Math.ceil(px*1.7), [cn,x]=mkCanvas(side,side); x.translate(side/2,side/2); x.scale(px/40,px/40); paintStamp(x,{kind:s.kind,var:k.n,tint:k.tint,v:g?.75:.25,flip:s.flip,pen}); sp=cn; sprites.set(key,sp); }
+/* Sprites are one stamp drawn once at a given resolution and then reused. Zooming in asks for bigger ones, so: a size is capped (bigger only when exporting), the cache is
+   held to a memory budget by dropping the least recently used, and while the picture is moving only a little new work is done each frame: a stamp whose sprite is not ready yet
+   is drawn from a smaller or larger one already there (or waits a frame), so zooming stays smooth and fills in sharply as it settles. */
+let spriteArea=0, spriteBudgetMs=Infinity, spritesPending=false; const SPRITE_PIXELS=70e6;
+const BASE_FADE={mountain:[5,16.5],snowpeak:[5,16.5],highpeak:[7,19.5],hill:[8,17],volcano:[6,16.5],mesa:[8,17],crag:[7,17]};      // mountains thin to nothing at their foot, so there is no hard line where the stamp meets the ground (box y, top and bottom of the fade)
+function sprite(s,px,lazy){ const k=stampLook(s), g=['Trees','Plants'].includes(groupOf(s.kind))&&k.g, pen=penOf(s.size), K=b=>[s.kind,k.n,k.tint,g,b,s.flip?1:0,pen].join('|'), key=K(px); let sp=sprites.get(key);
+  if(sp){ sprites.delete(key); sprites.set(key,sp); return sp; }
+  if(lazy && spriteBudgetMs<=0){ spritesPending=true; for(let b=px*2;b<=1536;b*=2){ const f=sprites.get(K(b)); if(f) return f; } for(let b=px/2;b>=48;b/=2){ const f=sprites.get(K(b)); if(f) return f; } return null; }      // out of time this frame: use any size already made (a bigger one first, it is sharper), and come back for the right one
+  const t0=performance.now(), side=Math.ceil(px*1.7), [cn,x]=mkCanvas(side,side); x.translate(side/2,side/2); x.scale(px/40,px/40); paintStamp(x,{kind:s.kind,var:k.n,tint:k.tint,v:g?.75:.25,flip:s.flip,pen});
+  const fade=BASE_FADE[s.kind]; if(fade){ x.save(); x.setTransform(1,0,0,1,0,0); const u=px/40, y0=side/2+fade[0]*u, y1=side/2+fade[1]*u, gr=x.createLinearGradient(0,y0,0,y1); gr.addColorStop(0,'rgba(0,0,0,0)'); gr.addColorStop(1,'rgba(0,0,0,1)'); x.globalCompositeOperation='destination-out'; x.fillStyle=gr; x.fillRect(0,y0,side,side-y0); x.restore(); }
+  sp=cn; sprites.set(key,sp); spriteArea+=side*side; spriteBudgetMs-=performance.now()-t0;
+  while(spriteArea>SPRITE_PIXELS && sprites.size>1){ const [k0,v0]=sprites.entries().next().value; sprites.delete(k0); spriteArea-=v0.width*v0.height; }
   return sp; }
 const STAMP_ALPHA={wildflowers:.58,wildgrass:.58,shrubs:.62,thicket:.62,saplings:.62,ferns:.6};      // ground cover is drawn in a lighter, greyer ink than the trees and hills, so that a drift sits back on the page
 function drawStamp(c,s,k){ c.save(); if(k && STAMP_ALPHA[s.kind]) c.globalAlpha*=STAMP_ALPHA[s.kind]; c.translate(s.x,s.y); c.rotate(s.rot*Math.PI/180);   // a mirrored stamp has its own picture (see paintStamp), so nothing is flipped here
   const px=k?s.size*k:0;
-  if(SK() || (k && px<=500)){ const want=px||s.size*2; let b=48; while(b<want && b<1024) b*=2; const side=s.size*1.7; c.drawImage(sprite(s,b),-side/2,-side/2,side,side); }
+  if(SK() || (k && px<=500)){ const want=px||s.size*2, cap=exporting?1024:512; let b=48; while(b<want && b<cap) b*=2; const side=s.size*1.7, sp=sprite(s,b,!!k && !exporting); if(sp) c.drawImage(sp,-side/2,-side/2,side,side); }
   else { c.scale(s.size/40,s.size/40); paintStamp(c,s); }
   if(s.kind==='scalebar'){ const u=s.size/40, f=Math.max(7,s.size*.075); c.font=`italic ${f}px "IM Fell English", Georgia, serif`; c.fillStyle=INK; c.textBaseline='top'; c.textAlign='center'; c.fillText('0',-18*u,9.6*u); c.fillText(fmtDist(36*u),18*u-f*1.2,9.6*u); }      // a scale bar reads off the map's scale
   c.restore(); }
@@ -1865,15 +1875,15 @@ function gridPath(){ const g=S.grid, key=[g.type,g.size,S.w,S.h].join(); if(grid
     for(let row=0; row*vh<S.h+R; row++) for(let col=0; col*w<S.w+w; col++){ const cx=col*w+(row%2?w/2:0), cy=row*vh;
       for(let i=0;i<6;i++){ const a=Math.PI/180*(60*i-30), x=cx+R*Math.cos(a), y=cy+R*Math.sin(a); i?P.lineTo(x,y):P.moveTo(x,y); } P.closePath(); } }
   gridCache={key,path:P}; return P; }
-function drawVectors(c,k){
+function drawVectors(c,k,vp){      // vp: the part of the map in view [x0,y0,x1,y1]; only that is drawn while working. Exports pass none and draw everything.
   c.save(); c.beginPath(); c.rect(0,0,S.w,S.h); c.clip();
   if(S.grid.type!=='none' && S.kind!=='dungeon'){ c.strokeStyle='rgba(58,42,28,.28)'; c.lineWidth=1; c.stroke(gridPath()); }
   if(S.frame!=='none') drawFrame(c);
   const one=S.layers.length===1, ss=layers.stamps.v?stampsSorted():[];
   for(const L of S.layers){ if(L.v===false) continue; const mine=o=>one || layerOf(o)===L;      // each layer in turn, bottom first: its lines, then its stamps, then its lettering
     if(layers.lines.v){ const ls=one?S.lines:S.lines.filter(mine); drawWalls(c,ls); drawStreets(c,ls); drawRoads(c,ls); for(const l of ls) drawLine(c,l); }
-    for(const st of ss) if(mine(st)) drawStamp(c,st,k);
-    if(layers.labels.v) for(const l of S.labels) if(mine(l)) drawLabel(c,l); }
+    for(const st of ss) if(mine(st) && (!vp || (st.x+st.size>vp[0] && st.x-st.size<vp[2] && st.y+st.size>vp[1] && st.y-st.size<vp[3]))) drawStamp(c,st,k);
+    if(layers.labels.v) for(const l of S.labels) if(mine(l) && (!vp || (l.x>vp[0]-600 && l.x<vp[2]+600 && l.y>vp[1]-400 && l.y<vp[3]+400))) drawLabel(c,l); }
   c.globalAlpha=1; c.globalCompositeOperation='multiply'; c.drawImage(tintC,0,0,S.w,S.h); c.globalCompositeOperation='source-over';
   c.restore();
 }
@@ -1905,7 +1915,7 @@ function draw(){
   ctx.translate(view.x,view.y); ctx.scale(view.k,view.k);
   ctx.fillStyle='rgba(0,0,0,.25)'; ctx.fillRect(5/view.k,6/view.k,S.w,S.h);
   ctx.drawImage(base,0,0,S.w,S.h);
-  drawVectors(ctx,view.k*d);
+  spriteBudgetMs=pointers.size||act ? 6 : 14; spritesPending=false; drawVectors(ctx,view.k*d,[-view.x/view.k,-view.y/view.k,(cv.width/d-view.x)/view.k,(cv.height/d-view.y)/view.k]); if(spritesPending) invalidate();      // a little new sprite work per frame, the rest on the next
   const px=1/view.k, accent='#1c6e7a';
   if(act && (act.type==='shape'||act.type==='line'||act.type==='fill') && act.pts.length>1){ ctx.beginPath(); act.pts.forEach((p,i)=>i?ctx.lineTo(p[0],p[1]):ctx.moveTo(p[0],p[1]));
     if(act.type==='shape'||act.type==='fill'){ ctx.closePath(); ctx.fillStyle = act.type==='fill'?'rgba(31,111,122,.14)':act.mode==='sea'?'rgba(120,170,180,.45)':'rgba(234,223,191,.6)'; ctx.fill(); }
