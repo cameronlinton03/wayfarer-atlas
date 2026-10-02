@@ -1877,6 +1877,13 @@ function drawStamp(c,s,k){ c.save(); if(k && STAMP_ALPHA[s.kind]) c.globalAlpha*
   if(s.kind==='scalebar'){ const u=s.size/40, f=Math.max(7,s.size*.075); c.font=`italic ${f}px "IM Fell English", Georgia, serif`; c.fillStyle=INK; c.textBaseline='top'; c.textAlign='center'; c.fillText('0',-18*u,9.6*u); c.fillText(fmtDist(36*u),18*u-f*1.2,9.6*u); }      // a scale bar reads off the map's scale
   c.restore(); }
 let sortedFor=null, sorted=[];
+/* Trees and ground cover do not grow on a mountain. A tree or plant whose foot lies inside a mountain, hill or the like is not drawn (it would show through the soft foot, or sit on the slope);
+   the same test keeps the generator from placing them there. The region is an ellipse over the mountain's body, from a little below its base up to its summit. */
+const MTN_BODY={mountain:[.6,.5,.2],snowpeak:[.6,.62,.2],highpeak:[.75,.95,.22],hill:[.62,.34,.16],volcano:[.55,.5,.2],mesa:[.6,.3,.15],crag:[.45,.5,.2]};      // half-width, height (in stamp sizes), and how far below the stamp's centre the foot reaches
+const COVER_GROUPS=new Set(['Trees','Plants']);
+const inMountain=(ms,x,y)=>{ for(const m of ms){ const b=MTN_BODY[m.kind], dx=(x-m.x)/(m.size*b[0]); if(dx>-1&&dx<1){ const top=m.y+m.size*b[2]-m.size*b[1]*Math.sqrt(1-dx*dx)*1.15, bot=m.y+m.size*b[2]; if(y>top && y<bot) return true; } } return false; };
+let coverFor=null, coverSet=null;
+function coverHidden(){ if(coverFor===S.stamps) return coverSet; coverFor=S.stamps; const ms=S.stamps.filter(s=>MTN_BODY[s.kind]); coverSet=new Set(); if(ms.length) for(const s of S.stamps) if(!MTN_BODY[s.kind] && COVER_GROUPS.has(groupOf(s.kind)) && inMountain(ms,s.x,s.y)) coverSet.add(s); return coverSet; }
 function stampsSorted(){ if(sortedFor!==S.stamps){ sortedFor=S.stamps; sorted=S.stamps.slice().sort((a,b)=>((a.z||0)-(b.z||0)) || a.y-b.y); } return sorted; }   // order first, then lower on the sheet in front
 function labelMetrics(c,l){ const st=LABEL_STYLES[l.style]||LABEL_STYLES.place; c.font=`${st.italic?'italic ':''}${l.size}px ${st.font}`; const gap=l.size*(l.spacing ?? st.spacing), lh=l.size*1.12;      // a label may run to several lines and may be bent along an arc
   const lines=String(l.text).split('\n').map(t=>{ const text=[...(st.caps?t.toUpperCase():t)], ws=text.map(ch=>c.measureText(ch).width); return {text, ws, width:ws.reduce((a,b)=>a+b,0)+gap*Math.max(0,ws.length-1)}; });
@@ -1903,7 +1910,7 @@ function drawVectors(c,k,vp){      // vp: the part of the map in view [x0,y0,x1,
   const one=S.layers.length===1, ss=layers.stamps.v?stampsSorted():[];
   for(const L of S.layers){ if(L.v===false) continue; const mine=o=>one || layerOf(o)===L;      // each layer in turn, bottom first: its lines, then its stamps, then its lettering
     if(layers.lines.v){ const ls=one?S.lines:S.lines.filter(mine); drawWalls(c,ls); drawStreets(c,ls); drawRoads(c,ls); for(const l of ls) drawLine(c,l); }
-    for(const st of ss) if(mine(st) && (!vp || (st.x+st.size>vp[0] && st.x-st.size<vp[2] && st.y+st.size>vp[1] && st.y-st.size<vp[3]))) drawStamp(c,st,k);
+    const hid=coverHidden(); for(const st of ss) if(mine(st) && !hid.has(st) && (!vp || (st.x+st.size>vp[0] && st.x-st.size<vp[2] && st.y+st.size>vp[1] && st.y-st.size<vp[3]))) drawStamp(c,st,k);
     if(layers.labels.v) for(const l of S.labels) if(mine(l) && (!vp || (l.x>vp[0]-600 && l.x<vp[2]+600 && l.y>vp[1]-400 && l.y<vp[3]+400))) drawLabel(c,l); }
   c.globalAlpha=1; c.globalCompositeOperation='multiply'; c.drawImage(tintC,0,0,S.w,S.h); c.globalCompositeOperation='source-over';
   c.restore();
@@ -2322,7 +2329,8 @@ cv.addEventListener('pointermove',e=>{
 function plantDab(p,a){ const R=opts.brush/2;
   if(a.rub){ const keep=S.stamps.filter(s=>!(PLANT_KINDS.has(s.kind) && Math.hypot(s.x-p[0],s.y-p[1])<R)); if(keep.length!==S.stamps.length){ S.stamps=keep; invalidate(); } return; }
   const mix=PLANT_MIX[opts.plantKind]||PLANT_MIX.flowers, n=Math.max(1,Math.round(R*R*Math.PI/130*opts.plantDensity*.2)), near=S.stamps.filter(s=>Math.abs(s.x-p[0])<R+40 && Math.abs(s.y-p[1])<R+40), add=[];
-  for(let k=0;k<n;k++){ const ang=Math.random()*6.283, r=R*Math.sqrt(Math.random()), x=p[0]+Math.cos(ang)*r, y=p[1]+Math.sin(ang)*r; if(!isLandAt([x,y])) continue;
+  const MS=S.stamps.filter(s=>MTN_BODY[s.kind]);
+  for(let k=0;k<n;k++){ const ang=Math.random()*6.283, r=R*Math.sqrt(Math.random()), x=p[0]+Math.cos(ang)*r, y=p[1]+Math.sin(ang)*r; if(!isLandAt([x,y]) || inMountain(MS,x,y)) continue;
     let q=Math.random(), kind=mix[mix.length-1][0]; for(const [kk,w] of mix){ if(q<w){ kind=kk; break; } q-=w; }
     const sz=Math.max(8,Math.round((PLANT_BASE[kind][0]+Math.random()*PLANT_BASE[kind][1])*PLANT_FACTOR[kind])); if(near.some(s=>Math.hypot(s.x-x,s.y-y)<sz*.55+(s.size||0)*.25) || add.some(s=>Math.hypot(s.x-x,s.y-y)<sz*.55)) continue;
     const nv=VARIANTS[kind]||1, vv=a.vv>=0 && (opts.plantKind==='flowers'?kind==='wildflowers':true) ? a.vv%nv : Math.random()<.85 ? a.sv%nv : Math.floor(Math.random()*nv);
@@ -2815,7 +2823,8 @@ function generateMap(W,H,kind,G={}){ G={land:1,mountains:1,forests:1,rivers:1,to
     const SZ=14, occ=new Map(), cellOf=(x,y)=>Math.floor(x/SZ)+','+Math.floor(y/SZ), reach=s=>s.kind==='highpeak'?s.size*.4:s.kind==='mountain'||s.kind==='snowpeak'?s.size*.34:s.kind==='hill'?s.size*.28:s.size*.3;      // every stamp so far, by where it stands, so a new plant keeps clear of trees, hills and mountains
     const note=s=>{ const key=cellOf(s.x,s.y); (occ.get(key)||occ.set(key,[]).get(key)).push([s.x,s.y,reach(s)]); };
     for(const s of st.stamps) note(s);
-    const free=(x,y,r)=>{ const cx=Math.floor(x/SZ), cy=Math.floor(y/SZ); for(let b=-2;b<=2;b++) for(let a=-2;a<=2;a++){ const L=occ.get((cx+a)+','+(cy+b)); if(L) for(const q of L) if(Math.hypot(q[0]-x,q[1]-y)<r+q[2]) return false; } return clear(x,y,r+8); };
+    const MS=st.stamps.filter(s=>MTN_BODY[s.kind]);
+    const free=(x,y,r)=>{ if(inMountain(MS,x,y)) return false; const cx=Math.floor(x/SZ), cy=Math.floor(y/SZ); for(let b=-2;b<=2;b++) for(let a=-2;a<=2;a++){ const L=occ.get((cx+a)+','+(cy+b)); if(L) for(const q of L) if(Math.hypot(q[0]-x,q[1]-y)<r+q[2]) return false; } return clear(x,y,r+8); };
     const SIZE=PLANT_FACTOR;      // each is drawn at a fraction of the size listed below: they are small things beside a tree
     const put=(kind,x,y,size,v)=>{ const s={kind,x:Math.round(x),y:Math.round(y),size:Math.max(8,Math.round(size*SIZE[kind])),rot:0,v:rnd(),var:v,flip:rnd()<.5}; st.stamps.push(s); note(s); };
     const cls=new Uint8Array(N), FT=.545, sm=(a,b,x)=>{ const q=clamp((x-a)/(b-a),0,1); return q*q*(3-2*q); };      // 1 flower drift, 2 wild grass, 3 edge of the wood
