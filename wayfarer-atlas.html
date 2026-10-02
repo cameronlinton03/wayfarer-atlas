@@ -648,18 +648,18 @@ function rebuildCliffs(){
   for(const c of S.cliffs){ if(c.mode==='down') continue;
     const {bb,u,mid,L}=cliffAxis(c), H=c.h ?? 26, tp=c.taper||0, pad=6, bx=Math.floor(bb[0]-pad), by=Math.floor(bb[1]-pad), bw=Math.ceil(bb[2]-bb[0]+pad*2), bh=Math.ceil(bb[3]-bb[1]+pad*2+Math.max(H,0));
     if(bw<2||bh<2||Math.abs(H)<3) continue;
-    const mk=()=>{ const q=mkCanvas(bw*R,bh*R); q[1].setTransform(R,0,0,R,-bx*R,-by*R); return q; }, [A,a]=mk(), [B,b]=mk(), [C,cx]=mk(), [D,d]=mk();
+    const mk=()=>{ const q=mkCanvas(bw*R,bh*R); q[1].setTransform(R,0,0,R,-bx*R,-by*R); return q; }, [A,a]=mk(), [B,b]=mk(), [C,cx]=mk(), [D,d]=mk(), [O,ox]=mk(); let od=null;      // O: the outline of a plateau on a layer of its own, so a ramp can lose its edge before it loses its hatching
     shape(a,c); a.globalCompositeOperation='destination-out'; downs.forEach(dn=>shape(a,dn)); a.globalCompositeOperation='destination-in'; a.drawImage(landMask,0,0,S.w,S.h);   // A = the raised (or sunken) area, on land only
     const plane=(x,sj,dy,keep)=>{ const q=[mid[0]+u[0]*(sj-.5)*L, mid[1]+u[1]*(sj-.5)*L+dy], v=[-u[1],u[0]], G=1e5, g=keep?G:-G;     // half of the map on one side of the taper line
       x.beginPath(); x.moveTo(q[0]+v[0]*G,q[1]+v[1]*G); x.lineTo(q[0]-v[0]*G,q[1]-v[1]*G); x.lineTo(q[0]-v[0]*G+u[0]*g,q[1]-v[1]*G+u[1]*g); x.lineTo(q[0]+v[0]*G+u[0]*g,q[1]+v[1]*G+u[1]*g); x.closePath(); };
     /* A taper that ramps to nothing really does: the height at the low end is H x (1 - taper), and wherever the height is down to a few units the whole drawing (rim, face and shadow) is faded out
        along the slope, so the cliff dies away into the ground instead of ending as a smaller lump with its outline intact. */
-    const fadeLow=(x,w,h)=>{ if(tp<.3) return; const lo=[mid[0]-u[0]*L/2,mid[1]-u[1]*L/2], hi=[mid[0]+u[0]*L/2,mid[1]+u[1]*L/2], g=x.createLinearGradient(lo[0],lo[1],hi[0],hi[1]);
-      for(let i=0;i<=12;i++){ const tt=i/12, hh=(1-tp)+tp*tt, al=clamp((hh*Math.abs(H)-1)/(Math.abs(H)*.34),0,1); g.addColorStop(tt,`rgba(0,0,0,${al*al*(3-2*al)})`); }
+    const fadeLow=(x,w,h,f0,f1)=>{ if(f1<=f0) return; const lo=[mid[0]-u[0]*L/2,mid[1]-u[1]*L/2], hi=[mid[0]+u[0]*L/2,mid[1]+u[1]*L/2], g=x.createLinearGradient(lo[0],lo[1],hi[0],hi[1]), full=(1-tp)>=f1; if(full) return;      // f = the height there as a fraction of full height: clear below f0, solid above f1
+      for(let i=0;i<=60;i++){ const tt=i/60, f=(1-tp)+tp*tt, al=clamp((f-f0)/(f1-f0),0,1); g.addColorStop(tt,`rgba(0,0,0,${al*al*(3-2*al)})`); }
       x.save(); x.globalCompositeOperation='destination-in'; x.fillStyle=g; x.fillRect(bx,by,w,h); x.restore(); };
     const hatchRows=(x,X0,Y0,Wd,Ht,sp,lw,sd)=>{ x.strokeStyle=INK; x.lineCap='round'; x.lineWidth=lw; x.beginPath(); for(let Y=Y0+sp*.5,j=0;Y<Y0+Ht;Y+=sp,j++){ let X=X0+hash(j,c.seed,sd)*5; while(X<X0+Wd){ const run=3+hash(j,X|0,c.seed+sd)*9; x.moveTo(X,Y); x.lineTo(X+run,Y+(hash(X|0,j,c.seed+sd+1)-.5)*.4); X+=run+1+hash(X|0,j,c.seed+sd+2)*2.6; } } x.stroke(); };      // level broken strokes, the way the stamps throw their shadows
     const inked=(...src)=>{ d.globalCompositeOperation='source-over'; d.clearRect(bx,by,bw,bh); src.forEach(q=>d.drawImage(q,bx,by,bw,bh)); d.globalCompositeOperation='source-in'; d.fillStyle=ink; d.fillRect(bx,by,bw,bh);
-      for(let i=0;i<8;i++){ const t=i*Math.PI/4; cx.drawImage(D,bx+Math.cos(t)*1.4,by+Math.sin(t)*1.4,bw,bh); } };
+      for(let i=0;i<8;i++){ const t=i*Math.PI/4; (od||cx).drawImage(D,bx+Math.cos(t)*1.4,by+Math.sin(t)*1.4,bw,bh); } };
     /* pit: a hollow is lit the other way round. With the light from the left, its left wall is in shadow and its right wall catches the light */ const rock=(x,dark,pit)=>{ x.globalCompositeOperation='source-in'; x.fillStyle=SK()?PAPER():pat.stone; x.fillRect(bx,by,bw,bh);                // turns a mask into hatched rock face
       x.globalCompositeOperation='source-atop'; if(!SK()){ x.fillStyle=`rgba(58,42,28,${dark})`; x.fillRect(bx,by,bw,bh); }
       x.strokeStyle=INK; x.lineCap='round';      // the face is engraved the way the stamps are: close broken strokes down the rock, heavier toward the right, crossed where it is darkest
@@ -699,22 +699,24 @@ function rebuildCliffs(){
       inked(B); cx.globalCompositeOperation='destination-out'; cx.drawImage(B,bx,by,bw,bh); cx.globalCompositeOperation='source-over'; cx.globalAlpha=1; cx.drawImage(E,bx,by,bw,bh); cx.drawImage(E,bx,by,bw,bh);
       { const reach=clamp(Dp*.75,6,46), [Ps,ps]=mk(), [Ph,ph]=mk(); ps.drawImage(B,bx,by,bw,bh); ps.globalCompositeOperation='destination-out'; ps.drawImage(B,bx+reach,by+reach*.2,bw,bh);      // in a hollow the left rim throws its shadow onto the floor beneath it
         hatchRows(ph,bx,by,bw,bh,1.5,.5,43); ps.globalCompositeOperation='source-in'; ps.drawImage(Ph,bx,by,bw,bh); cx.drawImage(Ps,bx,by,bw,bh); }
-      fadeLow(cx,bw,bh); cf.drawImage(C,bx,by,bw,bh); csx.drawImage(Wc,bx,by,bw,bh); csx.lineWidth=3.4; csx.strokeStyle='#000'; csx.stroke(built.get(c).path); continue; }
+      fadeLow(cx,bw,bh,.04,.5); cf.drawImage(C,bx,by,bw,bh); csx.drawImage(Wc,bx,by,bw,bh); csx.lineWidth=3.4; csx.strokeStyle='#000'; csx.stroke(built.get(c).path); continue; }
+    od=ox;
     for(let j=1.5;j<=H;j+=1.5){ b.save();
       if(tp>0){ const sj=1-(1-j/H)/tp; if(sj>1){ b.restore(); break; } if(sj>0){ plane(b,sj,j,true); b.clip(); } }
       b.drawImage(A,bx,by+j,bw,bh); b.restore(); }
     b.globalCompositeOperation='destination-out'; b.drawImage(A,bx,by,bw,bh);                                    // B = the rock face
-    inked(A,B);                                                                                                    // outline round top and face together
+    inked(A,B); ox.globalCompositeOperation='destination-out'; ox.drawImage(A,bx,by,bw,bh); ox.drawImage(B,bx,by,bw,bh); ox.globalCompositeOperation='source-over';      // outline round top and face together: only the ring, never the fill
     rock(b,.3); cx.drawImage(B,bx,by,bw,bh); csx.drawImage(B,bx,by,bw,bh); csx.lineWidth=3.4; csx.strokeStyle='#000'; csx.stroke(built.get(c).path);
     inked(A);                                                                                                      // rim line round the top
-    cx.globalCompositeOperation='destination-out'; cx.drawImage(A,bx,by,bw,bh);                                    // the top itself stays clear so the ground shows
+    cx.globalCompositeOperation='destination-out'; cx.drawImage(A,bx,by,bw,bh); ox.globalCompositeOperation='destination-out'; ox.drawImage(A,bx,by,bw,bh); ox.globalCompositeOperation='source-over';      // the top itself stays clear so the ground shows
     { const len=clamp(H*1.15,8,70), sw=bw+len+6, shh=bh+len*.3+6, mkS=()=>{ const q=mkCanvas(sw*R,shh*R); q[1].setTransform(R,0,0,R,-bx*R,-by*R); return q; }, [Sh,sh]=mkS(), [Hh,hh]=mkS();      // the shadow the height throws: its outline swept away from the light, minus the plateau itself, kept to the land
       for(let k=2;k<=len;k+=2){ sh.save(); sh.translate(k,k*.24); if(tp>0){ const sj=1-(1-k/len)/tp; if(sj>1){ sh.restore(); break; } if(sj>0){ plane(sh,sj,0,true); sh.clip(); } }      // only the part of the plateau that stands at least this high throws a shadow this long
         sh.drawImage(A,bx,by,bw,bh); sh.drawImage(B,bx,by,bw,bh); sh.restore(); } sh.globalCompositeOperation='destination-out'; sh.drawImage(A,bx,by,bw,bh); sh.drawImage(B,bx,by,bw,bh);
       if(!tp) for(let k=len*.55;k<=len;k+=2){ sh.globalAlpha=.05; sh.drawImage(A,bx+len+2+k-len*.55,by+len*.24,bw,bh); } sh.globalAlpha=1;
       hatchRows(hh,bx,by,sw,shh,1.55,.42,41); sh.globalCompositeOperation='source-in'; sh.drawImage(Hh,bx,by,sw,shh); sh.globalCompositeOperation='destination-in'; sh.drawImage(landMask,0,0,S.w,S.h);
-      fadeLow(sh,sw,shh); cf.globalCompositeOperation='source-over'; cf.drawImage(Sh,bx,by,sw,shh); }
-    fadeLow(cx,bw,bh); cf.globalCompositeOperation='destination-out'; cf.drawImage(A,bx,by,bw,bh); cf.globalCompositeOperation='source-over'; cf.drawImage(C,bx,by,bw,bh);
+      fadeLow(sh,sw,shh,.04,.5); cf.globalCompositeOperation='source-over'; cf.drawImage(Sh,bx,by,sw,shh); }
+    fadeLow(cx,bw,bh,.04,.5); fadeLow(ox,bw,bh,.34,.66); cx.globalCompositeOperation='source-over'; cx.drawImage(O,bx,by,bw,bh); od=null;      // hatching thins out gradually; the edge goes sooner
+    cf.globalCompositeOperation='destination-out'; cf.drawImage(A,bx,by,bw,bh); cf.globalCompositeOperation='source-over'; cf.drawImage(C,bx,by,bw,bh);
   }
 }
 function cleanInk(){      // a tuft, pebble or crack that a coast, river bank or cliff edge would slice through is taken out whole, so no mark is ever left cut in half
