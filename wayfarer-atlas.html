@@ -699,7 +699,7 @@ function rebuildCliffs(){
       inked(B); cx.globalCompositeOperation='destination-out'; cx.drawImage(B,bx,by,bw,bh); cx.globalCompositeOperation='source-over'; cx.globalAlpha=1; cx.drawImage(E,bx,by,bw,bh); cx.drawImage(E,bx,by,bw,bh);
       { const reach=clamp(Dp*.75,6,46), [Ps,ps]=mk(), [Ph,ph]=mk(); ps.drawImage(B,bx,by,bw,bh); ps.globalCompositeOperation='destination-out'; ps.drawImage(B,bx+reach,by+reach*.2,bw,bh);      // in a hollow the left rim throws its shadow onto the floor beneath it
         hatchRows(ph,bx,by,bw,bh,1.5,.5,43); ps.globalCompositeOperation='source-in'; ps.drawImage(Ph,bx,by,bw,bh); cx.drawImage(Ps,bx,by,bw,bh); }
-      fadeLow(cx,bw,bh,.04,.5); cf.drawImage(C,bx,by,bw,bh); csx.drawImage(Wc,bx,by,bw,bh); csx.lineWidth=3.4; csx.strokeStyle='#000'; csx.stroke(built.get(c).path); continue; }
+      fadeLow(cx,bw,bh,.14,.22); cf.drawImage(C,bx,by,bw,bh); csx.drawImage(Wc,bx,by,bw,bh); csx.lineWidth=3.4; csx.strokeStyle='#000'; csx.stroke(built.get(c).path); continue; }
     od=ox;
     for(let j=1.5;j<=H;j+=1.5){ b.save();
       if(tp>0){ const sj=1-(1-j/H)/tp; if(sj>1){ b.restore(); break; } if(sj>0){ plane(b,sj,j,true); b.clip(); } }
@@ -714,8 +714,8 @@ function rebuildCliffs(){
         sh.drawImage(A,bx,by,bw,bh); sh.drawImage(B,bx,by,bw,bh); sh.restore(); } sh.globalCompositeOperation='destination-out'; sh.drawImage(A,bx,by,bw,bh); sh.drawImage(B,bx,by,bw,bh);
       if(!tp) for(let k=len*.55;k<=len;k+=2){ sh.globalAlpha=.05; sh.drawImage(A,bx+len+2+k-len*.55,by+len*.24,bw,bh); } sh.globalAlpha=1;
       hatchRows(hh,bx,by,sw,shh,1.55,.42,41); sh.globalCompositeOperation='source-in'; sh.drawImage(Hh,bx,by,sw,shh); sh.globalCompositeOperation='destination-in'; sh.drawImage(landMask,0,0,S.w,S.h);
-      fadeLow(sh,sw,shh,.04,.5); cf.globalCompositeOperation='source-over'; cf.drawImage(Sh,bx,by,sw,shh); }
-    fadeLow(cx,bw,bh,.04,.5); fadeLow(ox,bw,bh,.34,.66); cx.globalCompositeOperation='source-over'; cx.drawImage(O,bx,by,bw,bh); od=null;      // hatching thins out gradually; the edge goes sooner
+      fadeLow(sh,sw,shh,.14,.22); cf.globalCompositeOperation='source-over'; cf.drawImage(Sh,bx,by,sw,shh); }
+    fadeLow(cx,bw,bh,.14,.22); fadeLow(ox,bw,bh,.2,.27); cx.globalCompositeOperation='source-over'; cx.drawImage(O,bx,by,bw,bh); od=null;      // hatching thins out gradually; the edge goes sooner
     cf.globalCompositeOperation='destination-out'; cf.drawImage(A,bx,by,bw,bh); cf.globalCompositeOperation='source-over'; cf.drawImage(C,bx,by,bw,bh);
   }
 }
