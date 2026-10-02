@@ -520,8 +520,13 @@ function renderMaps(){ const esc=t=>String(t).replace(/&/g,'&amp;').replace(/</g
 const packBytes=u8=>{ let t=''; for(let i=0;i<u8.length;i+=0x8000) t+=String.fromCharCode.apply(null,u8.subarray(i,i+0x8000)); return btoa(t); }, unpackBytes=t=>Uint8Array.from(atob(t),c=>c.charCodeAt(0));
 const packHeight=(nx,ny,cs,elev,mask)=>({nx,ny,cs,v:packBytes(new Uint8Array(Int8Array.from(elev,e=>Math.max(-127,Math.min(127,Math.round(e*100)))).buffer)),m:packBytes(Uint8Array.from(mask))});
 let heightCache={src:null,key:'',grid:null};
+function featureBumps(e,nx,ny,cs,land){      // mountains and raised cliffs add their height to the land cells under them
+  const bump=(x,y,r,a)=>{ const i0=Math.max(0,Math.floor((x-r)/cs)), i1=Math.min(nx-1,Math.ceil((x+r)/cs)), j0=Math.max(0,Math.floor((y-r)/cs)), j1=Math.min(ny-1,Math.ceil((y+r)/cs)); for(let j=j0;j<=j1;j++) for(let i=i0;i<=i1;i++){ const d=Math.hypot(i*cs-x,j*cs-y)/r; if(d<1 && land[j*nx+i]) e[j*nx+i]+=a*(1-d)*(1-d); } };
+  for(const q of S.stamps){ const a={mountain:.3,snowpeak:.38,highpeak:.55,volcano:.45,mesa:.25,crag:.2,hill:.12,boulders:0}[q.kind]; if(a) bump(q.x,q.y,q.size*.5,a); }
+  for(const c of S.cliffs){ if(c.mode!=='up' || !(c.h>0)) continue; landPath(c); const b=built.get(c).bb; for(let j=Math.max(0,Math.floor(b[1]/cs));j<=Math.min(ny-1,Math.ceil(b[3]/cs));j++) for(let i=Math.max(0,Math.floor(b[0]/cs));i<=Math.min(nx-1,Math.ceil(b[2]/cs));i++) if(land[j*nx+i] && inLand(c,[i*cs,j*cs])) e[j*nx+i]+=c.h/140*.35; }
+}
 function heightGrid(){      // {nx,ny,cs,e (heights),m (0 land, 1 sea, 2 lake), est}
-  if(S.height){ if(heightCache.src===S.height) return heightCache.grid; const h=S.height, e=Float32Array.from(new Int8Array(unpackBytes(h.v).buffer),v=>v/100), m=unpackBytes(h.m); heightCache={src:S.height,key:'',grid:{nx:h.nx,ny:h.ny,cs:h.cs,e,m,est:false}}; return heightCache.grid; }
+  if(S.height){ if(heightCache.src===S.height && heightCache.grid.fs===S.stamps && heightCache.grid.fc===S.cliffs) return heightCache.grid; const h=S.height, e=Float32Array.from(new Int8Array(unpackBytes(h.v).buffer),v=>v/100), m=unpackBytes(h.m), land=m.map(v=>v===0?1:0); featureBumps(e,h.nx,h.ny,h.cs,land); heightCache={src:S.height,key:'',grid:{nx:h.nx,ny:h.ny,cs:h.cs,e,m,est:false,pid:h.pid?unpackBytes(h.pid):null,pb:h.pb?unpackBytes(h.pb):null,plates:h.plates||null,fs:S.stamps,fc:S.cliffs}}; return heightCache.grid; }
   const key=[S.lands.length,S.cliffs.length,S.stamps.length,landVer,S.w,S.h].join();      // no stored heights: estimate from the land and sea, the cliffs and the mountains
   if(heightCache.src===null && heightCache.key===key) return heightCache.grid; const cs=20, nx=Math.floor(S.w/cs)+1, ny=Math.floor(S.h/cs)+1, N=nx*ny, e=new Float32Array(N), m=new Uint8Array(N), LD=lm.getImageData(0,0,landMask.width,landMask.height).data, W=landMask.width;
   const land=new Uint8Array(N); for(let j=0;j<ny;j++) for(let i=0;i<nx;i++) land[j*nx+i]=LD[(Math.min(landMask.height-1,Math.round(j*cs*R))*W+Math.min(W-1,Math.round(i*cs*R)))*4+3]>128?1:0;
@@ -530,13 +535,28 @@ function heightGrid(){      // {nx,ny,cs,e (heights),m (0 land, 1 sea, 2 lake), 
     for(let j=ny-1;j>=0;j--) for(let i=nx-1;i>=0;i--){ const k=j*nx+i; let v=d[k]; if(i<nx-1) v=Math.min(v,d[k+1]+1); if(j<ny-1){ v=Math.min(v,d[k+nx]+1); if(i<nx-1) v=Math.min(v,d[k+nx+1]+1.414); if(i>0) v=Math.min(v,d[k+nx-1]+1.414); } d[k]=v; } return d; };
   const toSea=dist(0), toLand=dist(1);      // steps to the nearest water, and to the nearest land
   for(let k=0;k<N;k++){ if(land[k]){ e[k]=.04+Math.min(1,toSea[k]/14)*.4; } else { e[k]=-.03-Math.min(1,toLand[k]/16)*.6; m[k]=1; } }
-  const bump=(x,y,r,a)=>{ const i0=Math.max(0,Math.floor((x-r)/cs)), i1=Math.min(nx-1,Math.ceil((x+r)/cs)), j0=Math.max(0,Math.floor((y-r)/cs)), j1=Math.min(ny-1,Math.ceil((y+r)/cs)); for(let j=j0;j<=j1;j++) for(let i=i0;i<=i1;i++){ const d=Math.hypot(i*cs-x,j*cs-y)/r; if(d<1 && land[j*nx+i]) e[j*nx+i]+=a*(1-d)*(1-d); } };
-  for(const q of S.stamps){ const a={mountain:.3,snowpeak:.38,highpeak:.55,volcano:.45,mesa:.25,crag:.2,hill:.12,boulders:0}[q.kind]; if(a) bump(q.x,q.y,q.size*.5,a); }
-  for(const c of S.cliffs){ if(c.mode!=='up' || !(c.h>0)) continue; landPath(c); const b=built.get(c).bb; for(let j=Math.max(0,Math.floor(b[1]/cs));j<=Math.min(ny-1,Math.ceil(b[3]/cs));j++) for(let i=Math.max(0,Math.floor(b[0]/cs));i<=Math.min(nx-1,Math.ceil(b[2]/cs));i++) if(land[j*nx+i] && inLand(c,[i*cs,j*cs])) e[j*nx+i]+=c.h/140*.35; }
+  featureBumps(e,nx,ny,cs,land);
   for(let pass=0;pass<3;pass++){ const t=Float32Array.from(e); for(let j=1;j<ny-1;j++) for(let i=1;i<nx-1;i++){ const k=j*nx+i; if(land[k]===land[k-1] && land[k]===land[k+1] && land[k]===land[k-nx] && land[k]===land[k+nx]) e[k]=(t[k]*4+t[k-1]+t[k+1]+t[k-nx]+t[k+nx])/8; } }      // a little blur, kept to the same side of the coast
   heightCache={src:null,key,grid:{nx,ny,cs,e,m,est:true}}; return heightCache.grid; }
+const PLATE_NAMES=['Aldra','Brennor','Caul','Dravos','Eskar','Fenwick','Gorm','Halvet','Iskeld','Jorund','Kesh','Lorne','Maren','Norvik'];
+function composePlates(g){      // each plate in its own faint colour (warm for continental crust, cool for oceanic), where they meet marked by how they meet, with the way each one drifts
+  const W=S.w, H=S.h, u=Math.max(exporting?1.5:4,Math.sqrt(W*H/(exporting?1.2e6:400000))), ow=Math.ceil(W/u), oh=Math.ceil(H/u), [oc,ox]=mkCanvas(ow,oh), im=ox.createImageData(ow,oh), d=im.data, P=g.plates;
+  const col=(i)=>{ const p=P[i]; const hue=p.c?(28+i*47)%70+10:(190+i*37)%70+170; return [hue,p.c?42:38,p.c?72:70]; }, hsl=(h,s,l)=>{ s/=100; l/=100; const a=s*Math.min(l,1-l), f=n=>{ const k=(n+h/30)%12; return l-a*Math.max(-1,Math.min(k-3,9-k,1)); }; return [f(0)*255,f(8)*255,f(4)*255]; };
+  const cols=P.map((p,i)=>hsl(...col(i)));
+  for(let py=0;py<oh;py++) for(let px=0;px<ow;px++){ const gi=Math.min(g.nx-1,Math.round((px+.5)*u/g.cs)), gj=Math.min(g.ny-1,Math.round((py+.5)*u/g.cs)), k=gj*g.nx+gi, c=cols[g.pid[k]]||[200,200,200], sea=g.m[k]!==0, sh=sea?.82:1.04, o=(py*ow+px)*4;
+    d[o]=Math.min(255,c[0]*sh); d[o+1]=Math.min(255,c[1]*sh); d[o+2]=Math.min(255,c[2]*sh); d[o+3]=255; }
+  ox.putImageData(im,0,0); bc.save(); bc.globalAlpha=1; bc.globalCompositeOperation='source-over'; bc.imageSmoothingEnabled=true; bc.imageSmoothingQuality='high'; bc.drawImage(oc,0,0,W,H);
+  const BC={1:'rgba(176,48,40,.9)',2:'rgba(48,96,168,.9)',3:'rgba(90,90,90,.75)'};
+  for(const ty of [3,2,1]){ bc.fillStyle=BC[ty]; for(let j=0;j<g.ny;j++) for(let i=0;i<g.nx;i++) if(g.pb[j*g.nx+i]===ty){ bc.beginPath(); bc.arc(i*g.cs,j*g.cs,g.cs*.42,0,7); bc.fill(); } }      // a dot per boundary cell: closing, drifting apart, sliding
+  const fs=Math.max(14,Math.round(W/70)); bc.font='600 '+fs+'px "IM Fell English",Georgia,serif'; bc.textAlign='center'; bc.textBaseline='middle';
+  P.forEach((p,i)=>{ const L=Math.min(W,H)*.1, x1=p.x+p.dx*L, y1=p.y+p.dy*L, a=Math.atan2(p.dy,p.dx); bc.strokeStyle='rgba(30,24,18,.85)'; bc.fillStyle='rgba(30,24,18,.85)'; bc.lineWidth=Math.max(2,W/500); bc.beginPath(); bc.moveTo(p.x,p.y); bc.lineTo(x1,y1); bc.stroke(); bc.beginPath(); bc.moveTo(x1,y1); bc.lineTo(x1-Math.cos(a-.45)*fs*.9,y1-Math.sin(a-.45)*fs*.9); bc.lineTo(x1-Math.cos(a+.45)*fs*.9,y1-Math.sin(a+.45)*fs*.9); bc.closePath(); bc.fill();
+    const t=(PLATE_NAMES[i]||'Plate '+(i+1))+(p.c?' (continental)':' (oceanic)'); bc.lineWidth=fs*.35; bc.strokeStyle='rgba(245,238,220,.85)'; bc.strokeText(t,p.x,p.y-fs*1.1); bc.fillText(t,p.x,p.y-fs*1.1); });
+  const lx=W*.02, ly=H-fs*5.2; bc.textAlign='left'; bc.fillStyle='rgba(245,238,220,.88)'; bc.fillRect(lx-fs*.4,ly-fs*.9,fs*14,fs*4.9); bc.font=fs+'px "IM Fell English",Georgia,serif';
+  [[1,'Closing: mountains, trenches'],[2,'Drifting apart: rift'],[3,'Sliding past: rough ground']].forEach(([ty,t],i)=>{ bc.fillStyle=BC[ty]; bc.beginPath(); bc.arc(lx+fs*.4,ly+i*fs*1.4,fs*.35,0,7); bc.fill(); bc.fillStyle='rgba(30,24,18,.9)'; bc.fillText(t,lx+fs*1.2,ly+i*fs*1.4); });
+  bc.restore(); }
 function composeHeight(){      // the whole sheet as a shaded height map: sea level mid-grey, land lighter, deep water darker, lakes a faint blue, lit from the left
-  const W=S.w, H=S.h, g=heightGrid(), u=Math.max(exporting?1.5:4,Math.sqrt(W*H/(exporting?1.2e6:400000))), ow=Math.ceil(W/u), oh=Math.ceil(H/u), [oc,ox]=mkCanvas(ow,oh), im=ox.createImageData(ow,oh), d=im.data;
+  const g0=heightGrid(); if(opts.hmView==='plates' && g0.pid && g0.plates) return composePlates(g0);
+  const W=S.w, H=S.h, g=g0, u=Math.max(exporting?1.5:4,Math.sqrt(W*H/(exporting?1.2e6:400000))), ow=Math.ceil(W/u), oh=Math.ceil(H/u), [oc,ox]=mkCanvas(ow,oh), im=ox.createImageData(ow,oh), d=im.data;
   let hi=.2, lo=-.3; for(const v of g.e){ if(v>hi) hi=v; if(v<lo) lo=v; }
   const at=(x,y)=>{ const gx=Math.max(0,Math.min(g.nx-1.001,x/g.cs)), gy=Math.max(0,Math.min(g.ny-1.001,y/g.cs)), i=Math.floor(gx), j=Math.floor(gy), fx=gx-i, fy=gy-j, E=(a,b)=>g.e[b*g.nx+a]; return E(i,j)*(1-fx)*(1-fy)+E(i+1,j)*fx*(1-fy)+E(i,j+1)*(1-fx)*fy+E(i+1,j+1)*fx*fy; };
   for(let py=0;py<oh;py++) for(let px=0;px<ow;px++){ const x=(px+.5)*u, y=(py+.5)*u, e=at(x,y), mk=g.m[Math.min(g.ny-1,Math.round(y/g.cs))*g.nx+Math.min(g.nx-1,Math.round(x/g.cs))], o=(py*ow+px)*4;
@@ -915,15 +935,15 @@ function syncTerrain(){       // brings terrainC up to date: adds what is new, o
   let e; if(tcache.length<(PHONE?1:3)){ const [c,x]=mkCanvas(S.w*R,S.h*R); x.setTransform(R,0,0,R,0,0); const [wc,wxx]=mkCanvas(washLand.width,washLand.height); e={c,x,wc,wxx}; } else e=tcache.shift();
   e.wxx.clearRect(0,0,e.wc.width,e.wc.height); e.wxx.drawImage(washLand,0,0); e.x.clearRect(0,0,S.w,S.h); e.x.drawImage(terrainC,0,0,S.w,S.h); e.lands=L; e.paints=P; tcache.push(e);
 }
-const selLands = () => selItems().filter(it=>it.type==='land').map(it=>it.obj);
+const selLands = () => selItems().filter(it=>it.type==='land').map(it=>it.obj), selCliffs = () => selItems().filter(it=>it.type==='cliff').map(it=>it.obj);
 function paintsOn(lands){     // the paint strokes that sit on these land shapes (judged by the middle of each stroke)
   const ls=lands.filter(l=>l.mode!=='sea'); if(!ls.length) return [];
   return S.paints.filter(p=>{ if(p.w) return false; const m=p.pts[p.pts.length>>1]; return ls.some(l=>inLand(l,m)); }); }
-function ridersOn(lands){    // everything sitting on these land shapes: lakes and bays cut into them, paint, rivers, roads, stamps, labels
-  const ls=lands.filter(l=>l.mode!=='sea'); if(!ls.length) return []; const picked=new Set(selItems().map(it=>it.obj)), on=p=>ls.some(l=>inLand(l,p)), free=o=>!picked.has(o);
+function ridersOn(lands,cliffs=[]){    // everything sitting on these land shapes: lakes and bays cut into them, paint, rivers, roads, stamps, labels; a raised cliff takes only the stamps and labels on its top
+  const ls=lands.filter(l=>l.mode!=='sea'), cl=cliffs.filter(c=>c.mode==='up' && c.h>0); if(!ls.length && !cl.length) return []; const picked=new Set(selItems().map(it=>it.obj)), on=p=>ls.some(l=>inLand(l,p)), onTop=p=>on(p) || cl.some(c=>inLand(c,p)), free=o=>!picked.has(o);
   const mid=o=>{ landPath(o); const b=built.get(o).bb; return [(b[0]+b[2])/2,(b[1]+b[3])/2]; };
   return [['lands',S.lands.filter(o=>o.mode==='sea' && free(o) && on(mid(o)))], ['cliffs',S.cliffs.filter(o=>free(o) && on(mid(o)))], ['paints',paintsOn(lands)], ['lines',S.lines.filter(o=>free(o) && on(o.pts[o.pts.length>>1]))],
-          ['stamps',S.stamps.filter(o=>free(o) && on([o.x,o.y]))], ['labels',S.labels.filter(o=>free(o) && on([o.x,o.y]))]].filter(r=>r[1].length); }
+          ['stamps',S.stamps.filter(o=>free(o) && onTop([o.x,o.y]))], ['labels',S.labels.filter(o=>free(o) && onTop([o.x,o.y]))]].filter(r=>r[1].length); }
 /* Shore decoration, rebuilt only when the land changes: ripple lines and a pale glow in the water, soft shading inside the coast. */
 function rebuildCoast(){
   const w=coastC.width, h=coastC.height;
@@ -2020,6 +2040,14 @@ const MTN_BODY={mountain:[.6,.5,.2],snowpeak:[.6,.62,.2],highpeak:[.75,.95,.22],
 const COVER_GROUPS=new Set(['Trees','Plants']);
 const inMountain=(ms,x,y)=>{ for(const m of ms){ const b=MTN_BODY[m.kind], dx=(x-m.x)/(m.size*b[0]); if(dx>-1&&dx<1){ const top=m.y+m.size*b[2]-m.size*b[1]*Math.sqrt(1-dx*dx)*1.15, bot=m.y+m.size*b[2]; if(y>top && y<bot) return true; } } return false; };
 let coverFor=null, coverSet=null;
+let faceFor=null, faceKey=null, faceSet=new Set();
+function faceHidden(){      // stamps standing on a cliff face, its edge or in a pit are not drawn, as trees are not drawn inside a mountain; found by reading the solid-cliff layer, only near a cliff
+  if(!S.cliffs.length || !layers.cliffs.v) return faceSet.size ? (faceSet=new Set()) : faceSet;
+  if(faceFor===S.stamps && faceKey===cliffBuilt && cliffBuilt.cliffs===S.cliffs) return faceSet;
+  faceFor=S.stamps; faceKey=cliffBuilt; faceSet=new Set(); if(cliffBuilt.cliffs!==S.cliffs) return faceSet;
+  const boxes=S.cliffs.map(c=>{ landPath(c); return built.get(c).bb; }).filter(b=>b);
+  for(const st of S.stamps){ if(boxes.some(b=>st.x>b[0]-60 && st.x<b[2]+60 && st.y>b[1]-60 && st.y<b[3]+60)){ const px=Math.round(st.x*R), py=Math.round(st.y*R); if(px<0||py<0||px>=csx.canvas.width||py>=csx.canvas.height) continue; if(csx.getImageData(px,py,1,1).data[3]>128) faceSet.add(st); } }
+  return faceSet; }
 function coverHidden(){ if(coverFor===S.stamps) return coverSet; coverFor=S.stamps; const ms=S.stamps.filter(s=>MTN_BODY[s.kind]); coverSet=new Set(); if(ms.length) for(const s of S.stamps) if(!MTN_BODY[s.kind] && COVER_GROUPS.has(groupOf(s.kind)) && inMountain(ms,s.x,s.y)) coverSet.add(s); return coverSet; }
 function stampsSorted(){ if(sortedFor!==S.stamps){ sortedFor=S.stamps; sorted=S.stamps.slice().sort((a,b)=>((a.z||0)-(b.z||0)) || a.y-b.y); } return sorted; }   // order first, then lower on the sheet in front
 function labelMetrics(c,l){ const st=LABEL_STYLES[l.style]||LABEL_STYLES.place; c.font=`${st.italic?'italic ':''}${l.size}px ${st.font}`; const gap=l.size*(l.spacing ?? st.spacing), lh=l.size*1.12;      // a label may run to several lines and may be bent along an arc
@@ -2058,7 +2086,7 @@ function drawVectors(c,k,vp){      // vp: the part of the map in view [x0,y0,x1,
   const one=S.layers.length===1, ss=layers.stamps.v?stampsSorted():[];
   for(const L of S.layers){ if(L.v===false) continue; const mine=o=>one || layerOf(o)===L;      // each layer in turn, bottom first: its lines, then its stamps, then its lettering
     if(layers.lines.v){ const ls=one?S.lines:S.lines.filter(mine); drawWalls(c,ls); drawStreets(c,ls); drawRoads(c,ls); for(const l of ls) drawLine(c,l); }
-    const hid=coverHidden(); if(!S.hm) for(const st of ss) if(mine(st) && !hid.has(st) && (!vp || (st.x+st.size>vp[0] && st.x-st.size<vp[2] && st.y+st.size>vp[1] && st.y-st.size<vp[3]))) drawStamp(c,st,k);
+    const hid=coverHidden(), fh=faceHidden(); if(!S.hm) for(const st of ss) if(mine(st) && !hid.has(st) && !fh.has(st) && (!vp || (st.x+st.size>vp[0] && st.x-st.size<vp[2] && st.y+st.size>vp[1] && st.y-st.size<vp[3]))) drawStamp(c,st,k);
     if(layers.labels.v) for(const l of S.labels) if(mine(l) && (!vp || (l.x>vp[0]-600 && l.x<vp[2]+600 && l.y>vp[1]-400 && l.y<vp[3]+400))) drawLabel(c,l); }
   if(!S.hm){ c.globalAlpha=1; c.globalCompositeOperation='multiply'; c.drawImage(tintC,0,0,S.w,S.h); c.globalCompositeOperation='source-over'; }
   c.restore();
@@ -2397,7 +2425,7 @@ function lockSel(){ if(!sel) return; const lock=!selItems().every(it=>it.obj.loc
 function unlockAll(){ let n=0; const un=o=>{ if(!o.locked) return o; n++; const c={...o}; delete c.locked; return c; }; pushUndo('Unlock all'); for(const k of ['lands','cliffs','lines','stamps','labels']) S[k]=S[k].map(un); sel=null; need.land=true; need.compose='full'; renderPanel(); invalidate(); queueSave(); toast('Unlocked '+n+(n===1?' object.':' objects.')); }
 const lockedCount=()=>['lands','cliffs','lines','stamps','labels'].reduce((a,k)=>a+S[k].filter(o=>o.locked).length,0);
 function moveItems(items,dx,dy){ const sh=o=>o.pts?{...o,pts:o.pts.map(q=>[q[0]+dx,q[1]+dy])}:{...o,x:o.x+dx,y:o.y+dy}, m=new Map(items.map(it=>[it.obj,sh(it.obj)]));      // shift these by the same amount; a landmass takes what is on it
-  for(const [,objs] of ridersOn(items.filter(it=>it.type==='land').map(it=>it.obj))) for(const q of objs) m.set(q,sh(q));
+  for(const [,objs] of ridersOn(items.filter(it=>it.type==='land').map(it=>it.obj),items.filter(it=>it.type==='cliff').map(it=>it.obj))) for(const q of objs) m.set(q,sh(q));
   for(const k of ['lands','cliffs','paints','lines','stamps','labels']) S[k]=S[k].map(q=>m.get(q)||q); return m; }
 function alignSel(mode){ const its=selItems(); if(its.length<2 || anyLocked()) return; const boxes=its.map(objBox), U=selBox(), n=its.length; let moves;
   if(mode==='H'||mode==='V'){ if(n<3) return; const a=mode==='H'?0:1, ctr=boxes.map(b=>(b[a]+b[a+2])/2), order=its.map((_,i)=>i).sort((x,y)=>ctr[x]-ctr[y]), lo=ctr[order[0]], hi=ctr[order[n-1]];      // the two outermost stay put and the ones between are spaced evenly by their centres
@@ -2411,7 +2439,7 @@ function selHandles(){ const b=selBox(); if(!b || anyLocked()) return null; cons
 function remapSel(m){ const g=o=>m.get(o)||o; if(sel.type==='land'){ sel.obj=g(sel.obj); sel.group=sel.group.map(g); } else if(sel.type==='multi') sel.items=sel.items.map(it=>({type:it.type,obj:g(it.obj)})); else sel.obj=g(sel.obj); }
 function xfGrab(p){            // did the press land on a scale or rotate grip?
   const hs=sel && selHandles(); if(!hs) return false; const tol=13/view.k, mode = hs.corners.some(q=>dist(p,q)<tol) ? 'scale' : dist(p,hs.rot)<tol ? 'rot' : null; if(!mode) return false;
-  const entries=selItems().map(it=>({key:keyOf(it.type),orig:it.obj,cur:it.obj})); ridersOn(selLands()).forEach(([key,objs])=>objs.forEach(o=>entries.push({key,orig:o,cur:o})));   // a landmass takes what is on it along
+  const entries=selItems().map(it=>({key:keyOf(it.type),orig:it.obj,cur:it.obj})); ridersOn(selLands(),selCliffs()).forEach(([key,objs])=>objs.forEach(o=>entries.push({key,orig:o,cur:o})));   // a landmass takes what is on it along
   act={type:'xf',mode,c:hs.c,p0:p,entries,moved:false}; return true; }
 function xfApply(p){ const a=act, c=a.c; if(!a.moved){ pushUndo(a.mode==='rot'?'Turn':'Scale'); a.moved=true; }
   const f = a.mode==='scale' ? clamp(dist(p,c)/(dist(a.p0,c)||1),.05,20) : 1; let ang = a.mode==='rot' ? Math.atan2(p[1]-c[1],p[0]-c[0])-Math.atan2(a.p0[1]-c[1],a.p0[0]-c[0]) : 0;
@@ -2423,7 +2451,7 @@ function xfApply(p){ const a=act, c=a.c; if(!a.moved){ pushUndo(a.mode==='rot'?'
     const q=P([o.x,o.y]); return {...o,x:q[0],y:q[1],size:Math.max(4,o.size*f),rot:turn(o.rot)}; };
   const m=new Map(); a.entries.forEach(en=>{ const n=tf(en.orig); m.set(en.cur,n); en.cur=n; });
   for(const k of ['lands','cliffs','paints','lines','stamps','labels']) S[k]=S[k].map(o=>m.get(o)||o); remapSel(m); selDirty(false); }
-function nudgeSel(dx,dy){ if(anyLocked()) return; pushUndo('Nudge'); const sh=o=>o.pts?{...o,pts:o.pts.map(q=>[q[0]+dx,q[1]+dy])}:{...o,x:o.x+dx,y:o.y+dy}, riders=ridersOn(selLands());
+function nudgeSel(dx,dy){ if(anyLocked()) return; pushUndo('Nudge'); const sh=o=>o.pts?{...o,pts:o.pts.map(q=>[q[0]+dx,q[1]+dy])}:{...o,x:o.x+dx,y:o.y+dy}, riders=ridersOn(selLands(),selCliffs());
   editSel(sh); riders.forEach(([k,objs])=>{ const m=new Map(objs.map(q=>[q,sh(q)])); S[k]=S[k].map(q=>m.get(q)||q); }); selDirty(true); invalidate(); queueSave(); }
 function hitTest(p,withLocked){
   if(layers.labels.v && !layers.labels.lock) for(let i=S.labels.length-1;i>=0;i--){ const l=S.labels[i]; if(!lyPickable(l) || (l.locked && !withLocked)) continue; const m=labelMetrics(hitX,l), a=-l.rot*Math.PI/180, dx=p[0]-l.x, dy=p[1]-l.y;
@@ -2502,7 +2530,7 @@ cv.addEventListener('pointermove',e=>{
     else { const step=Math.max(4,base*.35/Math.max(.3,opts.scatterDensity)); if(dist(act.last,p)>=step){ act.last=p; scatterDab(p,base); } } }
   else if(act.type==='paint'){ if(addPoint(act,p,4)) need.compose='fast'; }
   else if(act.type==='fpaint'){ if(addPoint(act,p,Math.max(4,opts.floorBrush*.12))){ need.compose='fast'; } }
-  else if(act.type==='move' && sel){ if(anyLocked()) return; const dx=p[0]-act.last[0], dy=p[1]-act.last[1]; if(!act.moved){ if(Math.hypot(dx,dy)<3/view.k) return; pushUndo('Move '+(selItems().length>1?selItems().length+' things':({land:'landmass',cliff:'cliff',line:'line',stamp:'stamp',label:'label'})[sel.type]||'selection')); act.moved=true; act.riders=ridersOn(selLands()); }
+  else if(act.type==='move' && sel){ if(anyLocked()) return; const dx=p[0]-act.last[0], dy=p[1]-act.last[1]; if(!act.moved){ if(Math.hypot(dx,dy)<3/view.k) return; pushUndo('Move '+(selItems().length>1?selItems().length+' things':({land:'landmass',cliff:'cliff',line:'line',stamp:'stamp',label:'label'})[sel.type]||'selection')); act.moved=true; act.riders=ridersOn(selLands(),selCliffs()); }
     act.last=p; editSel(o=>o.pts?{...o,pts:o.pts.map(q=>[q[0]+dx,q[1]+dy])}:{...o,x:o.x+dx,y:o.y+dy});
     act.riders=act.riders.map(([k,objs])=>{ const m=new Map(objs.map(q=>[q,q.pts?{...q,pts:q.pts.map(v=>[v[0]+dx,v[1]+dy])}:{...q,x:q.x+dx,y:q.y+dy}])); S[k]=S[k].map(q=>m.get(q)||q); return [k,[...m.values()]]; });   // a landmass carries what is on it
     selDirty(false); }
@@ -2717,7 +2745,7 @@ function renderPanel(){
   if(t==='measure') h+=`<section><h2>Measure</h2><p style="font-size:17px;margin:0">${measured?'<b>'+fmtDist(pathLen(measured))+'</b> along the route':'Drag along a route on the map.'}</p><p class="grp">Map scale</p><label class="row wide" for="scaleN">100 map units =<input type="number" id="scaleN" min="0.01" step="any" value="${S.scale.per100}" style="width:5.5em"></label><label class="row wide" for="scaleU">Unit<select id="scaleU">${['miles','leagues','km','days','yards','feet','paces'].map(u=>`<option${u===S.scale.unit?' selected':''}>${u}</option>`).join('')}</select></label><p>A grid cell (${S.grid.size}) is ${fmtDist(S.grid.size)}. The whole sheet is ${fmtDist(S.w)} across. Scale bar stamps show this scale.</p></section>`;
   if(t==='pan') h+=`<section><h2>Pan</h2><p>Hold Space with any tool to pan without switching.</p></section>`;
   const setDetail=`<section><h2>Detail</h2>${PHONE?'<p>Phone mode draws at reduced detail.</p>':`<div class="chips" id="detailPick"><button class="chip" data-detail="1" aria-pressed="${R===1}">Normal</button><button class="chip" data-detail="${Math.min(2,maxScale())}" aria-pressed="${R>1}">High</button></div><p>High stays sharp when you zoom in, but painting and undo are slower.</p>`}</section>`;
-  const setHm=`<section><h2>Heightmap</h2><div class="layer"><span>Show heights</span><label><input type="checkbox" id="hmOn" ${S.hm?'checked':''}>on</label></div><p>${S.height?'Draws the heights this map was generated from, as a shaded grey relief: sea level is mid-grey, lakes are tinted blue. Rivers and names stay.':'This map has no stored heights, so the view is estimated from its coast, cliffs and mountains.'}</p></section>`;
+  const setHm=`<section><h2>Heightmap</h2><div class="layer"><span>Show heights</span><label><input type="checkbox" id="hmOn" ${S.hm?'checked':''}>on</label></div>${S.height&&S.height.pid?`<div class="chips"><button class="chip" data-hmv="relief" aria-pressed="${opts.hmView!=='plates'}">Relief</button><button class="chip" data-hmv="plates" aria-pressed="${opts.hmView==='plates'}">Tectonic plates</button></div>`:''}<p>${S.height?'Draws the heights this map was generated from, as a shaded grey relief: sea level is mid-grey, lakes are tinted blue. Rivers and names stay.':'This map has no stored heights, so the view is estimated from its coast, cliffs and mountains.'}</p></section>`;
   const setRot=`<section><h2>Rotation</h2><div class="layer"><span>Snap to 15°</span><label><input type="checkbox" id="rotSnap" ${opts.rotSnap?'checked':''}>on</label></div><p>Applies to the rotation sliders and the turn handle. Hold Shift while turning with the handle to snap just that once.</p></section>`;
   const setGrid=`<section><h2>Grid</h2><label class="row wide" for="gridType">Type<select id="gridType"><option value="none">None</option><option value="hex">Hex</option><option value="square">Square</option></select></label>${slider('gridSize','Cell',20,200,2,S.grid.size,num)}</section>
   <hr><section><h2>Sheet</h2><label class="row wide" for="frameType">Border<select id="frameType"><option value="none">None</option><option value="line">Double line</option><option value="graduated">Chart border</option></select></label>${DUNG()?slider('dunHatch','Rock hatching',0,2,.05,S.dun.hatch,pct)+'<div class="layer"><span>Wall shadow</span><label><input type="checkbox" id="dunShadow" '+(S.dun.shadow?'checked':'')+'>show</label><span></span></div><p>The rock round the rooms is hatched, and a band of shading runs down the left inside of each wall.</p>':`<div class="layer"><span>Rhumb lines</span><label><input type="checkbox" id="rhumbOn" ${S.rhumb?'checked':''}>show</label><span></span></div><p>Rhumb lines run across the sea from every compass stamp. Compass, scale and cartouche are under Stamps, Furniture.</p>`}</section>`;
@@ -2769,6 +2797,7 @@ function renderPanel(){
   bind('stampOpacity',v=>Math.round(v)+'%',v=>{ opts.stampOpacity=v; pendPreview(); }); bind('scatterDensity',pct,v=>opts.scatterDensity=v); bind('scatterGap',pct,v=>opts.scatterGap=v); bind('sizeVar',pct,v=>opts.sizeVar=v);
   bind('floorBrush',num,v=>opts.floorBrush=v); pick('floorTex','ftex',v=>opts.floorTex=v); pick('floorMode','fmode',v=>opts.floorMode=v);
   pick('roomShape','shape',v=>{ opts.roomShape=v; draft=null; }); pick('corrW','cw',v=>opts.corrW=+v); pick('roomCut','cut',v=>opts.roomCut=v==='1'); pick('roomTex','tex',v=>opts.roomTex=v);
+  document.querySelectorAll('[data-hmv]').forEach(b=>b.addEventListener('click',()=>{ opts.hmView=b.dataset.hmv; if(!S.hm) S.hm=true; need.compose='full'; invalidate(); renderPanel(); }));
   $('hmOn')?.addEventListener('change',e=>{ S.hm=e.target.checked; need.compose='full'; invalidate(); queueSave(); }); $('rotSnap')?.addEventListener('change',e=>opts.rotSnap=e.target.checked); $('snapOn')?.addEventListener('change',e=>opts.snap=e.target.checked); $('snapFine')?.addEventListener('change',e=>opts.snapFine=e.target.checked); bind('dwallW',v=>v,v=>opts.lineWidth.dwall=v);
   $('selTex')?.addEventListener('click',e=>{ const b=e.target.closest('[data-tex]'); if(!b) return; pushUndo(); editSel(o=>({...o,tex:b.dataset.tex})); selDirty(true); renderPanel(); invalidate(); });
   const lyChanged=()=>{ need.land=true; need.compose='full'; sel=null; renderPanel(); invalidate(); queueSave(); };
@@ -2798,7 +2827,7 @@ function renderPanel(){
     $('selKinds')?.addEventListener('click',e=>{ const b=e.target.closest('[data-kind]'); if(b){ pushUndo(); set({kind:b.dataset.kind}); renderPanel(); invalidate(); } });
     $('selDel')?.addEventListener('click',deleteSel);
     $('selDup')?.addEventListener('click',()=>{ pushUndo('Duplicate'); const clone=o=>{ const c=o.pts?{...o,pts:o.pts.map(q=>[q[0]+40,q[1]+40])}:{...o,x:o.x+40,y:o.y+40}; delete c.locked; return c; };
-      const riders=ridersOn(selLands()), items=selItems().map(it=>({type:it.type,obj:it.type==='land'?{...clone(it.obj),t:++S.tick}:clone(it.obj)}));
+      const riders=ridersOn(selLands(),selCliffs()), items=selItems().map(it=>({type:it.type,obj:it.type==='land'?{...clone(it.obj),t:++S.tick}:clone(it.obj)}));
       items.forEach(it=>{ const k=keyOf(it.type); S[k]=[...S[k],it.obj]; }); riders.forEach(([k,objs])=>{ S[k]=[...S[k],...objs.map(q=>(k==='lands'||k==='paints')?{...clone(q),t:++S.tick}:clone(q))]; });
       sel = sel.type==='land' ? {type:'land',obj:items[0].obj,group:items.map(it=>it.obj)} : items.length>1 ? {type:'multi',items} : items[0];
       selDirty(true); renderPanel(); invalidate(); });
@@ -2946,13 +2975,14 @@ function generateMap(W,H,kind,G={}){ G={land:1,mountains:1,forests:1,rivers:1,to
   for(let j=0;j<ny;j++) for(let i=0;i<nx;i++){ const x=i*cs, y=j*cs, k=at(i,j), wx=x+bend(x,y,seed+1101,seed+1111,seed+1121), wy=y+bend(x,y,seed+1202,seed+1212,seed+1222);      // distance to the nearest two plates, measured in bent space
     let d1=1e9,d2=1e9,p1=null,p2=null; for(const s of plates){ const d=Math.hypot(wx-s.x,wy-s.y); if(d<d1){ d2=d1; p2=p1; d1=d; p1=s; } else if(d<d2){ d2=d; p2=s; } }
     plateId[k]=p1.id; const t=sstep(0,BLEND,d2-d1), w1=.5+.5*t; plateBase[k]=p1.base*w1+p2.base*(1-w1); }
-  const uplift=new Float32Array(N), subs=new Float32Array(N), shear=new Float32Array(N);
+  const uplift=new Float32Array(N), subs=new Float32Array(N), shear=new Float32Array(N), bnd=new Uint8Array(N);      // bnd: 1 plates closing, 2 drifting apart, 3 sliding past (kept for the Tectonic view)
   const splat=(arr,k,amp,R)=>{ const ci=k%nx, cj=(k-ci)/nx, norm=1/(R*.667); for(let b=-R;b<=R;b++) for(let a=-R;a<=R;a++){ const i=ci+a, j=cj+b; if(i<0||j<0||i>=nx||j>=ny) continue; const d=Math.hypot(a,b)/R; if(d<1) arr[at(i,j)]+=amp*norm*(1-d)*(1-d); } };      // a boundary cell lends its strength to the cells round it, fading with distance
   const side=(k,P,Q,conv)=>{ if(conv>.25){ const s=Math.min(1.2,conv);      // plates closing on each other
       if(P.continental && Q.continental) splat(uplift,k,.55*s,6); else if(P.continental) splat(uplift,k,.65*s,6); else if(Q.continental) splat(subs,k,.34*s,5); else if(P.id>Q.id) splat(uplift,k,.36*s,5); else splat(subs,k,.28*s,4); }
     else if(conv<-.25) splat(subs,k,.2*Math.min(1.2,-conv),4);      // drifting apart: a rift
     else splat(shear,k,1,3); };      // sliding past: only roughness
   for(let j=0;j<ny;j++) for(let i=0;i<nx;i++){ const k=at(i,j); for(const m of [i<nx-1?k+1:-1, j<ny-1?k+nx:-1]){ if(m<0 || plateId[m]===plateId[k]) continue; const A=plates[plateId[k]], B=plates[plateId[m]], cx=B.x-A.x, cy=B.y-A.y, conv=((A.dx-B.dx)*cx+(A.dy-B.dy)*cy)/(Math.hypot(cx,cy)||1);
+      const ty=conv>.25?1:conv<-.25?2:3; if(!bnd[k]||ty<bnd[k]) bnd[k]=ty; if(!bnd[m]||ty<bnd[m]) bnd[m]=ty;
       side(k,A,B,conv); side(m,B,A,conv); } }      // the closing speed along the line between the two plates is the same seen from either side
   const rawRidge=new Float32Array(N), grav=kind==='island'?.4:kind==='continent'?.12:0, raw=[];
   for(let j=0;j<ny;j++) for(let i=0;i<nx;i++){ const x=i*cs, y=j*cs, k=at(i,j);
@@ -3117,7 +3147,7 @@ function generateMap(W,H,kind,G={}){ G={land:1,mountains:1,forests:1,rivers:1,to
       const grp=new Map(); peaks.forEach((q,a)=>{ const r=find(a); (grp.get(r)||grp.set(r,[]).get(r)).push(q); }); const rg=[...grp.values()].sort((a,b)=>b.length-a.length)[0];
       if(rg.length>=3){ const cx=rg.reduce((a,q)=>a+q[0],0)/rg.length, cy=Math.min(...rg.map(q=>q[1]))-70; st.labels.push({text:name().replace(/(ford|mouth|bridge|ton|by|stead|wick)$/,'')+' '+pick(['Peaks','Mountains','Spine','Heights','Teeth']),x:cx,y:Math.max(40,cy),size:22,rot:0,style:'range',bend:.18}); } } }
   { const [mc,mx]=mkCanvas(1,1); st.labels.forEach(l=>{ const hw=labelMetrics(mx,l).width/2+30; l.x=Math.round(clamp(l.x,hw,W-hw)); l.y=Math.round(clamp(l.y,l.size+20,H-l.size-20)); }); }      // keep every name on the sheet
-  st.height=packHeight(nx,ny,cs,elev,Array.from({length:N},(_,k)=>isLand(k)?0:ocean[k]?1:2));      // what the Heightmap view shows
+  st.height={...packHeight(nx,ny,cs,elev,Array.from({length:N},(_,k)=>isLand(k)?0:ocean[k]?1:2)), pid:packBytes(plateId), pb:packBytes(bnd), plates:plates.map(s=>({x:Math.round(s.x),y:Math.round(s.y),dx:+s.dx.toFixed(2),dy:+s.dy.toFixed(2),c:s.continental?1:0}))};      // what the Heightmap view shows
   st.gen={kind,seed,land:G.land,mountains:G.mountains,forests:G.forests,rivers:G.rivers,towns:G.towns};
   st.stamps.forEach(q=>{ q.size=Math.round(q.size*1.15); }); st.labels.forEach(l=>{ if(l.style==='water'){ l.bend=.2; } });      // sizes in step with the stamp tool's defaults
   return st;
