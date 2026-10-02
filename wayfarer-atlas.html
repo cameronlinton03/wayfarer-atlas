@@ -527,13 +527,13 @@ function featureBumps(e,nx,ny,cs,land){      // mountains and raised cliffs add 
 }
 let plateCache={key:'',data:null};
 function platesFor(){      // the plates of a generated map: stored, or (maps made before they were kept) made again from the map's seed, which gives the same plates because they depend only on the seed, kind and size
-  if(S.height && S.height.pid) return {pid:S.height.pid,pb:S.height.pb,plates:S.height.plates};
+  if(S.height && S.height.pid) return {pid:S.height.pid,pb:S.height.pb,pa:S.height.pa,plates:S.height.plates};
   const g=S.gen; if(!S.height || !g || !['island','continent','archipelago'].includes(g.kind)) return null;
   const key=[g.kind,g.seed,S.w,S.h,S.height.nx].join(); if(plateCache.key===key) return plateCache.data;
-  let data=null; try{ const st=generateMap(S.w,S.h,g.kind,{seed:g.seed}); if(st.height && st.height.pid && st.height.nx===S.height.nx && st.height.ny===S.height.ny) data={pid:st.height.pid,pb:st.height.pb,plates:st.height.plates}; }catch(e){}
+  let data=null; try{ const st=generateMap(S.w,S.h,g.kind,{seed:g.seed}); if(st.height && st.height.pid && st.height.nx===S.height.nx && st.height.ny===S.height.ny) data={pid:st.height.pid,pb:st.height.pb,pa:st.height.pa,plates:st.height.plates}; }catch(e){}
   plateCache={key,data}; return data; }
 function heightGrid(){      // {nx,ny,cs,e (heights),m (0 land, 1 sea, 2 lake), est}
-  if(S.height){ if(heightCache.src===S.height && heightCache.grid.fs===S.stamps && heightCache.grid.fc===S.cliffs) return heightCache.grid; const h=S.height, e=Float32Array.from(new Int8Array(unpackBytes(h.v).buffer),v=>v/100), m=unpackBytes(h.m), land=m.map(v=>v===0?1:0); featureBumps(e,h.nx,h.ny,h.cs,land); heightCache={src:S.height,key:'',grid:{nx:h.nx,ny:h.ny,cs:h.cs,e,m,est:false,...(()=>{ const q=platesFor(); return q?{pid:unpackBytes(q.pid),pb:unpackBytes(q.pb),plates:q.plates}:{pid:null,pb:null,plates:null}; })(),fs:S.stamps,fc:S.cliffs}}; return heightCache.grid; }
+  if(S.height){ if(heightCache.src===S.height && heightCache.grid.fs===S.stamps && heightCache.grid.fc===S.cliffs) return heightCache.grid; const h=S.height, e=Float32Array.from(new Int8Array(unpackBytes(h.v).buffer),v=>v/100), m=unpackBytes(h.m), land=m.map(v=>v===0?1:0); featureBumps(e,h.nx,h.ny,h.cs,land); heightCache={src:S.height,key:'',grid:{nx:h.nx,ny:h.ny,cs:h.cs,e,m,est:false,...(()=>{ const q=platesFor(); return q?{pid:unpackBytes(q.pid),pb:unpackBytes(q.pb),pa:q.pa?unpackBytes(q.pa):null,plates:q.plates}:{pid:null,pb:null,plates:null}; })(),fs:S.stamps,fc:S.cliffs}}; return heightCache.grid; }
   const key=[S.lands.length,S.cliffs.length,S.stamps.length,landVer,S.w,S.h].join();      // no stored heights: estimate from the land and sea, the cliffs and the mountains
   if(heightCache.src===null && heightCache.key===key) return heightCache.grid; const cs=20, nx=Math.floor(S.w/cs)+1, ny=Math.floor(S.h/cs)+1, N=nx*ny, e=new Float32Array(N), m=new Uint8Array(N), LD=lm.getImageData(0,0,landMask.width,landMask.height).data, W=landMask.width;
   const land=new Uint8Array(N); for(let j=0;j<ny;j++) for(let i=0;i<nx;i++) land[j*nx+i]=LD[(Math.min(landMask.height-1,Math.round(j*cs*R))*W+Math.min(W-1,Math.round(i*cs*R)))*4+3]>128?1:0;
@@ -553,13 +553,17 @@ function composePlates(g){      // each plate in its own faint colour (warm for 
   for(let py=0;py<oh;py++) for(let px=0;px<ow;px++){ const gi=Math.min(g.nx-1,Math.round((px+.5)*u/g.cs)), gj=Math.min(g.ny-1,Math.round((py+.5)*u/g.cs)), k=gj*g.nx+gi, c=cols[g.pid[k]]||[200,200,200], sea=g.m[k]!==0, sh=sea?.82:1.04, o=(py*ow+px)*4;
     d[o]=Math.min(255,c[0]*sh); d[o+1]=Math.min(255,c[1]*sh); d[o+2]=Math.min(255,c[2]*sh); d[o+3]=255; }
   ox.putImageData(im,0,0); bc.save(); bc.globalAlpha=1; bc.globalCompositeOperation='source-over'; bc.imageSmoothingEnabled=true; bc.imageSmoothingQuality='high'; bc.drawImage(oc,0,0,W,H);
-  const BC={1:'rgba(176,48,40,.9)',2:'rgba(48,96,168,.9)',3:'rgba(90,90,90,.75)'};
-  for(const ty of [3,2,1]){ bc.fillStyle=BC[ty]; for(let j=0;j<g.ny;j++) for(let i=0;i<g.nx;i++) if(g.pb[j*g.nx+i]===ty){ bc.beginPath(); bc.arc(i*g.cs,j*g.cs,g.cs*.42,0,7); bc.fill(); } }      // a dot per boundary cell: closing, drifting apart, sliding
-  const fs=Math.max(14,Math.round(W/70)); bc.font='600 '+fs+'px "IM Fell English",Georgia,serif'; bc.textAlign='center'; bc.textBaseline='middle';
-  P.forEach((p,i)=>{ const L=Math.min(W,H)*.1, x1=p.x+p.dx*L, y1=p.y+p.dy*L, a=Math.atan2(p.dy,p.dx); bc.strokeStyle='rgba(30,24,18,.85)'; bc.fillStyle='rgba(30,24,18,.85)'; bc.lineWidth=Math.max(2,W/500); bc.beginPath(); bc.moveTo(p.x,p.y); bc.lineTo(x1,y1); bc.stroke(); bc.beginPath(); bc.moveTo(x1,y1); bc.lineTo(x1-Math.cos(a-.45)*fs*.9,y1-Math.sin(a-.45)*fs*.9); bc.lineTo(x1-Math.cos(a+.45)*fs*.9,y1-Math.sin(a+.45)*fs*.9); bc.closePath(); bc.fill();
-    const t=(PLATE_NAMES[i]||'Plate '+(i+1))+(p.c?' (continental)':' (oceanic)'); bc.lineWidth=fs*.35; bc.strokeStyle='rgba(245,238,220,.85)'; bc.strokeText(t,p.x,p.y-fs*1.1); bc.fillText(t,p.x,p.y-fs*1.1); });
-  const lx=W*.02, ly=H-fs*5.2; bc.textAlign='left'; bc.fillStyle='rgba(245,238,220,.88)'; bc.fillRect(lx-fs*.4,ly-fs*.9,fs*14,fs*4.9); bc.font=fs+'px "IM Fell English",Georgia,serif';
+  const BC={1:'rgba(176,48,40,.9)',2:'rgba(48,96,168,.9)',3:'rgba(90,90,90,.75)',4:'rgba(90,90,90,.75)'};
+  for(const ty of [3,4,2,1]){ bc.fillStyle=BC[ty]; for(let j=0;j<g.ny;j++) for(let i=0;i<g.nx;i++) if(g.pb[j*g.nx+i]===ty){ bc.beginPath(); bc.arc(i*g.cs,j*g.cs,g.cs*.42,0,7); bc.fill(); } }      // a dot per boundary cell: closing, drifting apart, sliding
+  const fs=Math.max(14,Math.round(W/70)), L=fs*1.3, arrow=(x,y,a,col)=>{ bc.strokeStyle=bc.fillStyle=col; bc.lineWidth=Math.max(2,fs*.16); bc.beginPath(); bc.moveTo(x-Math.cos(a)*L*.5,y-Math.sin(a)*L*.5); bc.lineTo(x+Math.cos(a)*L*.5,y+Math.sin(a)*L*.5); bc.stroke(); const hx=x+Math.cos(a)*L*.5, hy=y+Math.sin(a)*L*.5; bc.beginPath(); bc.moveTo(hx,hy); bc.lineTo(hx-Math.cos(a-.5)*fs*.7,hy-Math.sin(a-.5)*fs*.7); bc.lineTo(hx-Math.cos(a+.5)*fs*.7,hy-Math.sin(a+.5)*fs*.7); bc.closePath(); bc.fill(); };
+  if(g.pa){ const step=Math.max(5,Math.round(fs*6/g.cs)), used=new Set(); for(let j=0;j<g.ny;j++) for(let i=0;i<g.nx;i++){ const k=j*g.nx+i, ty=g.pb[k]; if(!ty) continue; const key=Math.floor(i/step)+','+Math.floor(j/step)+','+g.pid[k]; if(used.has(key)) continue; used.add(key);
+      const a=g.pa[k]/256*Math.PI*2, x=i*g.cs, y=j*g.cs, ox=Math.cos(a)*L*.62, oy=Math.sin(a)*L*.62, col=BC[ty];      // the pair of arrows is how the two plates move relative to each other, seen across the boundary (a points from one plate to the other)
+      if(ty===1){ arrow(x-ox,y-oy,a,col); arrow(x+ox,y+oy,a+Math.PI,col); } else if(ty===2){ arrow(x-ox,y-oy,a+Math.PI,col); arrow(x+ox,y+oy,a,col); } else { const t=a+Math.PI/2*(ty===3?1:-1); arrow(x-ox*.5,y-oy*.5,t,col); arrow(x+ox*.5,y+oy*.5,t+Math.PI,col); } } }
+  bc.font='600 '+fs+'px "IM Fell English",Georgia,serif'; bc.textAlign='center'; bc.textBaseline='middle';
+  P.forEach((p,i)=>{ const t=(PLATE_NAMES[i]||'Plate '+(i+1))+(p.c?' (continental)':' (oceanic)'); bc.lineWidth=fs*.35; bc.strokeStyle='rgba(245,238,220,.85)'; bc.strokeText(t,p.x,p.y); bc.fillStyle='rgba(30,24,18,.85)'; bc.fillText(t,p.x,p.y); });
+  const lx=W*.02, ly=H-fs*5.2; bc.textAlign='left'; bc.fillStyle='rgba(245,238,220,.88)'; bc.fillRect(lx-fs*.4,ly-fs*.9,fs*25,fs*5.6); bc.font=fs+'px "IM Fell English",Georgia,serif';
   [[1,'Closing: mountains, trenches'],[2,'Drifting apart: rift'],[3,'Sliding past: rough ground']].forEach(([ty,t],i)=>{ bc.fillStyle=BC[ty]; bc.beginPath(); bc.arc(lx+fs*.4,ly+i*fs*1.4,fs*.35,0,7); bc.fill(); bc.fillStyle='rgba(30,24,18,.9)'; bc.fillText(t,lx+fs*1.2,ly+i*fs*1.4); });
+  bc.fillStyle='rgba(30,24,18,.9)'; bc.fillText('Arrows: how the two plates move, relative to each other',lx,ly+3*fs*1.4-fs*.2);
   bc.restore(); }
 function composeHeight(){      // the whole sheet as a shaded height map: sea level mid-grey, land lighter, deep water darker, lakes a faint blue, lit from the left
   const g0=heightGrid(); if(opts.hmView==='plates' && g0.pid && g0.plates) return composePlates(g0);
@@ -2982,14 +2986,16 @@ function generateMap(W,H,kind,G={}){ G={land:1,mountains:1,forests:1,rivers:1,to
   for(let j=0;j<ny;j++) for(let i=0;i<nx;i++){ const x=i*cs, y=j*cs, k=at(i,j), wx=x+bend(x,y,seed+1101,seed+1111,seed+1121), wy=y+bend(x,y,seed+1202,seed+1212,seed+1222);      // distance to the nearest two plates, measured in bent space
     let d1=1e9,d2=1e9,p1=null,p2=null; for(const s of plates){ const d=Math.hypot(wx-s.x,wy-s.y); if(d<d1){ d2=d1; p2=p1; d1=d; p1=s; } else if(d<d2){ d2=d; p2=s; } }
     plateId[k]=p1.id; const t=sstep(0,BLEND,d2-d1), w1=.5+.5*t; plateBase[k]=p1.base*w1+p2.base*(1-w1); }
-  const uplift=new Float32Array(N), subs=new Float32Array(N), shear=new Float32Array(N), bnd=new Uint8Array(N);      // bnd: 1 plates closing, 2 drifting apart, 3 sliding past (kept for the Tectonic view)
+  const uplift=new Float32Array(N), subs=new Float32Array(N), shear=new Float32Array(N), bnd=new Uint8Array(N), bang=new Uint8Array(N);      // bnd: 1 plates closing, 2 drifting apart, 3 or 4 sliding past (which way); bang: the direction across the boundary, in 256ths of a turn (kept for the Tectonic view)
+  const gapAt=(x,y,A,B)=>{ const wx=x+bend(x,y,seed+1101,seed+1111,seed+1121), wy=y+bend(x,y,seed+1202,seed+1212,seed+1222); return Math.hypot(wx-A.x,wy-A.y)-Math.hypot(wx-B.x,wy-B.y); };      // grows from plate A's side to plate B's side; its slope is the true direction across the boundary, bent edge and all
   const splat=(arr,k,amp,R)=>{ const ci=k%nx, cj=(k-ci)/nx, norm=1/(R*.667); for(let b=-R;b<=R;b++) for(let a=-R;a<=R;a++){ const i=ci+a, j=cj+b; if(i<0||j<0||i>=nx||j>=ny) continue; const d=Math.hypot(a,b)/R; if(d<1) arr[at(i,j)]+=amp*norm*(1-d)*(1-d); } };      // a boundary cell lends its strength to the cells round it, fading with distance
   const side=(k,P,Q,conv)=>{ if(conv>.25){ const s=Math.min(1.2,conv);      // plates closing on each other
       if(P.continental && Q.continental) splat(uplift,k,.55*s,6); else if(P.continental) splat(uplift,k,.65*s,6); else if(Q.continental) splat(subs,k,.34*s,5); else if(P.id>Q.id) splat(uplift,k,.36*s,5); else splat(subs,k,.28*s,4); }
     else if(conv<-.25) splat(subs,k,.2*Math.min(1.2,-conv),4);      // drifting apart: a rift
     else splat(shear,k,1,3); };      // sliding past: only roughness
-  for(let j=0;j<ny;j++) for(let i=0;i<nx;i++){ const k=at(i,j); for(const m of [i<nx-1?k+1:-1, j<ny-1?k+nx:-1]){ if(m<0 || plateId[m]===plateId[k]) continue; const A=plates[plateId[k]], B=plates[plateId[m]], cx=B.x-A.x, cy=B.y-A.y, conv=((A.dx-B.dx)*cx+(A.dy-B.dy)*cy)/(Math.hypot(cx,cy)||1);
-      const ty=conv>.25?1:conv<-.25?2:3; if(!bnd[k]||ty<bnd[k]) bnd[k]=ty; if(!bnd[m]||ty<bnd[m]) bnd[m]=ty;
+  for(let j=0;j<ny;j++) for(let i=0;i<nx;i++){ const k=at(i,j); for(const m of [i<nx-1?k+1:-1, j<ny-1?k+nx:-1]){ if(m<0 || plateId[m]===plateId[k]) continue; const A=plates[plateId[k]], B=plates[plateId[m]], mx=(i+(m===k+1?.5:0))*cs, my=(j+(m===k+1?0:.5))*cs; let nxv=gapAt(mx+cs,my,A,B)-gapAt(mx-cs,my,A,B), nyv=gapAt(mx,my+cs,A,B)-gapAt(mx,my-cs,A,B), nl=Math.hypot(nxv,nyv); if(nl<1e-6){ nxv=B.x-A.x; nyv=B.y-A.y; nl=Math.hypot(nxv,nyv)||1; } nxv/=nl; nyv/=nl;
+      const conv=(A.dx-B.dx)*nxv+(A.dy-B.dy)*nyv, tang=-(A.dx-B.dx)*nyv+(A.dy-B.dy)*nxv;      // closing speed across the boundary, and the slide along it
+      const ty=conv>.25?1:conv<-.25?2:(tang>=0?3:4), an=Math.round(((Math.atan2(nyv,nxv)/(Math.PI*2)+1)%1)*256)&255, rk=ty>2?3:ty; for(const q of [k,m]) if(!bnd[q]||rk<(bnd[q]>2?3:bnd[q])){ bnd[q]=ty; bang[q]=an; }
       side(k,A,B,conv); side(m,B,A,conv); } }      // the closing speed along the line between the two plates is the same seen from either side
   const rawRidge=new Float32Array(N), grav=kind==='island'?.4:kind==='continent'?.12:0, raw=[];
   for(let j=0;j<ny;j++) for(let i=0;i<nx;i++){ const x=i*cs, y=j*cs, k=at(i,j);
@@ -3000,7 +3006,7 @@ function generateMap(W,H,kind,G={}){ G={land:1,mountains:1,forests:1,rivers:1,to
     rawRidge[k]=1-Math.min(1,Math.abs(fbm(wx*F*1.5,wy*F*1.5,seed+303,4)-.5)/.2); moist[k]=fbm(x*F*1.3,y*F*1.3,seed+404,4); temp[k]=.84-.66*(y/H)+(fbm(x*F,y*F,seed+505,3)-.5)*.3; }
   { const frac=clamp((kind==='continent'?.4:kind==='archipelago'?.25:.3)*(1+(G.land-1)*.7),.06,.8); raw.sort((a,b)=>a-b); const sea=raw[Math.min(raw.length-1,Math.floor(raw.length*(1-frac)))];      // sea level: the land is this share of the map (the Land slider moves it)
     for(let j=0;j<ny;j++) for(let i=0;i<nx;i++){ const k=at(i,j); elev[k]-=sea+1e-4; if(i===0||j===0||i===nx-1||j===ny-1) elev[k]=Math.min(elev[k],-.3);
-      const up=Math.min(1,uplift[k]/.5); ridge[k]=Math.min(1,Math.max(rawRidge[k]*.8+up*.4,up)); } }      // ranges follow the collisions; noise alone makes only low ridges
+      const up=Math.min(1,uplift[k]/.5); ridge[k]=Math.min(1,Math.max(rawRidge[k]*.8*Math.min(1,up*2)+up*.4,up)); } }      // ranges follow the collisions: the noise ridge only shapes them where there is uplift, so no mountains stand away from a collision
   const nb4=k=>{ const i=k%nx, j=(k-i)/nx, o=[]; if(i>0)o.push(k-1); if(i<nx-1)o.push(k+1); if(j>0)o.push(k-nx); if(j<ny-1)o.push(k+nx); return o; };
   const nb8=k=>{ const i=k%nx, j=(k-i)/nx, o=[]; for(let b=-1;b<=1;b++) for(let a=-1;a<=1;a++) if((a||b) && i+a>=0 && i+a<nx && j+b>=0 && j+b<ny) o.push(k+a+b*nx); return o; };
   { const seen=new Uint8Array(N);                                  // tidy up: drop specks of land, fill puddles
@@ -3154,7 +3160,7 @@ function generateMap(W,H,kind,G={}){ G={land:1,mountains:1,forests:1,rivers:1,to
       const grp=new Map(); peaks.forEach((q,a)=>{ const r=find(a); (grp.get(r)||grp.set(r,[]).get(r)).push(q); }); const rg=[...grp.values()].sort((a,b)=>b.length-a.length)[0];
       if(rg.length>=3){ const cx=rg.reduce((a,q)=>a+q[0],0)/rg.length, cy=Math.min(...rg.map(q=>q[1]))-70; st.labels.push({text:name().replace(/(ford|mouth|bridge|ton|by|stead|wick)$/,'')+' '+pick(['Peaks','Mountains','Spine','Heights','Teeth']),x:cx,y:Math.max(40,cy),size:22,rot:0,style:'range',bend:.18}); } } }
   { const [mc,mx]=mkCanvas(1,1); st.labels.forEach(l=>{ const hw=labelMetrics(mx,l).width/2+30; l.x=Math.round(clamp(l.x,hw,W-hw)); l.y=Math.round(clamp(l.y,l.size+20,H-l.size-20)); }); }      // keep every name on the sheet
-  st.height={...packHeight(nx,ny,cs,elev,Array.from({length:N},(_,k)=>isLand(k)?0:ocean[k]?1:2)), pid:packBytes(plateId), pb:packBytes(bnd), plates:plates.map(s=>({x:Math.round(s.x),y:Math.round(s.y),dx:+s.dx.toFixed(2),dy:+s.dy.toFixed(2),c:s.continental?1:0}))};      // what the Heightmap view shows
+  st.height={...packHeight(nx,ny,cs,elev,Array.from({length:N},(_,k)=>isLand(k)?0:ocean[k]?1:2)), pid:packBytes(plateId), pb:packBytes(bnd), pa:packBytes(bang), plates:plates.map(s=>({x:Math.round(s.x),y:Math.round(s.y),dx:+s.dx.toFixed(2),dy:+s.dy.toFixed(2),c:s.continental?1:0}))};      // what the Heightmap view shows
   st.gen={kind,seed,land:G.land,mountains:G.mountains,forests:G.forests,rivers:G.rivers,towns:G.towns};
   st.stamps.forEach(q=>{ q.size=Math.round(q.size*1.15); }); st.labels.forEach(l=>{ if(l.style==='water'){ l.bend=.2; } });      // sizes in step with the stamp tool's defaults
   return st;
