@@ -1838,7 +1838,8 @@ for(const g of GLYPHS) SKETCH_DRAW['ch_'+g]=function(c,n){ c.save(); const r=15;
 function sprite(s,px){ const k=stampLook(s), g=['Trees','Plants'].includes(groupOf(s.kind))&&k.g, pen=penOf(s.size), key=[s.kind,k.n,k.tint,g,px,s.flip?1:0,pen].join('|'); let sp=sprites.get(key);
   if(!sp){ const side=Math.ceil(px*1.7), [cn,x]=mkCanvas(side,side); x.translate(side/2,side/2); x.scale(px/40,px/40); paintStamp(x,{kind:s.kind,var:k.n,tint:k.tint,v:g?.75:.25,flip:s.flip,pen}); sp=cn; sprites.set(key,sp); }
   return sp; }
-function drawStamp(c,s,k){ c.save(); c.translate(s.x,s.y); c.rotate(s.rot*Math.PI/180);   // a mirrored stamp has its own picture (see paintStamp), so nothing is flipped here
+const STAMP_ALPHA={wildflowers:.58,wildgrass:.58,shrubs:.62,thicket:.62,saplings:.62,ferns:.6};      // ground cover is drawn in a lighter, greyer ink than the trees and hills, so that a drift sits back on the page
+function drawStamp(c,s,k){ c.save(); if(k && STAMP_ALPHA[s.kind]) c.globalAlpha*=STAMP_ALPHA[s.kind]; c.translate(s.x,s.y); c.rotate(s.rot*Math.PI/180);   // a mirrored stamp has its own picture (see paintStamp), so nothing is flipped here
   const px=k?s.size*k:0;
   if(SK() || (k && px<=500)){ const want=px||s.size*2; let b=48; while(b<want && b<1024) b*=2; const side=s.size*1.7; c.drawImage(sprite(s,b),-side/2,-side/2,side,side); }
   else { c.scale(s.size/40,s.size/40); paintStamp(c,s); }
@@ -2760,17 +2761,21 @@ function generateMap(W,H,kind,G={}){ G={land:1,mountains:1,forests:1,rivers:1,to
     for(let j=1;j<ny-1;j++) for(let i=1;i<nx-1;i++){ const k=at(i,j), b=biome(k); if(!isLand(k)||riverCell[k]||cd[k]<1||!openB(b)) continue; const x=i*cs, y=j*cs, d=fd[k];
       if(G.forests>0 && d>=1 && d<=5 && b!=='steppe') cls[k]=3; else if(nz(x,y,.0040,811)>FT && b!=='steppe') cls[k]=1; else if(nz(x,y,.0034,823)>.535 || (b==='steppe' && nz(x,y,.0034,823)>.46)) cls[k]=2; }
     { const seen=new Uint8Array(N); for(let k0=0;k0<N;k0++){ if(seen[k0]||cls[k0]===0||cls[k0]===3) continue; const c0=cls[k0], list=[k0]; seen[k0]=1; for(let q=0;q<list.length;q++) for(const m of nb8(list[q])) if(!seen[m]&&cls[m]===c0){ seen[m]=1; list.push(m); } if(list.length<18) list.forEach(k=>cls[k]=0); } }      // a drift of a handful of cells is just a thin patch: drop it
-    for(let k=0;k<N;k++){ if(!cls[k]) continue; const i=k%nx, j=(k-i)/nx, d=fd[k], c0=cls[k]; let n, edge=0;
-      if(c0===3){ n=d<=2?4:d<=3?3:d===4?2:1; edge=1; } else { const f=nz(i*cs,j*cs,.0040,811), s=c0===1?sm(FT,FT+.04,f):1; n=Math.round(5*(.55+.45*s)); }
-      for(let q=0;q<n;q++){ const x=i*cs+(rnd()-.5)*cs*1.15, y=j*cs+(rnd()-.5)*cs*1.15; if(bil(x,y)<=.02) continue;
-        const v=nz(x,y,.0058,835,2), pickv=m=>(Math.floor(v*m*1.15)+(rnd()<.3?1+Math.floor(rnd()*2):0))%m;      // v decides which kind of flower a drift is mostly made of, with some others mixed in
-        if(edge){ if(!free(x,y,2)) continue; const r=rnd();
-          if(d===1) put(r<.4?'thicket':r<.72?'saplings':'ferns',x,y,34+rnd()*12,r<.4?Math.floor(rnd()*4):Math.floor(rnd()*3));
-          else if(d===2) put(r<.45?'shrubs':r<.65?'thicket':r<.88?'saplings':'ferns',x,y,30+rnd()*10,Math.floor(rnd()*4));
-          else if(d<=4) put(r<.72?'shrubs':r<.9?'saplings':'wildflowers',x,y,28+rnd()*10,r<.72?Math.floor(rnd()*5):pickv(8));
-          else put('shrubs',x,y,26+rnd()*8,Math.floor(rnd()*5)); }
-        else if(c0===1){ if(free(x,y,1)) put('wildflowers',x,y,32+rnd()*12,pickv(8)); }
-        else if(free(x,y,1)) put('wildgrass',x,y,30+rnd()*12,pickv(4)); } } }
+    /* the plants grow in clumps: each clump is mostly one kind (a drift is mostly one flower, with some grass among it), dense at the middle and thinning to its fringe,
+       with bare ground between clumps; and a clump only grows where the drift it belongs to does */
+    const STEP=34, kindAt=(x,y)=>cls[at(clamp(Math.round(x/cs),0,nx-1),clamp(Math.round(y/cs),0,ny-1))];
+    for(let gy=0;gy*STEP<H;gy++) for(let gx=0;gx*STEP<W;gx++){ const cx=(gx+.1+rnd()*.8)*STEP, cy=(gy+.1+rnd()*.8)*STEP, c0=kindAt(cx,cy); if(!c0 || bil(cx,cy)<=.02) continue;
+      const v=nz(cx,cy,.0058,835,2), pickv=m=>(Math.floor(v*m*1.15)+(rnd()<.2?1+Math.floor(rnd()*2):0))%m, k=at(clamp(Math.round(cx/cs),0,nx-1),clamp(Math.round(cy/cs),0,ny-1)), d=fd[k];
+      const lay=(kind,r,n,sz,vv,fringe=0)=>{ for(let q=0;q<n;q++){ const far=rnd()<fringe, a=rnd()*6.283, rr=(far?r*(1.1+rnd()*.7):r*Math.pow(rnd(),1.25)), x=cx+Math.cos(a)*rr, y=cy+Math.sin(a)*rr*.85;
+          if(kindAt(x,y)!==c0 || bil(x,y)<=.02 || !free(x,y,1)) continue; put(kind,x,y,sz+rnd()*10,typeof vv==='function'?vv():vv); } };
+      if(c0===3){ if(rnd()>[0,.95,.85,.6,.45,.3][clamp(d,0,5)]) continue; const r0=rnd();      // the wood's edge: thickets and saplings at the trees, shrub groups beyond them
+        if(d<=2){ const R=14+rnd()*8; lay('thicket',R*.5,2+Math.floor(rnd()*3),34,()=>Math.floor(rnd()*4)); lay('saplings',R,4+Math.floor(rnd()*4),32,()=>Math.floor(rnd()*3)); lay('ferns',R,2+Math.floor(rnd()*3),28,()=>Math.floor(rnd()*3)); lay('shrubs',R*1.2,2+Math.floor(rnd()*3),28,()=>Math.floor(rnd()*5),.3); }
+        else if(d<=4){ const R=12+rnd()*8, s5=Math.floor(rnd()*5); lay('shrubs',R,3+Math.floor(rnd()*5),30,()=>rnd()<.75?s5:Math.floor(rnd()*5),.2); if(rnd()<.5) lay('saplings',R*1.1,1+Math.floor(rnd()*3),30,()=>Math.floor(rnd()*3)); if(rnd()<.35) lay('wildflowers',R,3+Math.floor(rnd()*4),34,()=>pickv(8)); }
+        else lay('shrubs',9,1+Math.floor(rnd()*2),28,()=>Math.floor(rnd()*5)); continue; }
+      if(nz(cx,cy,.011,845,2)<.4 || rnd()<.12) continue;      // gaps between clumps
+      const R=13+rnd()*14, n=Math.round(R*R/15), same=pickv(c0===1?8:4);
+      if(c0===1){ lay('wildflowers',R,n,34,()=>rnd()<.88?same:pickv(8),.18); lay('wildgrass',R*1.15,Math.round(n*.22),32,()=>pickv(4),.25); }      // a clump of one flower, grass about its feet
+      else { lay('wildgrass',R,n,32,()=>rnd()<.88?same:pickv(4),.2); if(rnd()<.3) lay('wildflowers',R*.5,3+Math.floor(rnd()*4),34,()=>pickv(8)); } } }
 
   /* names on the map */
   const big=pick(syl[0])+pick(['a','e','i','o','ae','ia'])+pick(['ria','ron','neth','land','mar','ven','dor','this']);
