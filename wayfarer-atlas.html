@@ -50,6 +50,11 @@ button{cursor:pointer}
 .side{border-left:1px solid var(--line);background:var(--panel);overflow-y:auto;padding:12px 16px 20px;display:flex;flex-direction:column;gap:16px}
 .side section{display:flex;flex-direction:column;gap:9px}
 .side h2{font-family:var(--display);font-size:18px;font-weight:400;letter-spacing:.03em;margin:0}
+.side .placebar{position:sticky;top:-12px;z-index:3;background:var(--panel);padding:10px 0 12px;margin:-12px 0 0;border-bottom:1px solid var(--line);box-shadow:0 6px 8px -8px #0006}
+.placerow{display:flex;gap:12px;align-items:center}
+.placerow canvas{width:60px;height:60px;flex:none;border:1px solid var(--line);border-radius:6px;background:var(--well,#ddd)}
+.placectl{display:flex;flex-direction:column;gap:3px;min-width:0}.placectl b{font-weight:600;text-transform:capitalize}.placectl small{color:var(--muted)}
+.stepper{display:flex;gap:5px;align-items:center;margin-top:3px}.stepper .btn{padding:1px 9px;font-size:18px;line-height:1.1}
 .side details.settings{display:flex;flex-direction:column;gap:10px}
 .side details.settings>summary{cursor:pointer;font-family:var(--display);font-size:18px;letter-spacing:.03em;list-style:none;padding:2px 0;color:var(--ink,inherit)}
 .side details.settings>summary::-webkit-details-marker{display:none}
@@ -647,6 +652,11 @@ function rebuildCliffs(){
     shape(a,c); a.globalCompositeOperation='destination-out'; downs.forEach(dn=>shape(a,dn)); a.globalCompositeOperation='destination-in'; a.drawImage(landMask,0,0,S.w,S.h);   // A = the raised (or sunken) area, on land only
     const plane=(x,sj,dy,keep)=>{ const q=[mid[0]+u[0]*(sj-.5)*L, mid[1]+u[1]*(sj-.5)*L+dy], v=[-u[1],u[0]], G=1e5, g=keep?G:-G;     // half of the map on one side of the taper line
       x.beginPath(); x.moveTo(q[0]+v[0]*G,q[1]+v[1]*G); x.lineTo(q[0]-v[0]*G,q[1]-v[1]*G); x.lineTo(q[0]-v[0]*G+u[0]*g,q[1]-v[1]*G+u[1]*g); x.lineTo(q[0]+v[0]*G+u[0]*g,q[1]+v[1]*G+u[1]*g); x.closePath(); };
+    /* A taper that ramps to nothing really does: the height at the low end is H x (1 - taper), and wherever the height is down to a few units the whole drawing (rim, face and shadow) is faded out
+       along the slope, so the cliff dies away into the ground instead of ending as a smaller lump with its outline intact. */
+    const fadeLow=(x,w,h)=>{ if(tp<.3) return; const lo=[mid[0]-u[0]*L/2,mid[1]-u[1]*L/2], hi=[mid[0]+u[0]*L/2,mid[1]+u[1]*L/2], g=x.createLinearGradient(lo[0],lo[1],hi[0],hi[1]);
+      for(let i=0;i<=12;i++){ const tt=i/12, hh=(1-tp)+tp*tt, al=clamp((hh*Math.abs(H)-1)/(Math.abs(H)*.34),0,1); g.addColorStop(tt,`rgba(0,0,0,${al*al*(3-2*al)})`); }
+      x.save(); x.globalCompositeOperation='destination-in'; x.fillStyle=g; x.fillRect(bx,by,w,h); x.restore(); };
     const hatchRows=(x,X0,Y0,Wd,Ht,sp,lw,sd)=>{ x.strokeStyle=INK; x.lineCap='round'; x.lineWidth=lw; x.beginPath(); for(let Y=Y0+sp*.5,j=0;Y<Y0+Ht;Y+=sp,j++){ let X=X0+hash(j,c.seed,sd)*5; while(X<X0+Wd){ const run=3+hash(j,X|0,c.seed+sd)*9; x.moveTo(X,Y); x.lineTo(X+run,Y+(hash(X|0,j,c.seed+sd+1)-.5)*.4); X+=run+1+hash(X|0,j,c.seed+sd+2)*2.6; } } x.stroke(); };      // level broken strokes, the way the stamps throw their shadows
     const inked=(...src)=>{ d.globalCompositeOperation='source-over'; d.clearRect(bx,by,bw,bh); src.forEach(q=>d.drawImage(q,bx,by,bw,bh)); d.globalCompositeOperation='source-in'; d.fillStyle=ink; d.fillRect(bx,by,bw,bh);
       for(let i=0;i<8;i++){ const t=i*Math.PI/4; cx.drawImage(D,bx+Math.cos(t)*1.4,by+Math.sin(t)*1.4,bw,bh); } };
@@ -689,7 +699,7 @@ function rebuildCliffs(){
       inked(B); cx.globalCompositeOperation='destination-out'; cx.drawImage(B,bx,by,bw,bh); cx.globalCompositeOperation='source-over'; cx.globalAlpha=1; cx.drawImage(E,bx,by,bw,bh); cx.drawImage(E,bx,by,bw,bh);
       { const reach=clamp(Dp*.75,6,46), [Ps,ps]=mk(), [Ph,ph]=mk(); ps.drawImage(B,bx,by,bw,bh); ps.globalCompositeOperation='destination-out'; ps.drawImage(B,bx+reach,by+reach*.2,bw,bh);      // in a hollow the left rim throws its shadow onto the floor beneath it
         hatchRows(ph,bx,by,bw,bh,1.5,.5,43); ps.globalCompositeOperation='source-in'; ps.drawImage(Ph,bx,by,bw,bh); cx.drawImage(Ps,bx,by,bw,bh); }
-      cf.drawImage(C,bx,by,bw,bh); csx.drawImage(Wc,bx,by,bw,bh); csx.lineWidth=3.4; csx.strokeStyle='#000'; csx.stroke(built.get(c).path); continue; }
+      fadeLow(cx,bw,bh); cf.drawImage(C,bx,by,bw,bh); csx.drawImage(Wc,bx,by,bw,bh); csx.lineWidth=3.4; csx.strokeStyle='#000'; csx.stroke(built.get(c).path); continue; }
     for(let j=1.5;j<=H;j+=1.5){ b.save();
       if(tp>0){ const sj=1-(1-j/H)/tp; if(sj>1){ b.restore(); break; } if(sj>0){ plane(b,sj,j,true); b.clip(); } }
       b.drawImage(A,bx,by+j,bw,bh); b.restore(); }
@@ -703,8 +713,8 @@ function rebuildCliffs(){
         sh.drawImage(A,bx,by,bw,bh); sh.drawImage(B,bx,by,bw,bh); sh.restore(); } sh.globalCompositeOperation='destination-out'; sh.drawImage(A,bx,by,bw,bh); sh.drawImage(B,bx,by,bw,bh);
       if(!tp) for(let k=len*.55;k<=len;k+=2){ sh.globalAlpha=.05; sh.drawImage(A,bx+len+2+k-len*.55,by+len*.24,bw,bh); } sh.globalAlpha=1;
       hatchRows(hh,bx,by,sw,shh,1.55,.42,41); sh.globalCompositeOperation='source-in'; sh.drawImage(Hh,bx,by,sw,shh); sh.globalCompositeOperation='destination-in'; sh.drawImage(landMask,0,0,S.w,S.h);
-      cf.globalCompositeOperation='source-over'; cf.drawImage(Sh,bx,by,sw,shh); }
-    cf.globalCompositeOperation='destination-out'; cf.drawImage(A,bx,by,bw,bh); cf.globalCompositeOperation='source-over'; cf.drawImage(C,bx,by,bw,bh);
+      fadeLow(sh,sw,shh); cf.globalCompositeOperation='source-over'; cf.drawImage(Sh,bx,by,sw,shh); }
+    fadeLow(cx,bw,bh); cf.globalCompositeOperation='destination-out'; cf.drawImage(A,bx,by,bw,bh); cf.globalCompositeOperation='source-over'; cf.drawImage(C,bx,by,bw,bh);
   }
 }
 function cleanInk(){      // a tuft, pebble or crack that a coast, river bank or cliff edge would slice through is taken out whole, so no mark is ever left cut in half
@@ -956,6 +966,7 @@ function engTree(c,x,y,s,o={}){ x*=ENG_M; const rn=mulberry((o.seed||3)*7919+11)
     dots.push([x-w-r*(.3+rn()*1.5),yy+dr+(rn()-.5)*gap],[x-w*(.6+rn()*.5),yy+dr-gap*(.3+rn()*.5)]);
     if(rn()<.7) dots.push([x-w-r*(2+rn()*2.5),yy+dr-gap*rn()]); if(rn()<.6) dots.push([x+w+r*(.5+rn()*1.5),yy+dr+(rn()-.5)*gap]); if(rn()<.5) dots.push([x-w*(rn()*.5),yy-gap*.5]); }
   if(o.fall) for(let k=0;k<12;k++) dots.push([x+(rn()-.45)*W*3.4,y-rn()*H*.4]);
+  if(ENG_M<0) for(const q of dots) q[0]=2*x-q[0];      // mirrored: the stipple and falling leaves are laid out the other way about; the crown's own shading stays on the right
   if(o.bloom){ c.lineWidth=.3; for(const [dx,dy] of dots){ c.beginPath(); if(rn()<.55){ c.arc(dx,dy,r*(1.15+rn()*.5),0,7); c.fillStyle=PAPER(); c.fill(); c.stroke(); } else { c.arc(dx,dy,r*.7,0,7); c.fillStyle=INK; c.fill(); } } c.fillStyle=INK; return; }
   c.beginPath(); for(const [dx,dy] of dots){ const q=r*(.65+rn()*.7); c.moveTo(dx+q,dy); c.arc(dx,dy,q,0,7); } c.fill(); }
 function engHump(c,cx,by,wl,wr,h,o={}){ const M=ENG_M; if(M<0){ cx=-cx; [wl,wr]=[wr,wl]; } const rn=mulberry((o.seed||5)*104729+3), pk=o.sharp ?? .25, x0=cx-wl, x1=cx+wr, N=72, rough=o.rough ?? 1;
@@ -1119,7 +1130,7 @@ function cRound(c,x,y,r,cren){ const X=EX(x), q=engArc(X,y,r,r,0,Math.PI*2,22); 
   if(cren){ const i=engArc(X,y,r*.66,r*.66,0,Math.PI*2,18); engPath(c,i,1); c.fillStyle=PAPER(); c.fill(); engInk(c,i,.36,true,{gap:0,rough:.05}); for(let k=0;k<10;k++){ const a=k/10*6.283; engInk(c,[[X+Math.cos(a)*r*.66,y+Math.sin(a)*r*.66],[X+Math.cos(a)*r,y+Math.sin(a)*r]],.3,false,{gap:0}); } }
   else { for(let k=0;k<8;k++){ const a=k/8*6.283+.2; engInk(c,[[X,y],[X+Math.cos(a)*r,y+Math.sin(a)*r]],.24,false,{gap:.1}); } c.fillStyle=INK; c.beginPath(); c.arc(X,y,.6,0,7); c.fill(); } }
 function cWell(c,x,y,r){ const X=EX(x), q=engArc(X,y,r,r,0,Math.PI*2,16); engPath(c,q,1); c.fillStyle=PAPER(); c.fill(); engInk(c,q,.5,true,{gap:0,rough:.05}); const i=engArc(X,y,r*.55,r*.55,0,Math.PI*2,12); engPath(c,i,1); c.fillStyle=INK; c.fill(); }
-function cTree(c,x,y,r,seed){ const X=EX(x), rn=mulberry(seed*131+7), n=9, q=[]; for(let i=0;i<n;i++){ const a=i/n*6.283, rr=r*(.86+rn()*.24); q.push([X+Math.cos(a)*rr,y+Math.sin(a)*rr]); }      // a tree from above: a scalloped crown, shaded away from the light
+function cTree(c,x,y,r,seed){ const X=EX(x), rn=mulberry(seed*131+7), n=9, q=[]; for(let i=0;i<n;i++){ const a=ENG_M*i/n*6.283, rr=r*(.86+rn()*.24); q.push([X+Math.cos(a)*rr,y+Math.sin(a)*rr]); }      // a tree from above: a scalloped crown, shaded away from the light
   const s=engSpline(q,true,4); engPath(c,s,1); c.fillStyle=PAPER(); c.fill(); engShade(c,s,'d',.85,{clipX:X+r*.42}); c.strokeStyle=INK; c.lineWidth=.45; c.beginPath(); for(let i=0;i<n;i++){ const a=q[i], b=q[(i+1)%n], mx=(a[0]+b[0])/2, my=(a[1]+b[1])/2; c.moveTo(a[0],a[1]); c.quadraticCurveTo(mx+(mx-X)*.32,my+(my-y)*.32,b[0],b[1]); } c.stroke();
   if(r>5){ c.lineWidth=.3; for(let k=0;k<3;k++){ const a=rn()*6.283, d=r*.4*rn(); c.beginPath(); c.arc(X+Math.cos(a)*d-r*.15,y+Math.sin(a)*d-r*.1,r*.24,Math.PI*1.1,Math.PI*1.9); c.stroke(); } } }
 function cHull(c,x,y,L,B,n){ const q=engForm(c,[[x-L/2,y,1],[x-L*.3,y-B/2],[x+L*.25,y-B/2],[x+L/2,y,1],[x+L*.25,y+B/2],[x-L*.3,y+B/2]],{sp:.7,thr:.3,seg:5,ky:.9,kx:.1}); for(let k=0;k<n;k++){ const xx=x-L*.28+k*(L*.5/Math.max(1,n-1)); engInk(c,[[EX(xx),y-B*.42],[EX(xx),y+B*.42]],.3,false,{gap:0}); } engInk(c,[[EX(x-L*.42),y],[EX(x+L*.42),y]],.24,false,{gap:.1}); }
@@ -1562,8 +1573,8 @@ const SKETCH_DRAW = {
     cRoof(c,-8,-6.5,17,10,{ch:1}); cRoof(c,10,-3,11,17,{a:Math.PI/2}); cRoof(c,-11,7,10,7,{}); cRound(c,2.5,7.5,2.8); cRound(c,8,9,2.2); for(let y=3;y<12;y+=2.2/ENG_K) engScratch(c,[EX(12),y],[EX(17),y],.22); },
   barn(c){ cRoof(c,0,0,30,17,{}); engInk(c,[[EX(-3),8.5],[EX(-3),11],[EX(3),11],[EX(3),8.5]],.4,false,{gap:0}); },
   haystacks(c){ cRound(c,-8,-2,5.4); cRound(c,4,-5,4.6); cRound(c,2,6,5); cRound(c,11,3,3.4); },
-  mill(c){ for(let k=0;k<4;k++){ const a=.5+k*Math.PI/2, d=[Math.cos(a),Math.sin(a)], n=[-d[1],d[0]], P=(t,s)=>[d[0]*t+n[0]*s,d[1]*t+n[1]*s]; engInk(c,[[0,0],P(17,0)],.7,false,{gap:0}); const q=[P(5,0),P(17,0),P(17,3.6),P(5,3.6)]; engPath(c,q,1); c.fillStyle=PAPER(); c.fill(); engInk(c,q,.4,true,{gap:0}); for(let t=7;t<17;t+=2) engInk(c,[P(t,0),P(t,3.6)],.26,false,{gap:0}); }      // a post mill from above: the round house, four sails and the tail pole
-    engInk(c,[[0,0],[-9,13]],.6,false,{gap:0}); cRound(c,0,0,6.4); },
+  mill(c){ for(let k=0;k<4;k++){ const a=.5+k*Math.PI/2, d=[Math.cos(a),Math.sin(a)], n=[-d[1],d[0]], P=(t,s)=>[ENG_M*(d[0]*t+n[0]*s),d[1]*t+n[1]*s]; engInk(c,[[0,0],P(17,0)],.7,false,{gap:0}); const q=[P(5,0),P(17,0),P(17,3.6),P(5,3.6)]; engPath(c,q,1); c.fillStyle=PAPER(); c.fill(); engInk(c,q,.4,true,{gap:0}); for(let t=7;t<17;t+=2) engInk(c,[P(t,0),P(t,3.6)],.26,false,{gap:0}); }      // a post mill from above: the round house, four sails and the tail pole
+    engInk(c,[[0,0],[EX(-9),13]],.6,false,{gap:0}); cRound(c,0,0,6.4); },
   watchtower(c){ const r=14; for(let i=0;i<30;i++){ const a=i/30*6.283; if(a>1.25&&a<1.9) continue; engInk(c,[[Math.cos(a)*r,Math.sin(a)*r],[Math.cos(a)*(r+1.8),Math.sin(a)*(r+1.8)]],.5,false,{gap:0}); } engInk(c,engArc(0,0,r,r,1.9,1.25+Math.PI*2,30),.45,false,{gap:.03}); cSpire(c,0,-1,6.5); cRoof(c,-7,6,7,5,{}); },
   outpost(c){ const R=(a,b)=>[[-a,-b],[a,-b],[a,b],[-a,b]].map(p=>[EX(p[0]),p[1]]), o=R(16,13); engInk(c,[o[0],o[1],o[2],[EX(4),13]],.6,false,{gap:0}); engInk(c,[[EX(-4),13],o[3],o[0]],.6,false,{gap:0});      // a palisaded fort: stakes all round, a gate, a hall, a store and corner platforms
     for(let x=-15;x<=15;x+=2.1) for(const y of [-13,13]){ if(y>0 && Math.abs(x)<4) continue; engInk(c,[[EX(x),y],[EX(x),y+(y<0?-1.7:1.7)]],.42,false,{gap:0}); } for(let y=-12;y<=12;y+=2.1) for(const x of [-16,16]) engInk(c,[[EX(x),y],[EX(x+(x<0?-1.7:1.7)),y]],.42,false,{gap:0});
@@ -1590,7 +1601,7 @@ const SKETCH_DRAW = {
     for(let k=0;k<=n;k++) engInk(c,[[x0+k*w,y0-1.8],[x0+k*w,y0]],.36,false,{gap:0,rough:0}); engInk(c,[[x0-1.4,y1+1.2],[x1+1.4,y1+1.2]],.28,false,{gap:.02});
     for(const s of [-1,1]){ engLimb(c,[[s*.5,-13.4,1.4],[s*5.4,-3,1.1],[s*10.6,4.6,.15]].map(p=>[ENG_M*p[0],p[1],p[2]]),{sq:1,sp:.5,thr:s>0?-.4:.6,ang:1.3,raw:1}); engInk(c,[[s*2,-9.6],[s*.4,-7.4]].map(p=>[p[0],p[1]]),.3,false); }      // a pair of dividers stepping off the distance
     engInk(c,[[-3.6,-7],[3.6,-7]],.5,false,{gap:0}); const h=engArc(0,-14.4,1.7,1.7,0,Math.PI*2,14); engPath(c,h,1); c.fillStyle=PAPER(); c.fill(); engInk(c,h,.5,true,{gap:0}); engDot(c,0,-14.4,.5); engPoly(c,[[-.7,-16],[.7,-16],[.5,-18.4],[-.5,-18.4]],{raw:1,j:0,lw:.36,ink:1}); },
-  cartouche(c,n){ const curl=(x,y,s,d)=>{ const L=[]; for(let t=0;t<=1.001;t+=.08){ const a=t*Math.PI*2.6, r=2.4*(1-t*.78); L.push([x+s*(Math.cos(a)*r-2.4),y+d*Math.sin(a)*r]); } engInk(c,L,.5,false,{gap:0,rough:.05}); };
+  cartouche(c,n){ const curl=(x,y,s,d)=>{ const L=[]; for(let t=0;t<=1.001;t+=.08){ const a=t*Math.PI*2.6, r=2.4*(1-t*.78); L.push([ENG_M*(x+s*(Math.cos(a)*r-2.4)),y+d*Math.sin(a)*r]); } engInk(c,L,.5,false,{gap:0,rough:.05}); };
     if(n%3===0){      // a ribbon scroll: the tails fold away behind the panel
       for(const s of [-1,1]){ const t=engPoly(c,[[s*13,-2.4],[s*19.6,-4],[s*17.4,.4],[s*19.6,4.6],[s*13,6]],{raw:1,j:.15,lw:.55}); engShade(c,t,'d',.7); engPoly(c,[[s*13,5.4],[s*15.6,7.4],[s*15.6,-1.2],[s*13,-2.4]],{raw:1,j:.1,lw:.45,ink:1}); }
       const top=[], bot=[]; for(let i=0;i<=12;i++){ const x=-15.6+i*2.6, w=Math.sin(i/12*Math.PI*2)*.9; top.push([x,-6.4+w]); bot.push([x,5.6+w]); } const q=top.concat(bot.reverse()); engPath(c,q,1); c.fillStyle=PAPER(); c.fill(); engInk(c,q,.55,true,{gap:0,rough:.08});
@@ -1779,7 +1790,7 @@ Object.assign(SKETCH_DRAW,{
   rack(c){ dBox(c,-8,-19,8,19,{lw:.65}); for(const y of [-17,17]) { dRing(c,0,y,4.6,{lw:.55,sh:false}); engInk(c,[[EX(-4.6),y],[EX(4.6),y]],.4,false,{gap:0}); } for(let y=-10;y<=10;y+=3.4) engInk(c,[[EX(-8),y],[EX(8),y]],.3,false,{gap:.1}); engInk(c,[[EX(-3),-6],[EX(3),6]],.5,false,{gap:.1}); },
   firepit(c){ for(let k=0;k<9;k++){ const a=k/9*Math.PI*2; engPoly(c,mRing(Math.cos(a)*11,Math.sin(a)*11,3.4,3,5,k),{j:.15,lw:.45,shade:'d',sp:.5}); } const q=[]; for(let i=0;i<10;i++){ const a=i/10*Math.PI*2, r=i%2?3.6:7.4; q.push([Math.cos(a)*r,Math.sin(a)*r,i%2?1:0]); } mBody(c,q,{sp:.9,thr:.2,lw:.4}); engDot(c,0,0,1.6); mLine(c,[-5,5],[6,-5],1.2); mLine(c,[5,5],[-6,-5],1.2); },
   cratestack(c){ dBox(c,-12,-12,2,2,{lw:.6}); dBox(c,0,2,14,15,{lw:.6}); dBox(c,-14,3,-2,14,{lw:.6}); for(const [x0,y0,x1,y1] of [[-12,-12,2,2],[0,2,14,15],[-14,3,-2,14]]){ engInk(c,[[EX(x0),y0],[EX(x1),y1]],.3,false,{gap:.2}); engInk(c,[[EX(x1),y0],[EX(x0),y1]],.3,false,{gap:.2}); } },
-  urn(c){ dRing(c,0,0,7.4,{lw:.65}); dRing(c,0,0,4.6,{sh:false,lw:.45}); for(const s of [-1,1]) engInk(c,engArc(EX(s*8.6),0,2.6,3.4,-1.5,1.5,6),.5,false,{gap:0}); },
+  urn(c){ dRing(c,0,0,7.4,{lw:.65}); dRing(c,0,0,4.6,{sh:false,lw:.45}); for(const s of [-1,1]) engInk(c,s>0?engArc(EX(8.6),0,2.6,3.4,-1.5,1.5,6):engArc(EX(-8.6),0,2.6,3.4,Math.PI-1.5,Math.PI+1.5,6),.5,false,{gap:0}); },
   chains(c){ let x=-17, y=-4; const pts=[]; for(let t=0;t<=1.001;t+=.1) pts.push([-17+t*34,-4+Math.sin(t*Math.PI)*12]); for(let k=0;k<pts.length-1;k++){ const a=pts[k], b=pts[k+1], mx=(a[0]+b[0])/2, my=(a[1]+b[1])/2, ang=Math.atan2(b[1]-a[1],b[0]-a[0]); engInk(c,[[EX(mx-Math.cos(ang)*2.2),my-Math.sin(ang)*2.2-.8],[EX(mx+Math.cos(ang)*2.2),my+Math.sin(ang)*2.2-.8],[EX(mx+Math.cos(ang)*2.2),my+Math.sin(ang)*2.2+.8],[EX(mx-Math.cos(ang)*2.2),my-Math.sin(ang)*2.2+.8]],.45,true,{gap:0,rough:.03}); } engDot(c,-17,-4,1.6); engDot(c,17,-4,1.6); },
   portal(c){ for(const r of [17,15]) engInk(c,engArc(EX(0),0,r,r,0,Math.PI*2,30),.55,true,{gap:.02,rough:.05}); for(let k=0;k<4;k++){ const r0=2+k*3.4; engInk(c,engArc(EX(0),0,r0+3,r0+3,k*1.4,k*1.4+4.2,10),.45,false,{gap:0}); } for(let k=0;k<16;k++){ const a=k/16*Math.PI*2; engInk(c,[[EX(Math.cos(a)*15),Math.sin(a)*15],[EX(Math.cos(a)*17),Math.sin(a)*17]],.35,false,{gap:0}); } engDot(c,0,0,1.5); },
   mushrooms(c){ for(const [x,y,r] of [[-8,-4,5.4],[6,-7,4],[8,6,5],[-3,9,3.4],[-11,8,2.6]]){ dRing(c,x,y,r,{lw:.5,at:.1}); for(let k=0;k<5;k++){ const a=k/5*Math.PI*2+x; engInk(c,[[EX(x),y],[EX(x+Math.cos(a)*r*.9),y+Math.sin(a)*r*.9]],.22,false,{gap:.2}); } } },
@@ -1851,7 +1862,7 @@ Object.assign(SKETCH_DRAW,{
 });
 /* ---- single letters and numbers, to be set down one at a time (a room's number, a key letter on a plan). Variant 2 rings the character. ---- */
 const GLYPHS='0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
-for(const g of GLYPHS) SKETCH_DRAW['ch_'+g]=function(c,n){ c.save(); const r=15; if(n%2){ c.fillStyle=PAPER(); c.beginPath(); c.arc(0,0,r+1,0,7); c.fill(); engInk(c,engArc(0,0,r+1,r+1,0,Math.PI*2,26),.8,true,{gap:.03,rough:.08}); engInk(c,engArc(0,0,r-1.6,r-1.6,0,Math.PI*2,24),.4,true,{gap:.06,rough:.06}); }
+for(const g of GLYPHS) SKETCH_DRAW['ch_'+g]=function(c,n){ c.save(); if(ENG_M<0) c.scale(-1,1); const r=15; if(n%2){ c.fillStyle=PAPER(); c.beginPath(); c.arc(0,0,r+1,0,7); c.fill(); engInk(c,engArc(0,0,r+1,r+1,0,Math.PI*2,26),.8,true,{gap:.03,rough:.08}); engInk(c,engArc(0,0,r-1.6,r-1.6,0,Math.PI*2,24),.4,true,{gap:.06,rough:.06}); }
   c.font=`600 ${n%2?25:34}px "IM Fell English", "IM Fell Double Pica", Georgia, serif`; c.textAlign='center'; c.textBaseline='middle'; c.lineJoin='round';
   if(!(n%2)){ c.strokeStyle=PAPER(); c.lineWidth=4.5; c.strokeText(g,0,1.6); } c.fillStyle=INK; c.fillText(g,0,1.6); c.strokeStyle=INK; c.lineWidth=.45; c.strokeText(g,0,1.6); c.restore(); };
 /* Sprites are one stamp drawn once at a given resolution and then reused. Zooming in asks for bigger ones, so: a size is capped (bigger only when exporting), the cache is
@@ -1961,7 +1972,7 @@ function draw(){
     if(act && act.type==='drect'){ const a=act.a, b=act.b, x0=Math.min(a[0],b[0]), y0=Math.min(a[1],b[1]), w=Math.abs(b[0]-a[0]), h=Math.abs(b[1]-a[1]); ctx.beginPath();
       if(act.shape==='ellipse') ctx.ellipse(x0+w/2,y0+h/2,w/2,h/2,0,0,7); else ctx.rect(x0,y0,w,h); ctx.fillStyle=act.mode==='sea'?'rgba(120,170,180,.45)':'rgba(234,223,191,.6)'; ctx.fill(); ctx.strokeStyle=accent; ctx.lineWidth=2*px; ctx.setLineDash([6*px,5*px]); ctx.stroke(); ctx.setLineDash([]);
       const lab=(Math.round(w/cell*2)/2)+' × '+(Math.round(h/cell*2)/2); ctx.font=`600 ${14*px}px sans-serif`; ctx.lineWidth=4*px; ctx.strokeStyle='rgba(255,255,255,.9)'; ctx.strokeText(lab,x0+4*px,y0-6*px); ctx.fillStyle=accent; ctx.fillText(lab,x0+4*px,y0-6*px); } }
-  if(opts.tool==='stamp' && hover && !act){ ctx.globalAlpha=.55; const gs=DUNG()?dungSnap(opts.stamp,hover,opts.stampRot):{p:hover,rot:opts.stampRot}; drawStamp(ctx,{kind:opts.stamp,x:gs.p[0],y:gs.p[1],size:opts.stampSizes[groupOf(opts.stamp)],rot:gs.rot,flip:opts.stampFlip==='on',var:opts.stampVar==='shuffle'?0:opts.stampVar,tint:opts.stampTint[opts.stamp]}); ctx.globalAlpha=1; }
+  if(opts.tool==='stamp' && hover && !act){ ctx.globalAlpha=.55; const gs=DUNG()?dungSnap(opts.stamp,hover,opts.stampRot):{p:hover,rot:opts.stampRot}; drawStamp(ctx,{...pendStamp(gs.p[0],gs.p[1]),rot:gs.rot}); ctx.globalAlpha=1; }
   if(sel && opts.tool==='select' && !(act && act.type==='box')){ const hs=selHandles(); if(hs){ const [a,b,c2,d2]=hs.corners, q=5*px;      // transform box
       ctx.setLineDash([4*px,4*px]); ctx.strokeStyle=accent; ctx.lineWidth=px; ctx.strokeRect(a[0],a[1],b[0]-a[0],d2[1]-a[1]); ctx.setLineDash([]);
       ctx.beginPath(); ctx.moveTo(hs.rot[0],a[1]); ctx.lineTo(hs.rot[0],hs.rot[1]); ctx.stroke(); ctx.fillStyle='#fff'; ctx.lineWidth=1.6*px;
@@ -2161,12 +2172,23 @@ function dungSnap(kind,p,rot){      // doors go on the middle of a square's edge
   const passV = fl([v[0]-g,v[1]]) && fl([v[0]+g,v[1]]) && !fl([v[0],v[1]-g]) && !fl([v[0],v[1]+g]), passH = fl([h[0],h[1]-g]) && fl([h[0],h[1]+g]) && !fl([h[0]-g,h[1]]) && !fl([h[0]+g,h[1]]);      // a passage runs through a vertical edge when floor lies either side of it
   const useV = passV!==passH ? passV : dist(p,v)<dist(p,h);
   return useV ? {p:v,rot:90+(rot||0)} : {p:h,rot:rot||0}; }
-function placeStamp(p,vary,rot){ const kind=opts.stamp, base=opts.stampSizes[groupOf(kind)], v=Math.random(), n=VARIANTS[kind]||1; let r0=rot ?? opts.stampRot; if(DUNG()){ const d=dungSnap(kind,p,r0); p=d.p; r0=d.rot; }
-  const o={kind,x:Math.round(p[0]),y:Math.round(p[1]),size:Math.round(vary?base*(.82+.36*v):base),rot:r0,v};
-  if(n>1) o.var = opts.stampVar==='shuffle' ? (STAMP_GROUPS[groupOf(kind)].noflip ? 0 : Math.floor(Math.random()*n)) : opts.stampVar%n;      // numbers and letters stay plain unless a shape is picked
+/* The next stamp, decided in advance: which shape, mirrored or not, and its random seed. The ghost on the map, the preview in the panel and the stamp that a click places are all this one thing,
+   so what you see is what lands; once a stamp is placed the next is rolled. It is rolled again whenever the kind, the shape setting or the mirror setting changes. */
+const pend={key:'',var:0,flip:false,v:.5,last:-1};
+function rollPending(){ const kind=opts.stamp, grp=STAMP_GROUPS[groupOf(kind)], n=VARIANTS[kind]||1; pend.key=[kind,opts.stampVar,opts.stampFlip].join('|'); pend.v=Math.random();
+  if(n<=1) pend.var=0; else if(opts.stampVar==='shuffle'){ if(grp.noflip) pend.var=0; else { let v=Math.floor(Math.random()*n); if(n>2 && v===pend.last) v=(v+1+Math.floor(Math.random()*(n-1)))%n; pend.var=v; } } else pend.var=opts.stampVar%n;      // numbers and letters stay plain unless a shape is picked
+  pend.last=pend.var; pend.flip=opts.stampFlip==='on' || (opts.stampFlip==='shuffle' && Math.random()<.5); pendPreview(); }
+function pending(){ if(pend.key!==[opts.stamp,opts.stampVar,opts.stampFlip].join('|')) rollPending(); return pend; }
+const pendStamp=(x=0,y=0,size)=>{ const d=pending(); return {kind:opts.stamp,x,y,size:size??opts.stampSizes[groupOf(opts.stamp)],rot:0,v:d.v,var:d.var,flip:d.flip,tint:opts.stampTint[opts.stamp]}; };
+function pendPreview(){ const c=document.getElementById('pendPrev'); if(!c) return; const x=c.getContext('2d'), n=VARIANTS[opts.stamp]||1; x.setTransform(2,0,0,2,0,0); x.clearRect(0,0,c.width,c.height); x.save(); x.beginPath(); x.rect(0,0,c.width/2,c.height/2); x.clip(); drawStamp(x,{...pendStamp(c.width/4,c.height/4+2,Math.round(c.width*.62)),rot:opts.stampRot}); x.restore();
+  const l=document.getElementById('pendLabel'); if(l) l.textContent=(n>1?'Shape '+(pend.var+1)+' of '+n:'One shape')+(pend.flip?' · mirrored':''); }
+function stepShape(d){ const n=VARIANTS[opts.stamp]||1; if(n<2) return; const cur=opts.stampVar==='shuffle'?pend.var:+opts.stampVar; opts.stampVar=((cur+d)%n+n)%n; pend.key=''; renderPanel(); invalidate(); }
+function placeStamp(p,vary,rot){ const kind=opts.stamp, base=opts.stampSizes[groupOf(kind)], d=pending(); let r0=rot ?? opts.stampRot; if(DUNG()){ const q=dungSnap(kind,p,r0); p=q.p; r0=q.rot; }
+  const o={kind,x:Math.round(p[0]),y:Math.round(p[1]),size:Math.round(vary?base*(.82+.36*d.v):base),rot:r0,v:d.v};
+  if((VARIANTS[kind]||1)>1) o.var=d.var;
   if(TINTS[kind]) o.tint=opts.stampTint[kind]||TINTS[kind][0];
-  if(opts.stampFlip==='on' || (opts.stampFlip==='shuffle' && vary && Math.random()<.5)) if(!STAMP_GROUPS[groupOf(kind)].align && !STAMP_GROUPS[groupOf(kind)].noflip) o.flip=true;      // Random: about half of the stamps laid down by dragging are mirrored
-  S.stamps=[...S.stamps,withLy(o)]; }
+  if(d.flip) o.flip=true;      // any stamp can be mirrored, whatever group it is in
+  S.stamps=[...S.stamps,withLy(o)]; rollPending(); }
 const [hitC,hitX]=mkCanvas(1,1);
 function inLand(l,p){ landPath(l); const b=built.get(l); hitX.lineWidth=b.cw||1; return hitX.isPointInPath(b.path,p[0],p[1]) || !!(b.core && hitX.isPointInStroke(b.core,p[0],p[1])); }
 function touches(a,b){ landPath(a); landPath(b); const A=built.get(a), B=built.get(b);
@@ -2393,6 +2415,8 @@ window.addEventListener('keydown',e=>{
   else if(sel && e.key.startsWith('Arrow')){ e.preventDefault(); const d=e.shiftKey?20:2; nudgeSel(e.key==='ArrowLeft'?-d:e.key==='ArrowRight'?d:0, e.key==='ArrowUp'?-d:e.key==='ArrowDown'?d:0); }
   else if(mod && e.key.toLowerCase()==='d' && sel){ e.preventDefault(); $('selDup')?.click(); }
   else if(e.key==='Escape'){ sel=null; renderPanel(); invalidate(); }
+  else if(!mod && opts.tool==='stamp' && (e.key==='['||e.key===']')){ e.preventDefault(); stepShape(e.key===']'?1:-1); }
+  else if(!mod && opts.tool==='stamp' && e.key.toLowerCase()==='x'){ opts.stampFlip=opts.stampFlip==='on'?'off':'on'; pend.key=''; renderPanel(); invalidate(); }
   else if(!mod){ const mode=S.kind==='dungeon'?'d':'w', kk=e.key.toLowerCase(); if(kk==='c' && mode==='w'){ opts.paintLayer='cliff'; setTool('paint'); } else { const t=TOOLS.find(t=>t.key && t.key===kk && (!t.m || t.m===mode)); if(t) setTool(t.id); } }
 });
 window.addEventListener('keyup',e=>{ if(e.key===' ') spaceDown=false; });
@@ -2506,9 +2530,11 @@ function renderPanel(){
     h+=`<section id="terrChips"><h2>Terrain</h2>${modeChips()}<p class="grp">Paint</p><div class="chips" id="plantKinds">${PK.map(([k,n])=>`<button class="chip" data-plant="${k}" aria-pressed="${opts.plantKind===k}">${n}</button>`).join('')}</div>${nv>1?`<label class="row wide" for="plantVar">Shape<select id="plantVar"><option value="mix"${opts.plantVar==='mix'?' selected':''}>Mixed</option>${Array.from({length:nv},(_,i)=>`<option value="${i}"${String(opts.plantVar)===String(i)?' selected':''}>${i+1}</option>`).join('')}</select></label>`:''}${slider('brush','Brush',16,400,2,opts.brush,num)}${slider('plantDensity','Density',.3,2,.05,opts.plantDensity,pct)}<p>Drag over the land to paint plants on in clumps. Right-drag rubs them out.</p></section>`; }
   if(LINES[t] && t!=='dwall') h+=`<section><h2>${t==='wall'||t==='fence'?'Walls &amp; fences':t==='street'||t==='road'?'Streets &amp; roads':LINES[t].name}</h2>${slider('lineRough','Wander',0,1,.01,opts.lineRough,pct)}<div class="ends"><span>straight</span><span>winding</span></div>${slider('lineWidth','Width',1,60,.5,opts.lineWidth[t],v=>v)}${t==='wall'||t==='fence'?wallKindChips():''}${t==='street'||t==='road'?`<p class="grp">Kind</p><div class="chips" id="streetKind">${[[5,'Lane'],[8,'Street'],[12,'Avenue'],[46,'Square']].map(([w,n])=>`<button class="chip" data-sw="${w}" aria-pressed="${!opts.roadMode && opts.lineWidth.street===w}">${n}</button>`).join('')}<button class="chip" data-road="1" aria-pressed="${opts.roadMode}">Country road</button></div><p>${opts.roadMode?'A dashed road between places.':'Streets are drawn solid and join at crossings. For a square, pick Square and make a very short stroke, then fill it with buildings from Stamps, City.'}</p>`:''}${t==='realm'?`<p class="grp">Marked by</p><div class="chips three" id="realmFill">${[['band','Fringe'],['hatch','Hatching'],['dots','Stipple']].map(([k,n])=>`<button class="chip" data-rfill="${k}" aria-pressed="${(opts.realmFill)===k}">${n}</button>`).join('')}</div><p>Draw right round the territory; the loop closes itself. Anything over the sea is left out.</p>`:''}</section>`;
   if(t==='stamp'){ const g=groupOf(opts.stamp), sc=scatterOf(opts.stamp), set=STAMP_SETS[opts.stampSet];
+    if(set.groups.length){ const nv=VARIANTS[opts.stamp]||1;
+      h+=`<section class="placebar"><div class="placerow"><canvas id="pendPrev" width="120" height="120" title="What the next click places"></canvas><div class="placectl"><b>${opts.stamp.startsWith('ch_')?opts.stamp.slice(3):opts.stamp}</b><small id="pendLabel"></small>${nv>1?`<div class="stepper"><button class="btn" id="shapePrev" title="Previous shape ([)">&#8249;</button><button class="chip" id="shapeShuf" aria-pressed="${opts.stampVar==='shuffle'}" title="Pick a shape at random each time">Shuffle</button><button class="btn" id="shapeNext" title="Next shape (])">&#8250;</button></div>`:''}</div></div>${slider('stampSize','Size',14,400,1,opts.stampSizes[g],num)}${slider('stampRot','Rotation',-180,180,1,opts.stampRot,deg)}<div class="chips three" id="flipPick">${[['off','Not mirrored'],['on','Mirrored'],['shuffle','Random']].map(([k,n])=>`<button class="chip" data-flipmode="${k}" aria-pressed="${opts.stampFlip===k}">${n}</button>`).join('')}</div></section>`; }
     h+=`<section id="stampKinds"><h2>Stamps</h2><div class="chips three" id="stampSets">${Object.entries(STAMP_SETS).map(([k,v])=>`<button class="chip" data-set="${k}" aria-pressed="${k===opts.stampSet}">${v.name}</button>`).join('')}</div>
     ${set.groups.length ? set.groups.map(n=>`<p class="grp">${n}</p>${stampGrid('sg_'+n,STAMP_GROUPS[n].kinds,opts.stamp)}`).join('') : `<p>${set.empty}</p>`}</section>`;
-    if(set.groups.length) h+=`<section>${lookControls(opts.stamp,opts.stampVar,opts.stampTint[opts.stamp]||(TINTS[opts.stamp]||[])[0],true)}${slider('stampSize','Size',14,400,1,opts.stampSizes[g],num)}${slider('stampRot','Rotation',-180,180,1,opts.stampRot,deg)}<p class="grp">Mirror</p><div class="chips three" id="flipPick">${[['off','Off'],['on','On'],['shuffle','Random']].map(([k,n])=>`<button class="chip" data-flipmode="${k}" aria-pressed="${opts.stampFlip===k}">${n}</button>`).join('')}</div>${sc?`<p class="grp">Dragging</p><div class="chips" id="stampMode"><button class="chip" data-smode="place" aria-pressed="${opts.stampMode!=='fill'}">Lays a trail</button><button class="chip" data-smode="fill" aria-pressed="${opts.stampMode==='fill'}">Fills an area</button></div>`+(opts.stampMode==='fill'?slider('fillDensity','Density',.4,2,.05,opts.fillDensity,pct)+(STAMP_GROUPS[g].align?'<p>Draw a loop round a district. Buildings line every street inside it; past the middle of the slider they also fill the middles of the blocks.</p>':'<p>Draw a loop round the area. It is filled with this stamp, on land only (sea stamps on water only).</p>'):slider('scatter','Scatter',0,400,2,opts.scatter,num)+'<p>Drag to lay down many. Scatter sets how wide they spread.</p>'):''}</section>`; }
+    if(set.groups.length) h+=`<section>${lookControls(opts.stamp,opts.stampVar,opts.stampTint[opts.stamp]||(TINTS[opts.stamp]||[])[0],true)}${sc?`<p class="grp">Dragging</p><div class="chips" id="stampMode"><button class="chip" data-smode="place" aria-pressed="${opts.stampMode!=='fill'}">Lays a trail</button><button class="chip" data-smode="fill" aria-pressed="${opts.stampMode==='fill'}">Fills an area</button></div>`+(opts.stampMode==='fill'?slider('fillDensity','Density',.4,2,.05,opts.fillDensity,pct)+(STAMP_GROUPS[g].align?'<p>Draw a loop round a district. Buildings line every street inside it; past the middle of the slider they also fill the middles of the blocks.</p>':'<p>Draw a loop round the area. It is filled with this stamp, on land only (sea stamps on water only).</p>'):slider('scatter','Scatter',0,400,2,opts.scatter,num)+'<p>Drag to lay down many. Scatter sets how wide they spread.</p>'):''}</section>`; }
   if(t==='label') h+=`<section><h2>Label</h2><label class="row wide" for="labelStyle">Style<select id="labelStyle">${Object.entries(LABEL_STYLES).map(([k,s])=>`<option value="${k}"${k===opts.labelStyle?' selected':''}>${s.name}</option>`).join('')}</select></label>${slider('labelSize','Size',10,160,1,opts.labelSize,num)}<p>Click the map and type. Enter finishes, Shift+Enter starts a second line. Curve and spacing are set once the label is selected.</p></section>`;
   if(t==='reshape') h+=`<section><h2>Reshape</h2><div class="chips" id="reshapeModes"><button class="chip" data-rmode="pull" aria-pressed="${opts.reshape==='pull'}">Pull</button><button class="chip" data-rmode="cut" aria-pressed="${opts.reshape==='cut'}">Erase lines</button></div>
     ${slider('reach','Reach',30,600,5,opts.reach,num)}<p>${opts.reshape==='pull' ? 'Grab any coastline, cliff edge, river, road or border and drag. Reach sets how much of it follows. Drag the end of a river or road to extend it.' : 'Drag across rivers, roads and borders to rub out the part under the ring. A line cut in the middle becomes two.'}</p></section>`;
@@ -2525,11 +2551,13 @@ function renderPanel(){
 
   bind('landRough',pct,v=>opts.landRough=v); bind('brush',num,v=>opts.brush=v); bind('lineRough',pct,v=>opts.lineRough=v); bind('lineWidth',v=>v,v=>opts.lineWidth[t]=v);
   bind('stampSize',num,v=>opts.stampSizes[groupOf(opts.stamp)]=v); bind('scatter',num,v=>opts.scatter=v); bind('fillDensity',pct,v=>opts.fillDensity=v); $('stampMode')?.addEventListener('click',e=>{ const b=e.target.closest('[data-smode]'); if(b){ opts.stampMode=b.dataset.smode; renderPanel(); invalidate(); } }); bind('landBrush',num,v=>opts.landBrush=v);
-  $('flipPick')?.addEventListener('click',e=>{ const b=e.target.closest('[data-flipmode]'); if(b){ opts.stampFlip=b.dataset.flipmode; renderPanel(); invalidate(); } });
+  $('flipPick')?.addEventListener('click',e=>{ const b=e.target.closest('[data-flipmode]'); if(b){ opts.stampFlip=b.dataset.flipmode; pend.key=''; renderPanel(); invalidate(); } });
+  $('shapePrev')?.addEventListener('click',()=>stepShape(-1)); $('shapeNext')?.addEventListener('click',()=>stepShape(1)); $('shapeShuf')?.addEventListener('click',()=>{ opts.stampVar=opts.stampVar==='shuffle'?pend.var:'shuffle'; pend.key=''; renderPanel(); invalidate(); });
+  if(t==='stamp') pendPreview(); bind('stampRot',deg,v=>{ opts.stampRot=v; pendPreview(); });
   $('stampSets')?.addEventListener('click',e=>{ const b=e.target.closest('[data-set]'); if(b){ opts.stampSet=b.dataset.set; const gs=STAMP_SETS[opts.stampSet].groups; if(gs.length && !gs.some(g=>STAMP_GROUPS[g].kinds.includes(opts.stamp))){ opts.stamp=STAMP_GROUPS[gs[0]].kinds[0]; if(DUNG() && DUN_FOOT[opts.stamp]) opts.stampSizes[groupOf(opts.stamp)]=dungSize(opts.stamp); } renderPanel(); } });
   const selStamp = sel && sel.type==='stamp' && t==='select';
   $('varPick')?.addEventListener('click',e=>{ const b=e.target.closest('button[data-var]'); if(!b) return; const v=b.dataset.var==='shuffle'?'shuffle':+b.dataset.var;
-    if(selStamp){ pushUndo(); editSel(o=>({...o,var:v})); } else opts.stampVar=v; renderPanel(); invalidate(); });
+    if(selStamp){ pushUndo(); editSel(o=>({...o,var:v})); } else { opts.stampVar=v; pend.key=''; } renderPanel(); invalidate(); });
   $('tintPick')?.addEventListener('click',e=>{ const b=e.target.closest('[data-tint]'); if(!b) return; const k=b.dataset.tint;
     if(selStamp){ pushUndo(); editSel(o=>({...o,tint:k})); } else for(const kind in TINTS) if(TINTS[kind]===TINTS[opts.stamp]) opts.stampTint[kind]=k; renderPanel(); invalidate(); });
   bind('reach',num,v=>opts.reach=v); $('reshapeModes')?.addEventListener('click',e=>{ const b=e.target.closest('[data-rmode]'); if(b){ opts.reshape=b.dataset.rmode; renderPanel(); } });
