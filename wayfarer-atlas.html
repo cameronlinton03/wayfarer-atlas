@@ -75,6 +75,10 @@ button{cursor:pointer}
 .stamps button{background:var(--vellum);border:1px solid var(--line);border-radius:4px;padding:2px 0 3px;display:flex;flex-direction:column;align-items:center;font-size:11.5px;color:#3a2a1c}
 .stamps button[aria-pressed="true"]{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent)}
 .stamps canvas{width:44px;height:44px}
+.stamps button{position:relative}
+.stamps .star{position:absolute;top:0;right:2px;font-size:14px;line-height:1.25;color:#8a7a62;opacity:.5;cursor:pointer;padding:0 2px;user-select:none}
+.stamps .star:hover,.stamps .star.on{opacity:1;color:var(--accent)}
+#stampSearch{width:100%;box-sizing:border-box;margin:2px 0 8px;padding:6px 9px;font:inherit;font-size:14px;background:var(--vellum);border:1px solid var(--line);border-radius:4px;color:inherit}
 .chips.three{grid-template-columns:repeat(3,minmax(0,1fr))}
 .chips.three .chip{justify-content:center;text-align:center;padding:5px 3px;font-size:12.5px}
 .shuf{height:44px;display:grid;place-items:center;font-size:22px}
@@ -2514,6 +2518,7 @@ window.addEventListener('keydown',e=>{
   else if(mod && e.key.toLowerCase()==='d' && sel){ e.preventDefault(); $('selDup')?.click(); }
   else if(e.key==='Escape'){ sel=null; renderPanel(); invalidate(); }
   else if(!mod && opts.tool==='stamp' && (e.key==='['||e.key===']')){ e.preventDefault(); stepShape(e.key===']'?1:-1); }
+  else if(!mod && opts.tool==='stamp' && /^[1-9]$/.test(e.key) && favs[+e.key-1]){ e.preventDefault(); chooseStamp(favs[+e.key-1]); }
   else if(!mod && opts.tool==='stamp' && e.key.toLowerCase()==='x'){ opts.stampFlip=opts.stampFlip==='on'?'off':'on'; pend.key=''; renderPanel(); invalidate(); }
   else if(!mod){ const mode=S.kind==='dungeon'?'d':'w', kk=e.key.toLowerCase(); if(kk==='c' && mode==='w'){ opts.paintLayer='cliff'; setTool('paint'); } else { const t=TOOLS.find(t=>t.key && t.key===kk && (!t.m || t.m===mode)); if(t) setTool(t.id); } }
 });
@@ -2570,7 +2575,22 @@ const ROT_IDS=new Set(['stampRot','selRot','cliffDir']), snapRot=v=>Math.max(-18
 function bind(id, fmt, fn, isEdit){ const el=$(id); if(!el) return;
   el.addEventListener('input',()=>{ if(isEdit) beginEdit(); let v=el.type==='range'?+el.value:el.value; if(ROT_IDS.has(id) && opts.rotSnap){ v=snapRot(v); el.value=v; } const o=$(id+'Out'); if(o) o.textContent=fmt(v); fn(v); invalidate(); });
   el.addEventListener('change',()=>{ editing=false; if(isEdit && sel){ selDirty(true); invalidate(); } queueSave(); }); }
-const stampGrid=(id,kinds,cur)=>`<div class="stamps" id="${id}">${kinds.map(k=>`<button data-kind="${k}" aria-pressed="${k===cur}"><canvas width="88" height="88" data-kind="${k}"></canvas>${k.startsWith('ch_')?k.slice(3):k}</button>`).join('')}</div>`;
+const stampGrid=(id,kinds,cur,stars)=>`<div class="stamps" id="${id}">${kinds.map(k=>`<button data-kind="${k}" aria-pressed="${k===cur}"><canvas width="88" height="88" data-kind="${k}"></canvas>${k.startsWith('ch_')?k.slice(3):k}${stars?`<span class="star${favs.includes(k)?' on':''}" data-fav="${k}" role="button" aria-label="${favs.includes(k)?'Remove from':'Add to'} favourites" title="${favs.includes(k)?'Remove from favourites':'Add to favourites'}">${favs.includes(k)?'★':'☆'}</span>`:''}</button>`).join('')}</div>`;
+/* Favourites and search. favs is the user's list of stamp kinds, in the order added, kept in the library store under '__favs' (not in any map file). The list under the search box is rebuilt
+   on its own as the query changes, so the box keeps its focus; with a query it shows every matching kind in every set (a kind matches on its name or its group's name). */
+let favs=[];
+const kindLabel=k=>k.startsWith('ch_')?k.slice(3):k;
+function toggleFav(kind){ const i=favs.indexOf(kind); if(i>=0) favs.splice(i,1); else favs.push(kind); store.set('__favs',JSON.stringify(favs)); renderPanel(); }
+function favsHTML(){ return `<p class="grp">Favourites</p>`+(favs.length?stampGrid('sg_favs',favs,opts.stamp,true):`<p>Click the star on a stamp to keep it here. Number keys 1 to 9 pick a favourite.</p>`); }
+function stampListHTML(){ const q=(opts.stampQuery||'').trim().toLowerCase(), set=STAMP_SETS[opts.stampSet];
+  if(!q) return set.groups.length ? set.groups.map(n=>`<p class="grp">${n}</p>${stampGrid('sg_'+n,STAMP_GROUPS[n].kinds,opts.stamp,true)}`).join('') : `<p>${set.empty}</p>`;
+  const seen=new Set(), parts=[]; for(const [gn,g] of Object.entries(STAMP_GROUPS)){ if(!Object.values(STAMP_SETS).some(x=>x.groups.includes(gn))) continue;
+    const ks=g.kinds.filter(k=>!seen.has(k) && (kindLabel(k).toLowerCase().includes(q) || k.toLowerCase().includes(q) || gn.toLowerCase().includes(q))); ks.forEach(k=>seen.add(k)); if(ks.length) parts.push(`<p class="grp">${gn}</p>${stampGrid('sr_'+gn.replace(/\W/g,'_'),ks,opts.stamp,true)}`); }
+  return parts.join('') || `<p>No stamp is called that.</p>`; }
+function chooseStamp(kind){ const was=opts.stamp; opts.stamp=kind; const gg=groupOf(kind);      // one place for what choosing a stamp does, whether from the grid, the favourites or a number key
+  if(DUNG() && DUN_FOOT[kind]) opts.stampSizes[gg]=dungSize(kind); else if(KIND_SIZE[kind]) opts.stampSizes[gg]=KIND_SIZE[kind]; else if(KIND_SIZE[was] && groupOf(was)===gg) opts.stampSizes[gg]=STAMP_GROUPS[gg].size;
+  if(!STAMP_SETS[opts.stampSet].groups.includes(gg)){ const k=Object.keys(STAMP_SETS).find(n=>STAMP_SETS[n].groups.includes(gg)); if(k) opts.stampSet=k; }      // a favourite may live in another set
+  renderPanel(); }
 function stampThumbs(){ document.querySelectorAll('.stamps canvas').forEach(c=>{ const x=c.getContext('2d'); x.setTransform(2,0,0,2,0,0); x.clearRect(0,0,44,44); drawStamp(x,{kind:c.dataset.kind,x:22,y:24,size:34,rot:0,v:.6,var:+c.dataset.var||0,tint:c.dataset.tint||undefined}); }); }
 const ORDER_BUTTONS=`<div class="btnrow"><button class="btn" data-flip="1">Mirror</button></div><p class="grp">Order</p><div class="btnrow"><button class="btn" data-z="front">To front</button><button class="btn" data-z="up">Forward</button><button class="btn" data-z="down">Backward</button><button class="btn" data-z="back">To back</button><button class="btn" data-z="auto">Auto</button></div>`;
 function lookControls(kind,curVar,curTint,shuffle){     // shape and colour pickers for stamps that have them
@@ -2628,8 +2648,8 @@ function renderPanel(){
   if(t==='stamp'){ const g=groupOf(opts.stamp), sc=scatterOf(opts.stamp), set=STAMP_SETS[opts.stampSet];
     if(set.groups.length){ const nv=VARIANTS[opts.stamp]||1;
       h+=`<section class="placebar"><div class="placerow"><canvas id="pendPrev" width="120" height="120" title="What the next click places"></canvas><div class="placectl"><b>${opts.stamp.startsWith('ch_')?opts.stamp.slice(3):opts.stamp}</b><small id="pendLabel"></small>${nv>1?`<div class="stepper"><button class="btn" id="shapePrev" title="Previous shape ([)">&#8249;</button><button class="chip" id="shapeShuf" aria-pressed="${opts.stampVar==='shuffle'}" title="Pick a shape at random each time">Shuffle</button><button class="btn" id="shapeNext" title="Next shape (])">&#8250;</button></div>`:''}</div></div>${slider('stampSize','Size',14,400,1,opts.stampSizes[g],num)}${slider('stampRot','Rotation',-180,180,1,opts.stampRot,deg)}${slider('stampOpacity','Opacity',0,100,1,opts.stampOpacity,v=>Math.round(v)+'%')}<div class="chips three" id="flipPick">${[['off','Not mirrored'],['on','Mirrored'],['shuffle','Random']].map(([k,n])=>`<button class="chip" data-flipmode="${k}" aria-pressed="${opts.stampFlip===k}">${n}</button>`).join('')}</div></section>`; }
-    h+=`<section id="stampKinds"><h2>Stamps</h2><div class="chips three" id="stampSets">${Object.entries(STAMP_SETS).map(([k,v])=>`<button class="chip" data-set="${k}" aria-pressed="${k===opts.stampSet}">${v.name}</button>`).join('')}</div>
-    ${set.groups.length ? set.groups.map(n=>`<p class="grp">${n}</p>${stampGrid('sg_'+n,STAMP_GROUPS[n].kinds,opts.stamp)}`).join('') : `<p>${set.empty}</p>`}</section>`;
+    h+=`<section id="stampKinds"><h2>Stamps</h2><input type="search" id="stampSearch" placeholder="Search stamps…" aria-label="Search stamps" value="${(opts.stampQuery||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;')}">${favsHTML()}<div class="chips three" id="stampSets"${(opts.stampQuery||'').trim()?' style="display:none"':''}>${Object.entries(STAMP_SETS).map(([k,v])=>`<button class="chip" data-set="${k}" aria-pressed="${k===opts.stampSet}">${v.name}</button>`).join('')}</div>
+    <div id="stampList">${stampListHTML()}</div></section>`;
     if(set.groups.length) h+=`<section>${lookControls(opts.stamp,opts.stampVar,opts.stampTint[opts.stamp]||(TINTS[opts.stamp]||[])[0],true)}${sc?`<p class="grp">Dragging</p><div class="chips" id="stampMode"><button class="chip" data-smode="place" aria-pressed="${opts.stampMode!=='fill'}">Lays a trail</button><button class="chip" data-smode="fill" aria-pressed="${opts.stampMode==='fill'}">Fills an area</button></div>`+(opts.stampMode==='fill'?slider('fillDensity','Density',.4,2,.05,opts.fillDensity,pct)+(STAMP_GROUPS[g].align?'<p>Draw a loop round a district. Buildings line every street inside it; past the middle of the slider they also fill the middles of the blocks.</p>':'<p>Draw a loop round the area. It is filled with this stamp, on land only (sea stamps on water only).</p>'):slider('scatter','Spread',0,400,2,opts.scatter,num)+slider('scatterDensity','Amount',.2,3,.05,opts.scatterDensity,pct)+slider('scatterGap','Spacing',0,1.5,.05,opts.scatterGap,pct)+slider('sizeVar','Size variation',0,.6,.01,opts.sizeVar,pct)+'<p>Drag to lay down many. Spread is how wide the brush is, Amount how many per stroke, Spacing the least gap between them (0 lets them overlap), Size variation how much they differ.</p>'):''}</section>`; }
   if(t==='label') h+=`<section><h2>Label</h2><label class="row wide" for="labelStyle">Style<select id="labelStyle">${Object.entries(LABEL_STYLES).map(([k,s])=>`<option value="${k}"${k===opts.labelStyle?' selected':''}>${s.name}</option>`).join('')}</select></label>${slider('labelSize','Size',10,160,1,opts.labelSize,num)}<p>Click the map and type. Enter finishes, Shift+Enter starts a second line. Curve and spacing are set once the label is selected.</p></section>`;
   if(t==='reshape') h+=`<section><h2>Reshape</h2><div class="chips" id="reshapeModes"><button class="chip" data-rmode="pull" aria-pressed="${opts.reshape==='pull'}">Pull</button><button class="chip" data-rmode="cut" aria-pressed="${opts.reshape==='cut'}">Erase lines</button></div>
@@ -2669,7 +2689,8 @@ function renderPanel(){
   $('landModes')?.addEventListener('click',e=>{ const b=e.target.closest('[data-mode]'); if(b){ opts.landMode=b.dataset.mode; setTool(opts.tool); } }); bind('stampRot',deg,v=>opts.stampRot=v); bind('labelSize',num,v=>opts.labelSize=v);
   $('labelStyle')?.addEventListener('change',e=>opts.labelStyle=e.target.value);
   $('terrChips')?.addEventListener('click',e=>{ const l=e.target.closest('[data-layer]'), b=e.target.closest('[data-terr]'); if(l) opts.paintLayer=l.dataset.layer; else if(b) opts[opts.paintLayer==='water'?'water':'terrain']=b.dataset.terr; else return; renderPanel(); });
-  $('stampKinds')?.addEventListener('click',e=>{ const b=e.target.closest('[data-kind]'); if(b){ const was=opts.stamp; opts.stamp=b.dataset.kind; const gg=groupOf(opts.stamp); if(DUNG() && DUN_FOOT[opts.stamp]) opts.stampSizes[gg]=dungSize(opts.stamp); else if(KIND_SIZE[opts.stamp]) opts.stampSizes[gg]=KIND_SIZE[opts.stamp]; else if(KIND_SIZE[was] && groupOf(was)===gg) opts.stampSizes[gg]=STAMP_GROUPS[gg].size; renderPanel(); } });
+  $('stampKinds')?.addEventListener('click',e=>{ const f=e.target.closest('[data-fav]'); if(f){ e.preventDefault(); e.stopPropagation(); toggleFav(f.dataset.fav); return; } const b=e.target.closest('[data-kind]'); if(b) chooseStamp(b.dataset.kind); });
+  $('stampSearch')?.addEventListener('input',e=>{ opts.stampQuery=e.target.value; $('stampSets').style.display=opts.stampQuery.trim()?'none':''; $('stampList').innerHTML=stampListHTML(); stampThumbs(); });
   $('detailPick')?.addEventListener('click',e=>{ const b=e.target.closest('[data-detail]'); if(b){ toast('Redrawing…'); setTimeout(()=>{ setDetail(+b.dataset.detail); renderPanel(); },50); } });
   $('gridType').addEventListener('change',e=>{ pushUndo(); S.grid={...S.grid,type:e.target.value}; if(DUNG()) need.compose='full'; invalidate(); });
   $('scaleN')?.addEventListener('change',e=>{ const v=+e.target.value; if(v>0){ pushUndo(); S.scale={...S.scale,per100:v}; sprites.clear(); queueSave(); renderPanel(); invalidate(); } });
@@ -3015,6 +3036,7 @@ function exampleMap(){
 async function start(){
   buildRail(); loadState(blankState(2400,1500));                    // something to stand on while the library is read
   await store.open(); let idx=null; try{ idx=JSON.parse(await store.get('__index')); }catch(e){}
+  try{ const f=JSON.parse(await store.get('__favs')); if(Array.isArray(f)) favs=f.filter(k=>typeof k==='string' && Object.values(STAMP_GROUPS).some(g=>g.kinds.includes(k))); }catch(e){}      // the favourites list
   if(Array.isArray(idx) && idx.length){ lib=idx; const want=await store.get('__current'); if(!(await openMap(lib.some(m=>m.id===want)?want:lib[0].id))){ curId=newId(); loadState(blankState(2400,1500)); } setTool('land'); }
   else { let old=null; try{ old=JSON.parse(localStorage.getItem(STORE_KEY)); }catch(e){}                 // first run: carry over the single map earlier versions kept, or show the example
     curId=newId(); if(validState(old)){ loadState(old); setTool('land'); } else { loadState(exampleMap()); $('note').hidden=false; setTool('select'); } saveDirty=true; setTimeout(saveNow,600); }
