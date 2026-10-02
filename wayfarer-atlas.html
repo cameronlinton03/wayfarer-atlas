@@ -334,7 +334,10 @@ const scatterOf=kind=>!!STAMP_GROUPS[groupOf(kind)].scatter && !SOLO_KINDS.has(k
 const VARIANTS = {wildflowers:8, wildgrass:4, shrubs:5, thicket:4, saplings:3, ferns:3, highpeak:4, ...Object.fromEntries(GLYPH_KINDS.map(k=>[k,2])), bones:2, pool:2, fieldplot:8, orchard:3, vineyard:3, house:4, stall:3, treetop:3, compass:3, cartouche:3, dragon:4, autumn:4, blossom:4, jungle:2, waves:3, breaker:2, deciduous:4, conifer:4, grove:4, pines:4, mountain:12, snowpeak:12, hill:8};   // how many shapes each stamp has
 const STONES=['stone','slate','rock'], SANDS=['sand','beach','redsand'], GRASSES=['grass','meadow','forest','steppe','marsh'];
 const swatch = k => TERRAIN[k];
-const TINTS = {};      // stamps are ink only, so none of them takes a colour
+/* Stamps that can be tinted, and the grounds whose colour they may take (the colours are TERRAIN's). The tint is laid on the finished picture of the stamp (see sprite), multiplied in faintly, so the ink stays
+   black and only the paper in the body takes the wash. A stamp with no tint of its own, which includes every stamp made before tints worked, stays as it was. */
+const TINTS = {mountain:['stone','slate','rock'], snowpeak:['stone','slate'], highpeak:['stone','slate','rock'], hill:['grass','meadow','steppe','marsh','sand','forest'], boulders:['rock','stone','slate'], dunes:['sand','beach','redsand']};
+const TINT_STRENGTH=.35;
 const groupOf = kind => Object.keys(STAMP_GROUPS).find(g=>STAMP_GROUPS[g].kinds.includes(kind)) || 'Settlements';
 const LABEL_STYLES = {      // lettering in the manner of engraved maps: roman for places, spaced capitals for regions, italic for water and notes, blackletter for a title
   title:  {name:'Title',        font:'"IM Fell French Canon SC", "IM Fell English SC", Georgia, serif', italic:false, caps:true,  spacing:0.14, fx:{plate:true,outline:false}},
@@ -1046,7 +1049,7 @@ function drawLine(c,l){
 /* ---- stamp art. Everything is drawn in a 40-unit box centred on 0,0 with the ground at y = 14.
    Corners get a tiny fixed wobble so lines read as pen strokes rather than ruler lines. ---- */
 function stampLook(s){ const n=VARIANTS[s.kind]||1, v=s.v ?? .5, tints=TINTS[s.kind];      // resolves a stamp's shape and colour, filling in defaults
-  return {n:(s.var ?? Math.floor(v*n))%n, tint:tints?(tints.includes(s.tint)?s.tint:tints[0]):'', g:v>.5}; }
+  return {n:(s.var ?? Math.floor(v*n))%n, tint:tints && tints.includes(s.tint) ? s.tint : ''}; }
 let ENG_M=1;      // -1 while a mirrored stamp is being drawn. The engraved drawings mirror their layout and outline themselves and keep the shading on the right, instead of the finished picture being flipped.
 /* The pen does not grow with the picture. A stamp is drawn in a small box and enlarged, which would make a cathedral's lines three times as heavy as a cottage's;
    so the line weight is scaled back the other way (most of the way), and big and small things look drawn with the same nib. */
@@ -1057,7 +1060,7 @@ function paintStamp(c,s){ const pen=s.pen ?? (s.size?penOf(s.size):1); if(pen!==
   ENG_K=1/pen; try{ paintStamp0(c,s); } finally { ENG_K=1; if(pen!==1) delete c.lineWidth; } }
 function paintStamp0(c,s){ const k=stampLook(s), eng=SKETCH_DRAW[s.kind]; c.strokeStyle=INK; c.lineWidth=1.2; c.lineJoin='round'; c.lineCap='round';
   c.save(); if(s.flip){ if(eng) ENG_M=-1; else c.scale(-1,1); } engSeed=11+k.n*977+(s.flip?7:0); for(let i=0;i<s.kind.length;i++) engSeed=(engSeed*31+s.kind.charCodeAt(i))%2147483646+1;
-  try{ (eng||SKETCH_DRAW.village)(c,k.n,null,k.g); } finally { ENG_M=1; c.restore(); } }
+  try{ (eng||SKETCH_DRAW.village)(c,k.n); } finally { ENG_M=1; c.restore(); } }
 /* On screen each stamp is drawn once into a small picture and reused, so thousands of trees stay quick. Exports draw every stamp fresh. */
 const sprites=new Map(); let ageC=null;
 /* In the sketch themes the commonest symbols are drawn fresh in the manner of old copperplate maps: mountains as rolling ridges
@@ -1993,11 +1996,14 @@ for(const g of GLYPHS) SKETCH_DRAW['ch_'+g]=function(c,n){ c.save(); if(ENG_M<0)
 let spriteArea=0, spriteBudgetMs=Infinity, spritesPending=false; const SPRITE_PIXELS=70e6;
 const BASE_FADE={mountain:[5,16.5],snowpeak:[5,16.5],highpeak:[7,19.5],hill:[8,17],volcano:[6,16.5],mesa:[8,17],crag:[7,17]};      // mountains thin to nothing at their foot, so there is no hard line where the stamp meets the ground (box y, top and bottom of the fade)
 const SPR_SIDE={highpeak:2.1}, sprSide=kind=>SPR_SIDE[kind]||1.7;      // a sprite's canvas, in stamp sizes: the high peaks reach about 40 units from the middle of the 40-unit box, past the usual 34
-function sprite(s,px,lazy){ const k=stampLook(s), g=['Trees','Plants'].includes(groupOf(s.kind))&&k.g, pen=penOf(s.size), K=b=>[s.kind,k.n,k.tint,g,b,s.flip?1:0,pen].join('|'), key=K(px); let sp=sprites.get(key);
+function tintSprite(x,side,name){ const d=TERRAIN[name]; if(!d) return; const n=parseInt(d.color.slice(1),16), a=TINT_STRENGTH, f=[n>>16&255,n>>8&255,n&255].map(v=>1-a+a*v/255);      // multiply the colour in at TINT_STRENGTH: ink (black) stays black, paper takes the wash, transparent pixels are left alone
+  const im=x.getImageData(0,0,side,side), p=im.data; for(let i=0;i<p.length;i+=4){ if(p[i+3]===0) continue; p[i]*=f[0]; p[i+1]*=f[1]; p[i+2]*=f[2]; } x.putImageData(im,0,0); }
+function sprite(s,px,lazy){ const k=stampLook(s), pen=penOf(s.size), K=b=>[s.kind,k.n,k.tint,b,s.flip?1:0,pen].join('|'), key=K(px); let sp=sprites.get(key);
   if(sp){ sprites.delete(key); sprites.set(key,sp); return sp; }
   if(lazy && spriteBudgetMs<=0){ spritesPending=true; for(let b=px*2;b<=1536;b*=2){ const f=sprites.get(K(b)); if(f) return f; } for(let b=px/2;b>=48;b/=2){ const f=sprites.get(K(b)); if(f) return f; } return null; }      // out of time this frame: use any size already made (a bigger one first, it is sharper), and come back for the right one
-  const t0=performance.now(), side=Math.ceil(px*sprSide(s.kind)), [cn,x]=mkCanvas(side,side); x.translate(side/2,side/2); x.scale(px/40,px/40); paintStamp(x,{kind:s.kind,var:k.n,tint:k.tint,v:g?.75:.25,flip:s.flip,pen});
+  const t0=performance.now(), side=Math.ceil(px*sprSide(s.kind)), [cn,x]=mkCanvas(side,side); x.translate(side/2,side/2); x.scale(px/40,px/40); paintStamp(x,{kind:s.kind,var:k.n,tint:k.tint,v:.25,flip:s.flip,pen});
   const fade=BASE_FADE[s.kind]; if(fade){ x.save(); x.setTransform(1,0,0,1,0,0); const u=px/40, y0=side/2+fade[0]*u, y1=side/2+fade[1]*u, gr=x.createLinearGradient(0,y0,0,y1); gr.addColorStop(0,'rgba(0,0,0,0)'); gr.addColorStop(1,'rgba(0,0,0,1)'); x.globalCompositeOperation='destination-out'; x.fillStyle=gr; x.fillRect(0,y0,side,side-y0); x.restore(); }
+  if(k.tint) tintSprite(x,side,k.tint);
   sp=cn; sprites.set(key,sp); spriteArea+=side*side; spriteBudgetMs-=performance.now()-t0;
   while(spriteArea>SPRITE_PIXELS && sprites.size>1){ const [k0,v0]=sprites.entries().next().value; sprites.delete(k0); spriteArea-=v0.width*v0.height; }
   return sp; }
@@ -2323,7 +2329,7 @@ function stepShape(d){ const n=VARIANTS[opts.stamp]||1; if(n<2) return; const cu
 function placeStamp(p,vary,rot){ const kind=opts.stamp, base=opts.stampSizes[groupOf(kind)], d=pending(); let r0=rot ?? opts.stampRot; if(DUNG()){ const q=dungSnap(kind,p,r0); p=q.p; r0=q.rot; }
   const o={kind,x:Math.round(p[0]),y:Math.round(p[1]),size:Math.round(vary?base*(1+(d.v-.5)*2*opts.sizeVar):base),rot:r0,v:d.v}; if(opts.stampOpacity<100) o.op=Math.round(opts.stampOpacity);
   if((VARIANTS[kind]||1)>1) o.var=d.var;
-  if(TINTS[kind]) o.tint=opts.stampTint[kind]||TINTS[kind][0];
+  if(TINTS[kind]) o.tint=opts.stampTint[kind]||'none';      // plain unless a colour was chosen
   if(d.flip) o.flip=true;      // any stamp can be mirrored, whatever group it is in
   S.stamps=[...S.stamps,withLy(o)]; rollPending(); }
 const [hitC,hitX]=mkCanvas(1,1);
@@ -2648,6 +2654,7 @@ const ORDER_BUTTONS=`<div class="btnrow"><button class="btn" data-flip="1">Mirro
 function lookControls(kind,curVar,curTint,shuffle){     // shape and colour pickers for stamps that have them
   const n=VARIANTS[kind]||1, tints=TINTS[kind]; let h='';
   if(n>1) h+=`<p class="grp">Shape</p><div class="stamps" id="varPick">${shuffle?`<button data-var="shuffle" aria-pressed="${curVar==='shuffle'}"><span class="shuf">⤮</span>shuffle</button>`:''}${Array.from({length:n},(_,i)=>`<button data-var="${i}" aria-pressed="${curVar===i}"><canvas width="88" height="88" data-kind="${kind}" data-var="${i}" data-tint="${curTint||''}"></canvas>${i+1}</button>`).join('')}</div>`;
+  if(tints) h+=`<p class="grp">Colour</p><div class="chips" id="tintPick">${['none',...tints].map(t=>`<button class="chip" data-tint="${t}" aria-pressed="${(curTint||'none')===t}">${t==='none'?'Plain':`<i style="background:${TERRAIN[t].color}"></i>${TERRAIN[t].name}`}</button>`).join('')}</div>`;
   return h; }
 const FLOORS=[['flag','Flagstone'],['plank','Planks'],['dirt','Earth'],['none','Plain']];
 function dungToolPanel(t){ const chips=(id,items,cur,attr)=>`<div class="chips" id="${id}">${items.map(([k,n])=>`<button class="chip" data-${attr}="${k}" aria-pressed="${String(cur)===String(k)}">${n}</button>`).join('')}</div>`;
@@ -2704,7 +2711,7 @@ function renderPanel(){
       h+=`<section class="placebar"><div class="placerow"><canvas id="pendPrev" width="120" height="120" title="What the next click places"></canvas><div class="placectl"><b>${opts.stamp.startsWith('ch_')?opts.stamp.slice(3):opts.stamp}</b><small id="pendLabel"></small>${nv>1?`<div class="stepper"><button class="btn" id="shapePrev" title="Previous shape ([)">&#8249;</button><button class="chip" id="shapeShuf" aria-pressed="${opts.stampVar==='shuffle'}" title="Pick a shape at random each time">Shuffle</button><button class="btn" id="shapeNext" title="Next shape (])">&#8250;</button></div>`:''}</div></div>${slider('stampSize','Size',14,400,1,opts.stampSizes[g],num)}${slider('stampRot','Rotation',-180,180,1,opts.stampRot,deg)}${slider('stampOpacity','Opacity',0,100,1,opts.stampOpacity,v=>Math.round(v)+'%')}<div class="chips three" id="flipPick">${[['off','Not mirrored'],['on','Mirrored'],['shuffle','Random']].map(([k,n])=>`<button class="chip" data-flipmode="${k}" aria-pressed="${opts.stampFlip===k}">${n}</button>`).join('')}</div></section>`; }
     h+=`<section id="stampKinds"><h2>Stamps</h2><input type="search" id="stampSearch" placeholder="Search stamps…" aria-label="Search stamps" value="${(opts.stampQuery||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;')}">${favsHTML()}<div class="chips three" id="stampSets"${(opts.stampQuery||'').trim()?' style="display:none"':''}>${Object.entries(STAMP_SETS).map(([k,v])=>`<button class="chip" data-set="${k}" aria-pressed="${k===opts.stampSet}">${v.name}</button>`).join('')}</div>
     <div id="stampList">${stampListHTML()}</div></section>`;
-    if(set.groups.length) h+=`<section>${lookControls(opts.stamp,opts.stampVar,opts.stampTint[opts.stamp]||(TINTS[opts.stamp]||[])[0],true)}${sc?`<p class="grp">Dragging</p><div class="chips" id="stampMode"><button class="chip" data-smode="place" aria-pressed="${opts.stampMode!=='fill'}">Lays a trail</button><button class="chip" data-smode="fill" aria-pressed="${opts.stampMode==='fill'}">Fills an area</button></div>`+(opts.stampMode==='fill'?slider('fillDensity','Density',.4,2,.05,opts.fillDensity,pct)+(STAMP_GROUPS[g].align?'<p>Draw a loop round a district. Buildings line every street inside it; past the middle of the slider they also fill the middles of the blocks.</p>':'<p>Draw a loop round the area. It is filled with this stamp, on land only (sea stamps on water only).</p>'):slider('scatter','Spread',0,400,2,opts.scatter,num)+slider('scatterDensity','Amount',.2,3,.05,opts.scatterDensity,pct)+slider('scatterGap','Spacing',0,1.5,.05,opts.scatterGap,pct)+slider('sizeVar','Size variation',0,.6,.01,opts.sizeVar,pct)+'<p>Drag to lay down many. Spread is how wide the brush is, Amount how many per stroke, Spacing the least gap between them (0 lets them overlap), Size variation how much they differ.</p>'):''}</section>`; }
+    if(set.groups.length) h+=`<section>${lookControls(opts.stamp,opts.stampVar,opts.stampTint[opts.stamp]||'none',true)}${sc?`<p class="grp">Dragging</p><div class="chips" id="stampMode"><button class="chip" data-smode="place" aria-pressed="${opts.stampMode!=='fill'}">Lays a trail</button><button class="chip" data-smode="fill" aria-pressed="${opts.stampMode==='fill'}">Fills an area</button></div>`+(opts.stampMode==='fill'?slider('fillDensity','Density',.4,2,.05,opts.fillDensity,pct)+(STAMP_GROUPS[g].align?'<p>Draw a loop round a district. Buildings line every street inside it; past the middle of the slider they also fill the middles of the blocks.</p>':'<p>Draw a loop round the area. It is filled with this stamp, on land only (sea stamps on water only).</p>'):slider('scatter','Spread',0,400,2,opts.scatter,num)+slider('scatterDensity','Amount',.2,3,.05,opts.scatterDensity,pct)+slider('scatterGap','Spacing',0,1.5,.05,opts.scatterGap,pct)+slider('sizeVar','Size variation',0,.6,.01,opts.sizeVar,pct)+'<p>Drag to lay down many. Spread is how wide the brush is, Amount how many per stroke, Spacing the least gap between them (0 lets them overlap), Size variation how much they differ.</p>'):''}</section>`; }
   if(t==='label') h+=`<section><h2>Label</h2><label class="row wide" for="labelStyle">Style<select id="labelStyle">${Object.entries(LABEL_STYLES).map(([k,s])=>`<option value="${k}"${k===opts.labelStyle?' selected':''}>${s.name}</option>`).join('')}</select></label>${slider('labelSize','Size',10,160,1,opts.labelSize,num)}<p>Click the map and type. Enter finishes, Shift+Enter starts a second line. Curve and spacing are set once the label is selected.</p></section>`;
   if(t==='reshape') h+=`<section><h2>Reshape</h2><div class="chips" id="reshapeModes"><button class="chip" data-rmode="pull" aria-pressed="${opts.reshape==='pull'}">Pull</button><button class="chip" data-rmode="cut" aria-pressed="${opts.reshape==='cut'}">Erase lines</button></div>
     ${slider('reach','Reach',30,600,5,opts.reach,num)}<p>${opts.reshape==='pull' ? 'Grab any coastline, cliff edge, river, road or border and drag. Reach sets how much of it follows. Drag the end of a river or road to extend it.' : 'Drag across rivers, roads and borders to rub out the part under the ring. A line cut in the middle becomes two.'}</p></section>`;
