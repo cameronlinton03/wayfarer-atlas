@@ -994,12 +994,14 @@ function engHump(c,cx,by,wl,wr,h,o={}){ const M=ENG_M; if(M<0){ cx=-cx; [wl,wr]=
       if(o.dots){ for(let k=0;k<2;k++){ const t=.1+rn()*.8; c.fillStyle=INK; c.beginPath(); c.arc(x+Math.sin(ang)*full*t,Y(x)+Math.cos(ang)*full*t,.26,0,7); c.fill(); } continue; }
       stroke(x,ang,full*(.2+.45*rn()),.36);
       if(rn()<.6) stroke(x,ang,full,.32,.5+rn()*.15,.66+rn()*.18); if(rn()<.4) stroke(x,ang,full,.3,.82,.9+rn()*.08); } }
+  if(o.shade && o.from){ for(let x=cx+wr*.04;x<x1-wr*.06;x+=(1.5+rn()*1.5)/ENG_K){ const u=U(x), y=Y(x)+.3, room=snow-y; if(room<1.2 || rn()<.3) continue;      // snow is not left blank: light short strokes on its shaded (right) side, thinning towards the top and the edge
+      const ang=.3+.8*u, len=Math.min(room/Math.cos(ang),(h*.2)*(.35+.65*rn())), ex=x+Math.sin(ang)*len, ey=y+Math.cos(ang)*len, w=(rn()-.5)*.5; c.lineWidth=.2+.12*rn(); c.beginPath(); c.moveTo(x,y); c.quadraticCurveTo((x+ex)/2+w,(y+ey)/2,ex,ey); c.stroke(); } }
   for(let i=4;i<N-4;i++){ if(!(P[i]<P[i-1] && P[i]<=P[i+1] && P[i]<P[i-3]-.3 && by-P[i]>h*.3 && rn()<.55)) continue;          // a broken spur running down from each crag
     let x=x0+(x1-x0)*i/N, y=P[i]; const u=U(x), dir=.25+.5*u+(rn()-.5)*.3, L=(by-y)*(.3+rn()*.3), steps=Math.max(3,Math.round(L/1.7)); if(y<snow) continue;
     c.beginPath(); c.moveTo(x,y); for(let k=1;k<=steps;k++){ x+=Math.sin(dir)*L/steps+(rn()-.5)*.9; y+=Math.cos(dir)*L/steps+(rn()-.5)*.4; c.lineTo(x,y); } c.lineWidth=.55+rn()*.3; c.stroke(); }
   c.lineWidth=.34; c.beginPath(); for(let k=0;k<4;k++){ const xx=cx+wr*(.25+rn()*.7), yy=by+.4+rn()*1.4, l=wr*(.08+rn()*.14); c.moveTo(xx,yy); c.lineTo(xx+l,yy+l*.12); } c.stroke();
   for(let i=1;i<=N;i++){ const x=x0+(x1-x0)*i/N, u=U(x), a=Math.abs(u); if(a>=(u<0?.92:.84) || (a>.6 && rn()<.12)) continue;
-    c.lineWidth=(u<0?.4+.6*(1-a):.55+.6*(1-a))*(.7+.6*rn()); c.beginPath(); c.moveTo(x-(x1-x0)/N,P[i-1]); c.lineTo(x,P[i]); c.stroke(); }
+    c.lineWidth=(u<0?.4+.6*(1-a):.55+.6*(1-a))*(.7+.6*rn())*(o.lw||1); c.beginPath(); c.moveTo(x-(x1-x0)/N,P[i-1]); c.lineTo(x,P[i]); c.stroke(); }
   c.lineJoin='round'; return x=>Y(x*M); }      // callers ask in unmirrored positions
 function engGround(c,x0,x1,y,seed){ if(ENG_M<0) [x0,x1]=[-x1,-x0]; const rn=mulberry(seed*31+5); c.strokeStyle=INK; c.lineWidth=.36; c.beginPath(); for(let k=0;k<3;k++){ const a=x0+(x1-x0)*(k*.12+rn()*.1), b=x1-(x1-x0)*(rn()*.25-.08*k); c.moveTo(a,y+k*.9); c.lineTo(b,y+k*.9); } c.moveTo(x1-(x1-x0)*.2,y+2.7); c.lineTo(x1+2,y+2.7); c.stroke(); }
 /* ---- the pen. Nothing is drawn with a clean, even line: outlines wander, swell and thin and now and then skip (engInk), and shading is laid
@@ -1146,7 +1148,7 @@ const SKETCH_DRAW = {
       ()=>{ const Y=H(1,13,28,18,14*q,{seed:6,sharp:s,from:f}); H(10,16,11,11,5.5,{seed:23,sharp:0}); T(Y,-13,4.8,4); },
       ()=>{ H(-1,10,22,15,18*q,{seed:7,sharp:s+.12,from:f}); H(14,13,12,12,9,{seed:8,sharp:s}); H(-12,15,15,12,7,{seed:9,sharp:0}); } ][n%4](); },
   snowpeak(c,n){ SKETCH_DRAW.mountain(c,n,0,0,{from:.42,sharp:.4,hk:1.45}); },
-  highpeak(c,n){ const H=(cx,by,wl,wr,h,op)=>engHump(c,cx,by,wl,wr,h,op), T=()=>{}, s=n%4;      // the highest summit of a range: tall, snow-capped, with shoulders and wooded foothills; drawn large (see KIND_SIZE)
+  highpeak(c,n){ const H=(cx,by,wl,wr,h,op)=>engHump(c,cx,by,wl,wr,h,{lw:.72,shade:1,...op}), T=()=>{}, s=n%4;      // the highest summit of a range: tall, snow-capped, with shoulders and wooded foothills; drawn large (see KIND_SIZE)
     if(s===0){ H(0,15,25,22,35,{seed:31,sharp:.34,from:.56}); H(-19,16,15,13,19,{seed:32,sharp:.2,from:.7}); H(18,16,15,15,22,{seed:33,sharp:.25,from:.66}); const Y=H(-8,18,18,14,9,{seed:34,sharp:0}); H(10,18,16,12,8,{seed:35,sharp:0}); T(Y,-12,4.6,3); T(Y,-4,4,5); T(Y,2,4.4,7); }
     else if(s===1){ H(-10,15,18,13,31,{seed:36,sharp:.46,from:.5}); H(10,15,14,18,27,{seed:37,sharp:.4,from:.56}); H(-27,16,10,9,14,{seed:38,sharp:.2,from:.75}); const Y=H(0,18,26,22,10,{seed:39,sharp:0}); T(Y,-14,4.6,11); T(Y,-6,4,12); T(Y,13,4.4,13); }
     else if(s===2){ H(0,15,15,14,39,{seed:40,sharp:.64,from:.4}); H(-13,16,10,9,20,{seed:41,sharp:.3,from:.7}); H(13,16,10,9,18,{seed:42,sharp:.3,from:.72}); const Y=H(0,18,25,23,10,{seed:43,sharp:0}); T(Y,-15,4.4,21); T(Y,-8,4,22); T(Y,8,4.2,23); T(Y,15,4.6,24); }
@@ -1882,10 +1884,11 @@ for(const g of GLYPHS) SKETCH_DRAW['ch_'+g]=function(c,n){ c.save(); if(ENG_M<0)
    is drawn from a smaller or larger one already there (or waits a frame), so zooming stays smooth and fills in sharply as it settles. */
 let spriteArea=0, spriteBudgetMs=Infinity, spritesPending=false; const SPRITE_PIXELS=70e6;
 const BASE_FADE={mountain:[5,16.5],snowpeak:[5,16.5],highpeak:[7,19.5],hill:[8,17],volcano:[6,16.5],mesa:[8,17],crag:[7,17]};      // mountains thin to nothing at their foot, so there is no hard line where the stamp meets the ground (box y, top and bottom of the fade)
+const SPR_SIDE={highpeak:2.1}, sprSide=kind=>SPR_SIDE[kind]||1.7;      // a sprite's canvas, in stamp sizes: the high peaks reach about 40 units from the middle of the 40-unit box, past the usual 34
 function sprite(s,px,lazy){ const k=stampLook(s), g=['Trees','Plants'].includes(groupOf(s.kind))&&k.g, pen=penOf(s.size), K=b=>[s.kind,k.n,k.tint,g,b,s.flip?1:0,pen].join('|'), key=K(px); let sp=sprites.get(key);
   if(sp){ sprites.delete(key); sprites.set(key,sp); return sp; }
   if(lazy && spriteBudgetMs<=0){ spritesPending=true; for(let b=px*2;b<=1536;b*=2){ const f=sprites.get(K(b)); if(f) return f; } for(let b=px/2;b>=48;b/=2){ const f=sprites.get(K(b)); if(f) return f; } return null; }      // out of time this frame: use any size already made (a bigger one first, it is sharper), and come back for the right one
-  const t0=performance.now(), side=Math.ceil(px*1.7), [cn,x]=mkCanvas(side,side); x.translate(side/2,side/2); x.scale(px/40,px/40); paintStamp(x,{kind:s.kind,var:k.n,tint:k.tint,v:g?.75:.25,flip:s.flip,pen});
+  const t0=performance.now(), side=Math.ceil(px*sprSide(s.kind)), [cn,x]=mkCanvas(side,side); x.translate(side/2,side/2); x.scale(px/40,px/40); paintStamp(x,{kind:s.kind,var:k.n,tint:k.tint,v:g?.75:.25,flip:s.flip,pen});
   const fade=BASE_FADE[s.kind]; if(fade){ x.save(); x.setTransform(1,0,0,1,0,0); const u=px/40, y0=side/2+fade[0]*u, y1=side/2+fade[1]*u, gr=x.createLinearGradient(0,y0,0,y1); gr.addColorStop(0,'rgba(0,0,0,0)'); gr.addColorStop(1,'rgba(0,0,0,1)'); x.globalCompositeOperation='destination-out'; x.fillStyle=gr; x.fillRect(0,y0,side,side-y0); x.restore(); }
   sp=cn; sprites.set(key,sp); spriteArea+=side*side; spriteBudgetMs-=performance.now()-t0;
   while(spriteArea>SPRITE_PIXELS && sprites.size>1){ const [k0,v0]=sprites.entries().next().value; sprites.delete(k0); spriteArea-=v0.width*v0.height; }
@@ -1895,7 +1898,7 @@ const PLANT_MIX={flowers:[['wildflowers',.85],['wildgrass',.15]], grass:[['wildg
 const STAMP_ALPHA={};      // (opacity is now each stamp's own setting, s.op, 0-100; nothing is drawn at a fixed opacity)      // ground cover is drawn in a lighter, greyer ink than the trees and hills, so that a drift sits back on the page
 function drawStamp(c,s,k){ c.save(); if(s.op!==undefined && s.op<100) c.globalAlpha*=clamp(s.op,0,100)/100; c.translate(s.x,s.y); c.rotate(s.rot*Math.PI/180);   // a mirrored stamp has its own picture (see paintStamp), so nothing is flipped here
   const px=k?s.size*k:0;
-  if(SK() || (k && px<=500)){ const want=px||s.size*2, cap=exporting?1024:512; let b=48; while(b<want && b<cap) b*=2; const side=s.size*1.7, sp=sprite(s,b,!!k && !exporting); if(sp) c.drawImage(sp,-side/2,-side/2,side,side); }
+  if(SK() || (k && px<=500)){ const want=px||s.size*2, cap=exporting?1024:512; let b=48; while(b<want && b<cap) b*=2; const side=s.size*sprSide(s.kind), sp=sprite(s,b,!!k && !exporting); if(sp) c.drawImage(sp,-side/2,-side/2,side,side); }
   else { c.scale(s.size/40,s.size/40); paintStamp(c,s); }
   if(s.kind==='scalebar'){ const u=s.size/40, f=Math.max(7,s.size*.075); c.font=`italic ${f}px "IM Fell English", Georgia, serif`; c.fillStyle=INK; c.textBaseline='top'; c.textAlign='center'; c.fillText('0',-18*u,9.6*u); c.fillText(fmtDist(36*u),18*u-f*1.2,9.6*u); }      // a scale bar reads off the map's scale
   c.restore(); }
@@ -2230,7 +2233,7 @@ function editSel(fn){         // apply a change to the selection; a landmass cha
   else replaceObj(keyOf(sel.type),sel.obj,fn(sel.obj)); }
 const hitMaps=new Map();
 function stampHit(s,p){       // true only where the stamp's drawing actually is (its ground shadow doesn't count)
-  const a=-s.rot*Math.PI/180, dx=p[0]-s.x, dy=p[1]-s.y, lx=dx*Math.cos(a)-dy*Math.sin(a), ly=dx*Math.sin(a)+dy*Math.cos(a), full=s.size*1.7;
+  const a=-s.rot*Math.PI/180, dx=p[0]-s.x, dy=p[1]-s.y, lx=dx*Math.cos(a)-dy*Math.sin(a), ly=dx*Math.sin(a)+dy*Math.cos(a), full=s.size*sprSide(s.kind);
   if(Math.abs(lx)>full/2 || Math.abs(ly)>full/2) return false;
   if(s.size*view.k<12) return Math.hypot(lx,ly)<8/view.k;      // too small on screen to aim at: use a small circle instead
   const sp=sprite(s,96), side=sp.width; let d=hitMaps.get(sp); if(!d){ d=sp.getContext('2d').getImageData(0,0,side,side).data; hitMaps.set(sp,d); }
@@ -2856,7 +2859,9 @@ function generateMap(W,H,kind,G={}){ G={land:1,mountains:1,forests:1,rivers:1,to
     if(ids.length>cap){ ids.sort(()=>rnd()-.5); const gone=new Set(ids.slice(cap)); st.stamps=st.stamps.filter((s,i)=>!gone.has(i)); peaks.length=0; for(const s of st.stamps) if(s.kind==='mountain'||s.kind==='snowpeak') peaks.push([s.x,s.y]); } }
   if(G.mountains>0){ const want=Math.max(1,Math.round((kind==='continent'?4:3)*clamp(G.mountains,.5,1.3))), ms=st.stamps.filter(s=>s.kind==='mountain'||s.kind==='snowpeak');      // the highest peak of each range: a few much larger mountains, on the thickest part of a range
     const score=s=>ms.reduce((a,o)=>a+(Math.hypot(o.x-s.x,o.y-s.y)<170?1:0),0)+ridge[at(clamp(Math.round(s.x/cs),0,nx-1),clamp(Math.round(s.y/cs),0,ny-1))]*3, done=[]; let vi=Math.floor(rnd()*4);
-    for(const s of ms.slice().sort((a,b)=>score(b)-score(a))){ if(done.length>=want) break; const sz=Math.round(150+rnd()*50), land=dx=>isLand(at(clamp(Math.round((s.x+dx)/cs),0,nx-1),clamp(Math.round(s.y/cs),0,ny-1))); if(s.x<150||s.y<140||s.x>W-150||s.y>H-110 || !land(-sz*.42) || !land(sz*.42) || !land(0) || done.some(d=>Math.hypot(d.x-s.x,d.y-s.y)<300)) continue; if(st.stamps.some(o=>o.kind!=='mountain'&&o.kind!=='snowpeak'&&Math.hypot(o.x-s.x,o.y-s.y)<110)) continue;
+    // a high peak needs its whole broad foot on land (the art reaches almost a full size from its middle) and no river or road running through it
+    for(const s of ms.slice().sort((a,b)=>score(b)-score(a))){ if(done.length>=want) break; const sz=Math.round(150+rnd()*50), land=(dx,dy=0)=>isLand(at(clamp(Math.round((s.x+dx)/cs),0,nx-1),clamp(Math.round((s.y+dy)/cs),0,ny-1))), wide=[-.5,-.25,0,.25,.5].every(f=>land(f*sz*1.15)&&land(f*sz*1.15,sz*.4)), cut=st.lines.some(l=>(l.kind==='river'||l.kind==='road')&&l.pts.some(q=>Math.abs(q[0]-s.x)<sz*.69&&q[1]>s.y-sz*.86&&q[1]<s.y+sz*.46));
+      if(s.x<150||s.y<140||s.x>W-150||s.y>H-110 || !wide || cut || done.some(d=>Math.hypot(d.x-s.x,d.y-s.y)<300)) continue; if(st.stamps.some(o=>o.kind!=='mountain'&&o.kind!=='snowpeak'&&Math.hypot(o.x-s.x,o.y-s.y)<110)) continue;
       st.stamps=st.stamps.filter(o=>!((o.kind==='mountain'||o.kind==='snowpeak')&&Math.hypot(o.x-s.x,o.y-s.y)<100)); st.stamps.push({kind:'highpeak',x:s.x,y:s.y+8,size:sz,rot:0,v:rnd(),var:(vi++)%4,flip:rnd()<.5}); done.push(s); }
     peaks.length=0; for(const s of st.stamps) if(s.kind==='mountain'||s.kind==='snowpeak'||s.kind==='highpeak') peaks.push([s.x,s.y]); }
   for(let j=2;j<ny-2;j+=3) for(let i=2;i<nx-2;i+=3){ const k=at(i,j), b=biome(k); if(!isLand(k) || mtn(k) || cd[k]<2 || ridge[k]<.74 || ridge[k]>.86 || rnd()<.4 || !GRASSES.includes(b) || riverCell[k]) continue;
