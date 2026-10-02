@@ -1,5 +1,0 @@
-# Wayfarer Atlas
-
-A free, self-owned fantasy map maker in the style of engraved 17th-century maps. Makes world, region and city maps, and Dungeon Scrawl-style dungeon sheets. One self-contained HTML file: open `wayfarer-atlas.html` in a browser to run it.
-
-See `CLAUDE.md` for how the file is organised, the style rules and the known gaps.
