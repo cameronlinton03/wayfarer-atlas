@@ -338,7 +338,8 @@ const swatch = k => TERRAIN[k];
    black and only the paper in the body takes the wash. A stamp with no tint of its own, which includes every stamp made before tints worked, stays as it was. */
 const TINTS = {mountain:['stone','slate','rock'], snowpeak:['stone','slate'], highpeak:['stone','slate','rock'], hill:['grass','meadow','steppe','marsh','sand','forest'], boulders:['rock','stone','slate'], dunes:['sand','beach','redsand']};
 const TINT_STRENGTH=.35;
-const groupOf = kind => Object.keys(STAMP_GROUPS).find(g=>STAMP_GROUPS[g].kinds.includes(kind)) || 'Settlements';
+const LEGACY_PLANTS=new Set(['wildflowers','wildgrass','shrubs','thicket','saplings','ferns','tufts','flowers']);      // no longer in the palette, but old maps hold them: they stay in Plants (size, hiding inside mountains)
+const groupOf = kind => Object.keys(STAMP_GROUPS).find(g=>STAMP_GROUPS[g].kinds.includes(kind)) || (LEGACY_PLANTS.has(kind)?'Plants':'Settlements');
 const LABEL_STYLES = {      // lettering in the manner of engraved maps: roman for places, spaced capitals for regions, italic for water and notes, blackletter for a title
   title:  {name:'Title',        font:'"IM Fell French Canon SC", "IM Fell English SC", Georgia, serif', italic:false, caps:true,  spacing:0.14, fx:{plate:true,outline:false}},
   black:  {name:'Blackletter',  font:'"UnifrakturMaguntia", "IM Fell English", Georgia, serif',          italic:false, caps:false, spacing:0.02},
@@ -465,7 +466,7 @@ function lineBuilt(l){ let b=built.get(l); if(!b){ const pts=linePoints(l); b={p
 /* ============================================================ state */
 const DUN_DEF = {hatch:1, shadow:true};      // dungeon sheet settings: how far the rock is hatched, and the shadow along the left of each wall
 let S = blankState(2400,1500);
-function blankState(w,h){ return {w,h,kind:'world',dun:{...DUN_DEF},fpaint:[],name:'Untitled map',lands:[],cliffs:[],paints:[],lines:[],stamps:[],labels:[],grid:{type:'none',size:60},tick:0,theme:'sketchp',frame:'none',rhumb:false,scale:{per100:10,unit:'miles'},layers:[{id:'base',name:'Map',v:true,lock:false}],active:'base'}; }
+function blankState(w,h){ return {w,h,kind:'world',hm:false,height:null,dun:{...DUN_DEF},fpaint:[],name:'Untitled map',lands:[],cliffs:[],paints:[],lines:[],stamps:[],labels:[],grid:{type:'none',size:60},tick:0,theme:'sketchp',frame:'none',rhumb:false,scale:{per100:10,unit:'miles'},layers:[{id:'base',name:'Map',v:true,lock:false}],active:'base'}; }
 const layers = { terrain:{name:'Ground & water paint',v:true}, cliffs:{name:'Cliffs',v:true}, lines:{name:'Rivers, roads, borders',v:true,lock:false}, stamps:{name:'Stamps',v:true,lock:false}, labels:{name:'Labels',v:true,lock:false} };
 const opts = { tool:'land', reshape:'pull', reach:160, cliffMode:'outline', cliffBrush:120, cliffRough:.4, cliffH:26, cliffPrimary:'up', paintLayer:'land', water:'deep', landPrimary:'land', hard:.6, bop:1, landMode:'outline', landBrush:140, landRough:0.55, terrain:'grass', brush:110, scatter:60,
   stampSizes:Object.fromEntries(Object.entries(STAMP_GROUPS).map(([g,v])=>[g,v.size])), lineRough:0.35, lineWidth:{river:4,road:2.5,border:2.5,realm:2.5,street:8,wall:7,fence:3,dwall:5}, fenceStyle:'hedge', realmFill:'band',
@@ -543,7 +544,7 @@ function heightGrid(){      // {nx,ny,cs,e (heights),m (0 land, 1 sea, 2 lake), 
   for(let pass=0;pass<3;pass++){ const t=Float32Array.from(e); for(let j=1;j<ny-1;j++) for(let i=1;i<nx-1;i++){ const k=j*nx+i; if(land[k]===land[k-1] && land[k]===land[k+1] && land[k]===land[k-nx] && land[k]===land[k+nx]) e[k]=(t[k]*4+t[k-1]+t[k+1]+t[k-nx]+t[k+nx])/8; } }      // a little blur, kept to the same side of the coast
   heightCache={src:null,key,grid:{nx,ny,cs,e,m,est:true}}; return heightCache.grid; }
 function composeHeight(){      // the whole sheet as a shaded height map: sea level mid-grey, land lighter, deep water darker, lakes a faint blue, lit from the left
-  const W=S.w, H=S.h, g=heightGrid(), u=Math.max(4,Math.sqrt(W*H/400000)), ow=Math.ceil(W/u), oh=Math.ceil(H/u), [oc,ox]=mkCanvas(ow,oh), im=ox.createImageData(ow,oh), d=im.data;
+  const W=S.w, H=S.h, g=heightGrid(), u=Math.max(exporting?1.5:4,Math.sqrt(W*H/(exporting?1.2e6:400000))), ow=Math.ceil(W/u), oh=Math.ceil(H/u), [oc,ox]=mkCanvas(ow,oh), im=ox.createImageData(ow,oh), d=im.data;
   let hi=.2, lo=-.3; for(const v of g.e){ if(v>hi) hi=v; if(v<lo) lo=v; }
   const at=(x,y)=>{ const gx=Math.max(0,Math.min(g.nx-1.001,x/g.cs)), gy=Math.max(0,Math.min(g.ny-1.001,y/g.cs)), i=Math.floor(gx), j=Math.floor(gy), fx=gx-i, fy=gy-j, E=(a,b)=>g.e[b*g.nx+a]; return E(i,j)*(1-fx)*(1-fy)+E(i+1,j)*fx*(1-fy)+E(i,j+1)*(1-fx)*fy+E(i+1,j+1)*fx*fy; };
   for(let py=0;py<oh;py++) for(let px=0;px<ow;px++){ const x=(px+.5)*u, y=(py+.5)*u, e=at(x,y), mk=g.m[Math.min(g.ny-1,Math.round(y/g.cs))*g.nx+Math.min(g.nx-1,Math.round(x/g.cs))], o=(py*ow+px)*4;
@@ -845,7 +846,7 @@ function ecoSapling(c,x,y,s,rn){ c.strokeStyle=INK; c.lineCap='round'; c.lineJoi
   c.lineWidth=.35; c.beginPath(); c.moveTo(x-2*s,y+.45); c.lineTo(x+2.6*s,y+.4); c.stroke(); }
 function rebuildEco(){
   const W=S.w, H=S.h, C=ECO_CELL, gw=Math.ceil(W/C), gh=Math.ceil(H/C), o=ecoC.getContext('2d');
-  ecoFor={p:S.paints,l:S.lands,c:S.cliffs,v:landVer,cv:ecoC}; o.save(); o.setTransform(1,0,0,1,0,0); o.clearRect(0,0,ecoC.width,ecoC.height); o.restore();
+  ecoFor={p:S.paints,l:S.lands,c:S.cliffs,v:landVer,cv:ecoC,cl:layers.cliffs.v,ln:layers.lines.v}; o.save(); o.setTransform(1,0,0,1,0,0); o.clearRect(0,0,ecoC.width,ecoC.height); o.restore();
   const ps=S.paints.filter(q=>!q.w); if(!ps.some(q=>q.type==='forest') || !ps.some(q=>isOpenGround(q.type))) return;      // no wood, or no open ground to meet it
   try{
     const [fc,fx]=mkCanvas(gw,gh), [gc,gx]=mkCanvas(gw,gh);      // forest, and open ground, as the top paint at each cell
@@ -980,7 +981,7 @@ function compose(full){
   lc.globalAlpha=1; lc.globalCompositeOperation='source-over'; if(SK()){ lc.fillStyle=pat.paper||PAPER(); lc.fillRect(0,0,W,H); lc.drawImage(ageC,0,0,W,H); } lc.fillStyle=pat.land; lc.fillRect(0,0,W,H);
   const inkOK=cleanFor && cleanFor.p===S.paints && cleanFor.l===S.lands && cleanFor.c===S.cliffs && cleanFor.v===landVer && cleanFor.cv===cleanC;
   if(layers.terrain.v) drawLayer(lc,(inkOK || (full && !live && cleanInk())) ? cleanC : terrainC,live && !live.w ? live : null);
-  if(layers.terrain.v){ if(full && !(ecoFor && ecoFor.p===S.paints && ecoFor.l===S.lands && ecoFor.c===S.cliffs && ecoFor.v===landVer && ecoFor.cv===ecoC)) rebuildEco(); lc.drawImage(ecoC,0,0,W,H); }      // the woodland edge, over the ground
+  if(layers.terrain.v){ if(full && !(ecoFor && ecoFor.p===S.paints && ecoFor.l===S.lands && ecoFor.c===S.cliffs && ecoFor.v===landVer && ecoFor.cv===ecoC && ecoFor.cl===layers.cliffs.v && ecoFor.ln===layers.lines.v)) rebuildEco(); lc.drawImage(ecoC,0,0,W,H); }      // the woodland edge, over the ground
   lc.globalCompositeOperation='destination-in'; lc.drawImage(landMask,0,0,W,H);
   if(!coastDirty){ lc.globalCompositeOperation='source-atop'; lc.drawImage(innerC,0,0,W,H); }
   lc.globalCompositeOperation='source-over';
@@ -2537,7 +2538,7 @@ cv.addEventListener('pointermove',e=>{
     else { const step=Math.max(4,base*.35/Math.max(.3,opts.scatterDensity)); if(dist(act.last,p)>=step){ act.last=p; scatterDab(p,base); } } }
   else if(act.type==='paint'){ if(addPoint(act,p,4)) need.compose='fast'; }
   else if(act.type==='fpaint'){ if(addPoint(act,p,Math.max(4,opts.floorBrush*.12))){ need.compose='fast'; } }
-  else if(act.type==='move' && sel){ const dx=p[0]-act.last[0], dy=p[1]-act.last[1]; if(!act.moved){ if(Math.hypot(dx,dy)<3/view.k) return; pushUndo('Move '+(selItems().length>1?selItems().length+' things':({land:'landmass',cliff:'cliff',line:'line',stamp:'stamp',label:'label'})[sel.type]||'selection')); act.moved=true; act.riders=ridersOn(selLands()); }
+  else if(act.type==='move' && sel){ if(anyLocked()) return; const dx=p[0]-act.last[0], dy=p[1]-act.last[1]; if(!act.moved){ if(Math.hypot(dx,dy)<3/view.k) return; pushUndo('Move '+(selItems().length>1?selItems().length+' things':({land:'landmass',cliff:'cliff',line:'line',stamp:'stamp',label:'label'})[sel.type]||'selection')); act.moved=true; act.riders=ridersOn(selLands()); }
     act.last=p; editSel(o=>o.pts?{...o,pts:o.pts.map(q=>[q[0]+dx,q[1]+dy])}:{...o,x:o.x+dx,y:o.y+dy});
     act.riders=act.riders.map(([k,objs])=>{ const m=new Map(objs.map(q=>[q,q.pts?{...q,pts:q.pts.map(v=>[v[0]+dx,v[1]+dy])}:{...q,x:q.x+dx,y:q.y+dy}])); S[k]=S[k].map(q=>m.get(q)||q); return [k,[...m.values()]]; });   // a landmass carries what is on it
     selDirty(false); }
@@ -2783,7 +2784,7 @@ function renderPanel(){
   bind('cliffBrush',num,v=>opts.cliffBrush=v); bind('cliffH',num,v=>opts.cliffH=v); bind('cliffRough',pct,v=>opts.cliffRough=v);
   $('cliffModes')?.addEventListener('click',e=>{ const b=e.target.closest('[data-cmode]'); if(b){ opts.cliffMode=b.dataset.cmode; renderPanel(); } });
   $('cliffPrimary')?.addEventListener('click',e=>{ const b=e.target.closest('[data-cprim]'); if(b){ opts.cliffPrimary=b.dataset.cprim; renderPanel(); } });
-  $('landModes')?.addEventListener('click',e=>{ const b=e.target.closest('[data-mode]'); if(b){ opts.landMode=b.dataset.mode; setTool(opts.tool); } }); bind('stampRot',deg,v=>opts.stampRot=v); bind('labelSize',num,v=>opts.labelSize=v);
+  $('landModes')?.addEventListener('click',e=>{ const b=e.target.closest('[data-mode]'); if(b){ opts.landMode=b.dataset.mode; setTool(opts.tool); } }); bind('labelSize',num,v=>opts.labelSize=v);
   $('labelStyle')?.addEventListener('change',e=>opts.labelStyle=e.target.value);
   $('terrChips')?.addEventListener('click',e=>{ const l=e.target.closest('[data-layer]'), b=e.target.closest('[data-terr]'); if(l) opts.paintLayer=l.dataset.layer; else if(b) opts[opts.paintLayer==='water'?'water':'terrain']=b.dataset.terr; else return; renderPanel(); });
   $('stampKinds')?.addEventListener('click',e=>{ const f=e.target.closest('[data-fav]'); if(f){ e.preventDefault(); e.stopPropagation(); toggleFav(f.dataset.fav); return; } const b=e.target.closest('[data-kind]'); if(b) chooseStamp(b.dataset.kind); });
