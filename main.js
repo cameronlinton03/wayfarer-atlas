@@ -232,7 +232,7 @@ function blankState(w,h){ return {w,h,kind:'world',dun:{...DUN_DEF},fpaint:[],na
 const layers = { terrain:{name:'Ground & water paint',v:true}, cliffs:{name:'Cliffs',v:true}, lines:{name:'Rivers, roads, borders',v:true,lock:false}, stamps:{name:'Stamps',v:true,lock:false}, labels:{name:'Labels',v:true,lock:false} };
 const opts = { tool:'land', reshape:'pull', reach:160, cliffMode:'outline', cliffBrush:120, cliffRough:.4, cliffH:26, cliffPrimary:'up', paintLayer:'land', water:'deep', landPrimary:'land', hard:.6, bop:1, landMode:'outline', landBrush:140, landRough:0.55, terrain:'grass', brush:110, scatter:60,
   stampSizes:Object.fromEntries(Object.entries(STAMP_GROUPS).map(([g,v])=>[g,v.size])), lineRough:0.35, lineWidth:{river:4,road:2.5,border:2.5,realm:2.5,street:8,wall:7,fence:3,dwall:5}, fenceStyle:'hedge', realmFill:'band',
-  wallKind:'town', roadMode:false, cliffTaper:0, cliffDir:-90, stampOpacity:100, scatterDensity:1, scatterGap:.5, sizeVar:.18, floorMode:'paint', floorTex:'flag', floorBrush:90, settingsOpen:false, roomShape:'rect', roomCut:false, roomTex:'flag', corrW:1, snap:true, snapFine:false, caveRough:.55, partW:5, stamp:'town', stampRot:0, stampSet:'world', stampFlip:'shuffle', stampMode:'place', fillDensity:1, stampVar:'shuffle', stampTint:{}, labelStyle:'place', labelSize:30 };
+  wallKind:'town', roadMode:false, rotSnap:false, cliffTaper:0, cliffDir:-90, stampOpacity:100, scatterDensity:1, scatterGap:.5, sizeVar:.18, floorMode:'paint', floorTex:'flag', floorBrush:90, settingsOpen:false, roomShape:'rect', roomCut:false, roomTex:'flag', corrW:1, snap:true, snapFine:false, caveRough:.55, partW:5, stamp:'town', stampRot:0, stampSet:'world', stampFlip:'shuffle', stampMode:'place', fillDensity:1, stampVar:'shuffle', stampTint:{}, labelStyle:'place', labelSize:30 };
 let sel = null;                        // {type:'land'|'line'|'stamp'|'label', obj}
 let undoStack=[], redoStack=[], editing=false;
 /* Layers: rivers, roads, borders, realms, stamps and labels each sit on one layer (S.layers, bottom first). A layer can be hidden, locked,
@@ -520,15 +520,27 @@ function rebuildCliffs(){
   }
 }
 function cleanInk(){      // a tuft, pebble or crack that a coast, river bank or cliff edge would slice through is taken out whole, so no mark is ever left cut in half
-  try{ const W=S.w, H=S.h, w=cleanC.width, h=cleanC.height;
-    cnx.save(); cnx.setTransform(1,0,0,1,0,0); cnx.globalAlpha=1; cnx.globalCompositeOperation='copy'; cnx.drawImage(terrainC,0,0); cnx.restore();
-    tc.save(); tc.globalAlpha=1; tc.globalCompositeOperation='source-over'; tc.clearRect(0,0,W,H); tc.fillStyle='#000'; tc.fillRect(0,0,W,H); tc.globalCompositeOperation='destination-out'; tc.drawImage(landMask,0,0,W,H); tc.globalCompositeOperation='source-over'; tc.drawImage(cliffSolidC,0,0,W,H); tc.restore();
-    const im=cnx.getImageData(0,0,w,h), d=im.data, F=tc.getImageData(0,0,w,h).data, seen=new Uint8Array(w*h), cap=Math.round(700*R*R), g=Math.max(1,Math.round(2.5*R)), nb=[]; for(let j=-g;j<=g;j++) for(let i2=-g;i2<=g;i2++) if(i2||j) nb.push(j*w+i2); let cut=0;      // strokes this close together belong to one mark (the blades of a tuft do not touch)
+  /* Only the part of the map that changed is cleaned again. cleanC keeps the previous result; if the lands, the cliffs and the land are as they were and the paint list differs only by strokes added
+     (or taken away, for undo and redo), only the box those strokes touched is redone, and everything else is left as it was. The box is read with a margin so a mark lying across its edge is judged
+     whole, but only the box itself is written, so a mark across the edge is never half restored. */
+  try{ const W=S.w, H=S.h, w=cleanC.width, h=cleanC.height, M=24;
+    let box=[0,0,W,H];      // map units: the part to write
+    const pf=cleanFor && cleanFor.cv===cleanC && cleanFor.l===S.lands && cleanFor.c===S.cliffs && cleanFor.v===landVer ? cleanFor : null;
+    if(pf){ const a=pf.p, b=S.paints, small=a.length<=b.length?a:b, big=a.length<=b.length?b:a;
+      if(small.every((o,i)=>o===big[i])){ let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;
+        for(const q of big.slice(small.length)){ if(q.w) continue; const pad=q.size/2+(1-(q.hard ?? .85))*q.size*.5+M; for(const r of q.pts){ x0=Math.min(x0,r[0]-pad); x1=Math.max(x1,r[0]+pad); y0=Math.min(y0,r[1]-pad); y1=Math.max(y1,r[1]+pad); } }
+        if(x1<x0){ cleanFor={p:S.paints,l:S.lands,c:S.cliffs,v:landVer,cv:cleanC}; return true; }      // nothing that touches the ground changed
+        box=[Math.max(0,x0),Math.max(0,y0),Math.min(W,x1),Math.min(H,y1)]; } }
+    const px=(a,b)=>[Math.max(0,Math.floor(a*R)),Math.max(0,Math.floor(b*R))], [wx0,wy0]=px(box[0],box[1]), wx1=Math.min(w,Math.ceil(box[2]*R)), wy1=Math.min(h,Math.ceil(box[3]*R));      // write box, in pixels
+    const rx0=Math.max(0,wx0-Math.ceil(M*R)), ry0=Math.max(0,wy0-Math.ceil(M*R)), rx1=Math.min(w,wx1+Math.ceil(M*R)), ry1=Math.min(h,wy1+Math.ceil(M*R)), rw=rx1-rx0, rh=ry1-ry0;      // read box: the write box and a margin
+    tc.save(); tc.setTransform(R,0,0,R,0,0); tc.beginPath(); tc.rect(rx0/R,ry0/R,rw/R,rh/R); tc.clip(); tc.globalAlpha=1; tc.globalCompositeOperation='source-over'; tc.clearRect(0,0,W,H); tc.fillStyle='#000'; tc.fillRect(0,0,W,H); tc.globalCompositeOperation='destination-out'; tc.drawImage(landMask,0,0,W,H); tc.globalCompositeOperation='source-over'; tc.drawImage(cliffSolidC,0,0,W,H); tc.restore();
+    const im=tx.getImageData(rx0,ry0,rw,rh), d=im.data, F=tc.getImageData(rx0,ry0,rw,rh).data, seen=new Uint8Array(rw*rh), cap=Math.round(700*R*R), g=Math.max(1,Math.round(2.5*R)), nb=[]; for(let j=-g;j<=g;j++) for(let i2=-g;i2<=g;i2++) if(i2||j) nb.push(j*rw+i2); let cut=0;      // strokes this close together belong to one mark (the blades of a tuft do not touch)
     const m=Math.max(1,Math.round(3*R));      // a mark within a few units of an edge would run under the inked outline, so it counts as touching
-    for(let y=m;y<h-m;y++) for(let x=m,i=y*w+m;x<w-m;x++,i++){ if(d[i*4+3]<=10 || seen[i] || F[i*4+3]>100) continue; if(!(F[(i-m)*4+3]>100 || F[(i+m)*4+3]>100 || F[(i-m*w)*4+3]>100 || F[(i+m*w)*4+3]>100)) continue;
-      const comp=[i]; seen[i]=1; for(let q=0;q<comp.length && comp.length<=cap;q++){ const k=comp[q], kx=k%w; if(kx<g || kx>w-1-g || k<w*g || k>=w*(h-g)) continue; for(const o of nb){ const n=k+o; if(!seen[n] && d[n*4+3]>10){ seen[n]=1; comp.push(n); } } }
+    for(let y=m;y<rh-m;y++) for(let x=m,i=y*rw+m;x<rw-m;x++,i++){ if(d[i*4+3]<=10 || seen[i] || F[i*4+3]>100) continue; if(!(F[(i-m)*4+3]>100 || F[(i+m)*4+3]>100 || F[(i-m*rw)*4+3]>100 || F[(i+m*rw)*4+3]>100)) continue;
+      const comp=[i]; seen[i]=1; for(let q=0;q<comp.length && comp.length<=cap;q++){ const k=comp[q], kx=k%rw; if(kx<g || kx>rw-1-g || k<rw*g || k>=rw*(rh-g)) continue; for(const o of nb){ const n=k+o; if(!seen[n] && d[n*4+3]>10){ seen[n]=1; comp.push(n); } } }
       if(comp.length<=cap){ for(const k of comp) d[k*4+3]=0; cut++; } }
-    if(cut) cnx.putImageData(im,0,0); cleanFor={p:S.paints,l:S.lands,c:S.cliffs,v:landVer,cv:cleanC}; return true; }catch(e){ cleanFor=null; return false; } }
+    cnx.putImageData(im,rx0,ry0,wx0-rx0,wy0-ry0,wx1-wx0,wy1-wy0);      // only the write box goes back; the margin is for judging, not for changing
+    cleanFor={p:S.paints,l:S.lands,c:S.cliffs,v:landVer,cv:cleanC}; return true; }catch(e){ cleanFor=null; return false; } }
 /* ---- The woodland edge. Where open ground (meadow, a grass, a flower field) meets forest, shrubs and saplings straggle out from the trees, thick at the wood and thinning
    to nothing. They are not stamps: they are marks on the ground, worked out from the ground paint itself and laid on their own layer (ecoC) just over the terrain, so they
    follow the paint wherever it is drawn, rubbed out or undone. Each is placed whole, and only where all of its footprint is on land clear of coast, river bank and cliff, so
@@ -1844,6 +1856,9 @@ function draw(){
       ctx.beginPath(); ctx.moveTo(hs.rot[0],a[1]); ctx.lineTo(hs.rot[0],hs.rot[1]); ctx.stroke(); ctx.fillStyle='#fff'; ctx.lineWidth=1.6*px;
       for(const h of hs.corners){ ctx.fillRect(h[0]-q,h[1]-q,2*q,2*q); ctx.strokeRect(h[0]-q,h[1]-q,2*q,2*q); }
       ctx.beginPath(); ctx.arc(hs.rot[0],hs.rot[1],6*px,0,7); ctx.fill(); ctx.stroke(); } }
+  if((opts.tool==='select' || opts.tool==='reshape') && !exporting){ const lk=[]; for(const [type,list] of [['land',S.lands],['cliff',S.cliffs],['line',S.lines],['stamp',S.stamps],['label',S.labels]]) for(const o of list) if(o.locked) lk.push({type,obj:o});      // locked things are marked, so a click that does nothing can be explained
+    if(lk.length && lk.length<=400){ ctx.save(); ctx.lineWidth=1.2*px; for(const it of lk){ const b=objBox(it), u=5.5*px; if(it.type!=='stamp'){ ctx.setLineDash([3*px,4*px]); ctx.strokeStyle='rgba(70,52,34,.35)'; ctx.strokeRect(b[0],b[1],b[2]-b[0],b[3]-b[1]); ctx.setLineDash([]); }
+      const cx=b[2], cy=b[1]; ctx.strokeStyle='rgba(70,52,34,.75)'; ctx.fillStyle='rgba(239,228,200,.92)'; ctx.beginPath(); ctx.arc(cx,cy-u*.15,u*.6,Math.PI,0); ctx.stroke(); ctx.fillRect(cx-u*.85,cy-u*.1,u*1.7,u*1.35); ctx.strokeRect(cx-u*.85,cy-u*.1,u*1.7,u*1.35); ctx.fillStyle='rgba(70,52,34,.75)'; ctx.fillRect(cx-u*.12,cy+u*.35,u*.24,u*.5); } ctx.restore(); } }
   if(act && act.type==='box'){ ctx.fillStyle='rgba(28,110,122,.12)'; ctx.strokeStyle=accent; ctx.lineWidth=1.5*px; ctx.setLineDash([6*px,4*px]);
     ctx.fillRect(act.a[0],act.a[1],act.b[0]-act.a[0],act.b[1]-act.a[1]); ctx.strokeRect(act.a[0],act.a[1],act.b[0]-act.a[0],act.b[1]-act.a[1]); ctx.setLineDash([]); }
   if(sel){ const lands=new Path2D(); let anyLand=false;
@@ -2070,11 +2085,11 @@ function selDirty(full){ const its=selItems(); if(its.some(it=>it.type==='cliff'
   if(its.some(it=>it.type==='land'||(it.type==='line'&&it.obj.kind==='river'))){ need.land=true; need.compose=full?'full':'fast'; } }
 function boxSelect(a,b){
   const x1=Math.min(a[0],b[0]), x2=Math.max(a[0],b[0]), y1=Math.min(a[1],b[1]), y2=Math.max(a[1],b[1]), inb=(x,y)=>x>=x1&&x<=x2&&y>=y1&&y<=y2, items=[];
-  S.lands.forEach(l=>{ landPath(l); const bb=built.get(l).bb; if(bb[0]>=x1&&bb[2]<=x2&&bb[1]>=y1&&bb[3]<=y2) items.push({type:'land',obj:l}); });   // land only when wholly inside the box
-  if(layers.lines.v&&!layers.lines.lock) S.lines.forEach(l=>{ if(lyPickable(l) && lineBuilt(l).pts.some(p=>inb(p[0],p[1]))) items.push({type:'line',obj:l}); });
-  if(layers.stamps.v&&!layers.stamps.lock) S.stamps.forEach(o=>{ if(lyPickable(o) && inb(o.x,o.y)) items.push({type:'stamp',obj:o}); });
-  if(layers.cliffs.v) S.cliffs.forEach(l=>{ landPath(l); const bb=built.get(l).bb; if(bb[0]>=x1&&bb[2]<=x2&&bb[1]>=y1&&bb[3]<=y2) items.push({type:'cliff',obj:l}); });
-  if(layers.labels.v&&!layers.labels.lock) S.labels.forEach(o=>{ if(lyPickable(o) && inb(o.x,o.y)) items.push({type:'label',obj:o}); });
+  S.lands.forEach(l=>{ if(l.locked) return; landPath(l); const bb=built.get(l).bb; if(bb[0]>=x1&&bb[2]<=x2&&bb[1]>=y1&&bb[3]<=y2) items.push({type:'land',obj:l}); });   // land only when wholly inside the box
+  if(layers.lines.v&&!layers.lines.lock) S.lines.forEach(l=>{ if(lyPickable(l) && !l.locked && lineBuilt(l).pts.some(p=>inb(p[0],p[1]))) items.push({type:'line',obj:l}); });
+  if(layers.stamps.v&&!layers.stamps.lock) S.stamps.forEach(o=>{ if(lyPickable(o) && !o.locked && inb(o.x,o.y)) items.push({type:'stamp',obj:o}); });
+  if(layers.cliffs.v) S.cliffs.forEach(l=>{ if(l.locked) return; landPath(l); const bb=built.get(l).bb; if(bb[0]>=x1&&bb[2]<=x2&&bb[1]>=y1&&bb[3]<=y2) items.push({type:'cliff',obj:l}); });
+  if(layers.labels.v&&!layers.labels.lock) S.labels.forEach(o=>{ if(lyPickable(o) && !o.locked && inb(o.x,o.y)) items.push({type:'label',obj:o}); });
   return items; }
 function editSel(fn){         // apply a change to the selection; a landmass changes as a whole
   if(sel.type==='land'){ const m=new Map(sel.group.map(o=>[o,fn(o)])); S.lands=S.lands.map(o=>m.get(o)||o); sel.group=sel.group.map(o=>m.get(o)); sel.obj=m.get(sel.obj); }
@@ -2093,7 +2108,7 @@ function stampHit(s,p){       // true only where the stamp's drawing actually is
 const cutR = () => clamp(opts.reach/5,8,90);
 function nearestShape(p){      // the stored point closest to the pointer, across coasts, cliffs and lines
   let best=null; const look=(key,o,closed)=>{ const off=o.brush?o.size/2:0; for(let i=0;i<o.pts.length;i++){ const d=Math.max(0,dist(p,o.pts[i])-off); if(!best||d<best.d) best={d,key,obj:o,idx:i,closed}; } };
-  S.lands.forEach(o=>look('lands',o,!o.brush)); if(layers.cliffs.v) S.cliffs.forEach(o=>look('cliffs',o,!o.brush)); if(layers.lines.v&&!layers.lines.lock) S.lines.forEach(o=>look('lines',o,false));
+  S.lands.forEach(o=>{ if(!o.locked) look('lands',o,!o.brush); }); if(layers.cliffs.v) S.cliffs.forEach(o=>{ if(!o.locked) look('cliffs',o,!o.brush); }); if(layers.lines.v&&!layers.lines.lock) S.lines.forEach(o=>{ if(!o.locked) look('lines',o,false); });
   return best && best.d<26/view.k ? best : null; }
 function startPull(p){ const g=nearestShape(p); if(!g) return null; const pts=g.obj.pts, L=pts.length, cum=[0]; for(let i=1;i<L;i++) cum[i]=cum[i-1]+dist(pts[i-1],pts[i]);
   const total=cum[L-1]+(g.closed?dist(pts[L-1],pts[0]):0), reach=opts.reach;
@@ -2102,19 +2117,35 @@ function startPull(p){ const g=nearestShape(p); if(!g) return null; const pts=g.
 function shapeDirty(key,o,full){ if(key==='lands'||(key==='lines'&&o.kind==='river')) need.land=true; if(key!=='lines'||o.kind==='river') need.compose=full?'full':'fast'; }
 function cutLines(p){          // rub out the part of any line under the ring
   const r=cutR(); let hit=false; const out=[];
-  for(const l of S.lines){ if((layers.lines.lock||!layers.lines.v) || !l.pts.some(q=>dist(q,p)<r)){ out.push(l); continue; }
+  for(const l of S.lines){ if((layers.lines.lock||!layers.lines.v) || l.locked || !l.pts.some(q=>dist(q,p)<r)){ out.push(l); continue; }
     hit=true; let run=[]; const flush=()=>{ if(run.length>=3) out.push({...l,pts:run}); run=[]; };
     for(const q of l.pts){ if(dist(q,p)<r) flush(); else run.push(q); } flush(); if(l.kind==='river'){ need.land=true; need.compose='fast'; } }
   if(hit) S.lines=out; return hit; }
 /* ---- transform handles: a box round the selection with corner grips to scale and a top grip to rotate ---- */
-function selBox(){ const its=selItems(); if(!its.length) return null; let x1=1e9,y1=1e9,x2=-1e9,y2=-1e9; const ex=(x,y)=>{ if(x<x1)x1=x; if(x>x2)x2=x; if(y<y1)y1=y; if(y>y2)y2=y; };
-  for(const {type,obj:o} of its){
-    if(type==='stamp'){ const h=o.size*.72; ex(o.x-h,o.y-h); ex(o.x+h,o.y+h); }
-    else if(type==='label'){ const m=labelMetrics(hitX,o), a=o.rot*Math.PI/180, hw=m.width/2+6, hh=m.hh; for(const [sx,sy] of [[-1,-1],[1,-1],[1,1],[-1,1]]) ex(o.x+sx*hw*Math.cos(a)-sy*hh*Math.sin(a), o.y+sx*hw*Math.sin(a)+sy*hh*Math.cos(a)); }
-    else if(type==='line') lineBuilt(o).pts.forEach(q=>ex(q[0],q[1]));
-    else { landPath(o); const b=built.get(o).bb; ex(b[0],b[1]); ex(b[2],b[3]); } }
+function objBox(it){ const {type,obj:o}=it; let x1=1e9,y1=1e9,x2=-1e9,y2=-1e9; const ex=(x,y)=>{ if(x<x1)x1=x; if(x>x2)x2=x; if(y<y1)y1=y; if(y>y2)y2=y; };      // where one selected thing is, as [x1,y1,x2,y2]
+  if(type==='stamp'){ const h=o.size*.72; ex(o.x-h,o.y-h); ex(o.x+h,o.y+h); }
+  else if(type==='label'){ const m=labelMetrics(hitX,o), a=o.rot*Math.PI/180, hw=m.width/2+6, hh=m.hh; for(const [sx,sy] of [[-1,-1],[1,-1],[1,1],[-1,1]]) ex(o.x+sx*hw*Math.cos(a)-sy*hh*Math.sin(a), o.y+sx*hw*Math.sin(a)+sy*hh*Math.cos(a)); }
+  else if(type==='line') lineBuilt(o).pts.forEach(q=>ex(q[0],q[1]));
+  else { landPath(o); const b=built.get(o).bb; ex(b[0],b[1]); ex(b[2],b[3]); }
   return [x1,y1,x2,y2]; }
-function selHandles(){ const b=selBox(); if(!b) return null; const pad=10/view.k, x1=b[0]-pad, y1=b[1]-pad, x2=b[2]+pad, y2=b[3]+pad;
+function selBox(){ const its=selItems(); if(!its.length) return null; const bs=its.map(objBox); return [Math.min(...bs.map(b=>b[0])),Math.min(...bs.map(b=>b[1])),Math.max(...bs.map(b=>b[2])),Math.max(...bs.map(b=>b[3]))]; }
+const makeSel=its=>!its.length ? null : its.length===1 ? (its[0].type==='land' ? {...its[0],group:landGroup(its[0].obj)} : its[0]) : {type:'multi',items:its};      // a list of things as the selection: one thing is selected as itself
+const anyLocked=()=>selItems().some(it=>it.obj.locked);
+/* Locking: an object with locked:true is skipped by clicking, box selection, reshaping and rubbing out, so it can be worked around. Alt-click picks a locked object, which can then only be unlocked. */
+function lockSel(){ if(!sel) return; const lock=!selItems().every(it=>it.obj.locked); pushUndo(); editSel(o=>{ const n={...o}; if(lock) n.locked=true; else delete n.locked; return n; }); renderPanel(); invalidate(); queueSave(); }
+function unlockAll(){ let n=0; const un=o=>{ if(!o.locked) return o; n++; const c={...o}; delete c.locked; return c; }; pushUndo(); for(const k of ['lands','cliffs','lines','stamps','labels']) S[k]=S[k].map(un); sel=null; need.land=true; need.compose='full'; renderPanel(); invalidate(); queueSave(); toast('Unlocked '+n+(n===1?' object.':' objects.')); }
+const lockedCount=()=>['lands','cliffs','lines','stamps','labels'].reduce((a,k)=>a+S[k].filter(o=>o.locked).length,0);
+function moveItems(items,dx,dy){ const sh=o=>o.pts?{...o,pts:o.pts.map(q=>[q[0]+dx,q[1]+dy])}:{...o,x:o.x+dx,y:o.y+dy}, m=new Map(items.map(it=>[it.obj,sh(it.obj)]));      // shift these by the same amount; a landmass takes what is on it
+  for(const [,objs] of ridersOn(items.filter(it=>it.type==='land').map(it=>it.obj))) for(const q of objs) m.set(q,sh(q));
+  for(const k of ['lands','cliffs','paints','lines','stamps','labels']) S[k]=S[k].map(q=>m.get(q)||q); return m; }
+function alignSel(mode){ const its=selItems(); if(its.length<2 || anyLocked()) return; const boxes=its.map(objBox), U=selBox(), n=its.length; let moves;
+  if(mode==='H'||mode==='V'){ if(n<3) return; const a=mode==='H'?0:1, ctr=boxes.map(b=>(b[a]+b[a+2])/2), order=its.map((_,i)=>i).sort((x,y)=>ctr[x]-ctr[y]), lo=ctr[order[0]], hi=ctr[order[n-1]];      // the two outermost stay put and the ones between are spaced evenly by their centres
+    moves=its.map((_,i)=>{ const d=lo+(hi-lo)*order.indexOf(i)/(n-1)-ctr[i]; return a===0?[d,0]:[0,d]; }); }
+  else moves=boxes.map(b=>({L:[U[0]-b[0],0], C:[(U[0]+U[2])/2-(b[0]+b[2])/2,0], R:[U[2]-b[2],0], T:[0,U[1]-b[1]], M:[0,(U[1]+U[3])/2-(b[1]+b[3])/2], B:[0,U[3]-b[3]]}[mode]));
+  if(moves.every(v=>Math.abs(v[0])<.05 && Math.abs(v[1])<.05)) return;
+  pushUndo(); const remap=new Map(); its.forEach((it,i)=>{ if(Math.abs(moves[i][0])>=.05 || Math.abs(moves[i][1])>=.05) for(const [o,nw] of moveItems([it],moves[i][0],moves[i][1])) remap.set(o,nw); });
+  remapSel(remap); selDirty(true); need.compose='full'; invalidate(); queueSave(); }
+function selHandles(){ const b=selBox(); if(!b || anyLocked()) return null; const pad=10/view.k, x1=b[0]-pad, y1=b[1]-pad, x2=b[2]+pad, y2=b[3]+pad;
   return {c:[(x1+x2)/2,(y1+y2)/2], corners:[[x1,y1],[x2,y1],[x2,y2],[x1,y2]], rot:[(x1+x2)/2,y1-28/view.k]}; }
 function remapSel(m){ const g=o=>m.get(o)||o; if(sel.type==='land'){ sel.obj=g(sel.obj); sel.group=sel.group.map(g); } else if(sel.type==='multi') sel.items=sel.items.map(it=>({type:it.type,obj:g(it.obj)})); else sel.obj=g(sel.obj); }
 function xfGrab(p){            // did the press land on a scale or rotate grip?
@@ -2122,22 +2153,25 @@ function xfGrab(p){            // did the press land on a scale or rotate grip?
   const entries=selItems().map(it=>({key:keyOf(it.type),orig:it.obj,cur:it.obj})); ridersOn(selLands()).forEach(([key,objs])=>objs.forEach(o=>entries.push({key,orig:o,cur:o})));   // a landmass takes what is on it along
   act={type:'xf',mode,c:hs.c,p0:p,entries,moved:false}; return true; }
 function xfApply(p){ const a=act, c=a.c; if(!a.moved){ pushUndo(); a.moved=true; }
-  const f = a.mode==='scale' ? clamp(dist(p,c)/(dist(a.p0,c)||1),.05,20) : 1, ang = a.mode==='rot' ? Math.atan2(p[1]-c[1],p[0]-c[0])-Math.atan2(a.p0[1]-c[1],a.p0[0]-c[0]) : 0, cs=Math.cos(ang), sn=Math.sin(ang), dg=ang*180/Math.PI;
+  const f = a.mode==='scale' ? clamp(dist(p,c)/(dist(a.p0,c)||1),.05,20) : 1; let ang = a.mode==='rot' ? Math.atan2(p[1]-c[1],p[0]-c[0])-Math.atan2(a.p0[1]-c[1],a.p0[0]-c[0]) : 0;
+  if(a.mode==='rot' && (opts.rotSnap || a.shift)){ const one=selItems().length===1 && typeof a.entries[0].orig.rot==='number' ? a.entries[0].orig.rot : 0;      // Snap (or Shift held): one object lands on a multiple of 15, several turn by a multiple of 15
+    ang=(Math.round((one+ang*180/Math.PI)/15)*15-one)*Math.PI/180; }
+  const cs=Math.cos(ang), sn=Math.sin(ang), dg=ang*180/Math.PI;
   const P=q=>{ const dx=(q[0]-c[0])*f, dy=(q[1]-c[1])*f; return [c[0]+dx*cs-dy*sn, c[1]+dx*sn+dy*cs]; }, turn=r=>((r+dg+540)%360)-180;
   const tf=o=>{ if(o.pts){ const n={...o,pts:o.pts.map(P)}; if(o.size) n.size=o.size*f; if('dir' in o) n.dir=turn(o.dir); return n; }
     const q=P([o.x,o.y]); return {...o,x:q[0],y:q[1],size:Math.max(4,o.size*f),rot:turn(o.rot)}; };
   const m=new Map(); a.entries.forEach(en=>{ const n=tf(en.orig); m.set(en.cur,n); en.cur=n; });
   for(const k of ['lands','cliffs','paints','lines','stamps','labels']) S[k]=S[k].map(o=>m.get(o)||o); remapSel(m); selDirty(false); }
-function nudgeSel(dx,dy){ pushUndo(); const sh=o=>o.pts?{...o,pts:o.pts.map(q=>[q[0]+dx,q[1]+dy])}:{...o,x:o.x+dx,y:o.y+dy}, riders=ridersOn(selLands());
+function nudgeSel(dx,dy){ if(anyLocked()) return; pushUndo(); const sh=o=>o.pts?{...o,pts:o.pts.map(q=>[q[0]+dx,q[1]+dy])}:{...o,x:o.x+dx,y:o.y+dy}, riders=ridersOn(selLands());
   editSel(sh); riders.forEach(([k,objs])=>{ const m=new Map(objs.map(q=>[q,sh(q)])); S[k]=S[k].map(q=>m.get(q)||q); }); selDirty(true); invalidate(); queueSave(); }
-function hitTest(p){
-  if(layers.labels.v && !layers.labels.lock) for(let i=S.labels.length-1;i>=0;i--){ const l=S.labels[i]; if(!lyPickable(l)) continue; const m=labelMetrics(hitX,l), a=-l.rot*Math.PI/180, dx=p[0]-l.x, dy=p[1]-l.y;
+function hitTest(p,withLocked){
+  if(layers.labels.v && !layers.labels.lock) for(let i=S.labels.length-1;i>=0;i--){ const l=S.labels[i]; if(!lyPickable(l) || (l.locked && !withLocked)) continue; const m=labelMetrics(hitX,l), a=-l.rot*Math.PI/180, dx=p[0]-l.x, dy=p[1]-l.y;
     const lx=dx*Math.cos(a)-dy*Math.sin(a), ly=dx*Math.sin(a)+dy*Math.cos(a); if(Math.abs(lx)<m.width/2+8 && Math.abs(ly)<m.hh+4) return {type:'label',obj:l}; }
-  if(layers.stamps.v && !layers.stamps.lock) for(let ss=stampsSorted(), i=ss.length-1;i>=0;i--){ const s=ss[i]; if(lyPickable(s) && stampHit(s,p)) return {type:'stamp',obj:s}; }
-  if(layers.lines.v && !layers.lines.lock) for(let i=S.lines.length-1;i>=0;i--){ const l=S.lines[i]; if(!lyPickable(l)) continue; const pts=lineBuilt(l).pts, tol=Math.max(8/view.k,l.width);
+  if(layers.stamps.v && !layers.stamps.lock) for(let ss=stampsSorted(), i=ss.length-1;i>=0;i--){ const s=ss[i]; if(lyPickable(s) && (!s.locked || withLocked) && stampHit(s,p)) return {type:'stamp',obj:s}; }
+  if(layers.lines.v && !layers.lines.lock) for(let i=S.lines.length-1;i>=0;i--){ const l=S.lines[i]; if(!lyPickable(l) || (l.locked && !withLocked)) continue; const pts=lineBuilt(l).pts, tol=Math.max(8/view.k,l.width);
     for(let j=1;j<pts.length;j++) if(segDist(p,pts[j-1],pts[j])<tol) return {type:'line',obj:l}; }
-  if(layers.cliffs.v) for(let i=S.cliffs.length-1;i>=0;i--){ if(inLand(S.cliffs[i],p)) return {type:'cliff',obj:S.cliffs[i]}; }
-  for(let i=S.lands.length-1;i>=0;i--){ const l=S.lands[i]; if(inLand(l,p)) return {type:'land',obj:l,group:landGroup(l)}; }
+  if(layers.cliffs.v) for(let i=S.cliffs.length-1;i>=0;i--){ if((!S.cliffs[i].locked || withLocked) && inLand(S.cliffs[i],p)) return {type:'cliff',obj:S.cliffs[i]}; }
+  for(let i=S.lands.length-1;i>=0;i--){ const l=S.lands[i]; if((!l.locked || withLocked) && inLand(l,p)) return {type:'land',obj:l,group:landGroup(l)}; }
   return null;
 }
 function addPoint(a,p,min){ const last=a.pts[a.pts.length-1]; if(!last || dist(last,p)>=min/view.k){ a.pts.push([Math.round(p[0]*10)/10,Math.round(p[1]*10)/10]); return true; } return false; }
@@ -2169,13 +2203,16 @@ cv.addEventListener('pointerdown',e=>{
   else if(t==='stamp'){ pushUndo(); placeStamp(p,false); if(scatterOf(opts.stamp)) act={type:'scatter',last:p,pushed:true}; }
   else if(t==='label'){ pushUndo(); const l=withLy({text:'Name',x:Math.round(p[0]),y:Math.round(p[1]),size:opts.labelSize,rot:0,style:opts.labelStyle}); S.labels=[...S.labels,l]; sel={type:'label',obj:l}; setTool('select'); renderPanel(); setTimeout(()=>editLabel(true),40); }
   else if(t==='reshape'){ if(opts.reshape==='cut'){ pushUndo(); act={type:'cut',pushed:true,before:S.lines}; cutLines(p); } else act=startPull(p); }
-  else if(t==='select'){ const h=hitTest(p), inSel = h && selItems().some(it=>it.obj===h.obj);
-    if(sel && sel.type==='cliff' && sel.obj.mode==='up' && dist(p,cliffGrip(sel.obj))<18/view.k) act={type:'cheight',y0:p[1],h0:sel.obj.h ?? 26,moved:false};   // grabbed the height grip
+  else if(t==='select'){ const h=hitTest(p), inSel = h && selItems().some(it=>it.obj===h.obj), hl=e.altKey ? hitTest(p,true) : null;
+    if(hl && hl.obj.locked){ sel=hl; renderPanel(); act={type:'noop'}; }      // Alt-click picks a locked object, so it can be unlocked
+    else if(e.shiftKey && h){ const cur=selItems(), its=h.type==='land' ? h.group.map(o=>({type:'land',obj:o})) : [{type:h.type,obj:h.obj}], has=new Set(cur.map(i=>i.obj));      // Shift-click adds to the selection, or takes the thing out if it is already in
+      sel=makeSel(its.every(f=>has.has(f.obj)) ? cur.filter(i=>!its.some(f=>f.obj===i.obj)) : [...cur,...its.filter(f=>!has.has(f.obj))]); renderPanel(); act={type:'noop'}; }
+    else if(sel && sel.type==='cliff' && sel.obj.mode==='up' && dist(p,cliffGrip(sel.obj))<18/view.k) act={type:'cheight',y0:p[1],h0:sel.obj.h ?? 26,moved:false};   // grabbed the height grip
     else if(sel && sel.type==='cliff' && sel.obj.mode==='up' && dist(p,cliffHead(sel.obj))<18/view.k) act={type:'taper',moved:false};   // grabbed the taper arrow
     else if(xfGrab(p)){ /* act set: scaling or rotating */ }
     else if(inSel) act={type:'move',last:p,moved:false};                                              // drag something already selected: move it
     else if(h && h.type!=='land' && h.type!=='cliff'){ sel=h; renderPanel(); act={type:'move',last:p,moved:false}; }  // stamps, labels and lines: select and move in one go
-    else act={type:'box',a:p,b:p,click:h}; }                                                     // land or open water: start a selection box
+    else act={type:'box',a:p,b:p,click:h,add:e.shiftKey}; }                                                     // land or open water: start a selection box
   invalidate();
 });
 cv.addEventListener('pointermove',e=>{
@@ -2185,7 +2222,7 @@ cv.addEventListener('pointermove',e=>{
   const p=toWorld(e); hover=p;
   if(!act){ if(draft || (DUNG() && (opts.tool==='room'||opts.tool==='corridor'||opts.tool==='dwall')) || opts.tool==='paint'||opts.tool==='floor'||opts.tool==='stamp'||opts.tool==='reshape'||landBrushOn()) invalidate(); return; }
   if(act.type==='pan'){ view.x=act.vx+e.clientX-act.sx; view.y=act.vy+e.clientY-act.sy; }
-  else if(act.type==='xf') xfApply(p);
+  else if(act.type==='xf'){ act.shift=e.shiftKey; xfApply(p); }
   else if(act.type==='pull'){ const a=act, dx=p[0]-a.start[0], dy=p[1]-a.start[1]; if(!a.moved){ if(Math.hypot(dx,dy)<3/view.k) return; pushUndo(); a.moved=true; }
     const n={...a.cur,pts:a.orig.map((q,i)=>a.w[i]?[q[0]+dx*a.w[i],q[1]+dy*a.w[i]]:q)}; S[a.key]=S[a.key].map(o=>o===a.cur?n:o); a.cur=n; shapeDirty(a.key,n,false); }
   else if(act.type==='cut'){ cutLines(p); }
@@ -2223,8 +2260,11 @@ function endPointer(e){
   if(a.type==='measure'){ measured=a.pts.length>1?a.pts:null; renderPanel(); invalidate(); return; }
   if(a.type==='fill'){ const n=a.pts.length>3?fillArea(a.pts):0; toast(n ? 'Placed '+n+' '+opts.stamp+(n>1?' stamps':' stamp')+(n>=1500?' (the most one fill will place)':'')+'.' : 'Nothing to fill there. Draw a loop around the area'+(groupOf(opts.stamp)==='Sea'?' of water.':' of land.')); invalidate(); queueSave(); return; }
   if(a.type==='box'){
-    if(Math.hypot(a.b[0]-a.a[0],a.b[1]-a.a[1])<4/view.k) sel=a.click;
-    else { const it=boxSelect(a.a,a.b); sel = !it.length ? null : it.length>1 ? {type:'multi',items:it} : it[0].type==='land' ? {...it[0],group:landGroup(it[0].obj)} : it[0]; }
+    const click=Math.hypot(a.b[0]-a.a[0],a.b[1]-a.a[1])<4/view.k;
+    if(a.add){ const cur=selItems(), has=new Set(cur.map(i=>i.obj)), found=click ? (a.click ? (a.click.type==='land' ? a.click.group.map(o=>({type:'land',obj:o})) : [{type:a.click.type,obj:a.click.obj}]) : []) : boxSelect(a.a,a.b);      // with Shift a box adds to what is selected
+      sel=makeSel(click && found.length && found.every(f=>has.has(f.obj)) ? cur.filter(i=>!found.some(f=>f.obj===i.obj)) : [...cur,...found.filter(f=>!has.has(f.obj))]); }
+    else if(click) sel=a.click;
+    else sel=makeSel(boxSelect(a.a,a.b));
     renderPanel(); }
   else if(a.type==='drect'){ const w=Math.abs(a.b[0]-a.a[0]), h=Math.abs(a.b[1]-a.a[1]);
     if(w>=cellSz()*.45 && h>=cellSz()*.45){ pushUndo(); const x0=Math.min(a.a[0],a.b[0]), x1=Math.max(a.a[0],a.b[0]), y0=Math.min(a.a[1],a.b[1]), y1=Math.max(a.a[1],a.b[1]);
@@ -2274,11 +2314,12 @@ window.addEventListener('keydown',e=>{
   else if(mod && e.key.toLowerCase()==='d' && sel){ e.preventDefault(); $('selDup')?.click(); }
   else if(e.key==='Escape'){ sel=null; renderPanel(); invalidate(); }
   else if(!mod && opts.tool==='stamp' && (e.key==='['||e.key===']')){ e.preventDefault(); stepShape(e.key===']'?1:-1); }
+  else if(!mod && opts.tool==='stamp' && /^[1-9]$/.test(e.key) && favs[+e.key-1]){ e.preventDefault(); chooseStamp(favs[+e.key-1]); }
   else if(!mod && opts.tool==='stamp' && e.key.toLowerCase()==='x'){ opts.stampFlip=opts.stampFlip==='on'?'off':'on'; pend.key=''; renderPanel(); invalidate(); }
   else if(!mod){ const mode=S.kind==='dungeon'?'d':'w', kk=e.key.toLowerCase(); if(kk==='c' && mode==='w'){ opts.paintLayer='cliff'; setTool('paint'); } else { const t=TOOLS.find(t=>t.key && t.key===kk && (!t.m || t.m===mode)); if(t) setTool(t.id); } }
 });
 window.addEventListener('keyup',e=>{ if(e.key===' ') spaceDown=false; });
-function deleteSel(){ if(!sel) return; pushUndo(); const gone=new Set([...selItems().map(it=>it.obj),...ridersOn(selLands()).flatMap(r=>r[1])]); selDirty(true);
+function deleteSel(){ if(!sel) return; const its=selItems().filter(it=>!it.obj.locked); if(!its.length) return; pushUndo(); const gone=new Set([...its.map(it=>it.obj),...ridersOn(its.filter(it=>it.type==='land').map(it=>it.obj)).flatMap(r=>r[1]).filter(o=>!o.locked)]); selDirty(true);
   for(const k of ['lands','cliffs','paints','lines','stamps','labels']) S[k]=S[k].filter(o=>!gone.has(o)); sel=null; renderPanel(); invalidate(); }
 
 /* ============================================================ tools + inspector */
@@ -2326,10 +2367,26 @@ function setTool(id){ opts.tool=id; draft=null; if(id!=='select') sel=null;
 
 const slider=(id,label,min,max,step,val,fmt)=>`<label class="row" for="${id}">${label}<input type="range" id="${id}" min="${min}" max="${max}" step="${step}" value="${val}"><output id="${id}Out">${fmt(val)}</output></label>`;
 const pct=v=>Math.round(v*100), num=v=>Math.round(v), deg=v=>Math.round(v)+'°';
+const ROT_IDS=new Set(['stampRot','selRot','cliffDir']), snapRot=v=>Math.max(-180,Math.min(180,Math.round(v/15)*15));      // the rotation sliders, and what Snap does to them
 function bind(id, fmt, fn, isEdit){ const el=$(id); if(!el) return;
-  el.addEventListener('input',()=>{ if(isEdit) beginEdit(); const v=el.type==='range'?+el.value:el.value; const o=$(id+'Out'); if(o) o.textContent=fmt(v); fn(v); invalidate(); });
+  el.addEventListener('input',()=>{ if(isEdit) beginEdit(); let v=el.type==='range'?+el.value:el.value; if(ROT_IDS.has(id) && opts.rotSnap){ v=snapRot(v); el.value=v; } const o=$(id+'Out'); if(o) o.textContent=fmt(v); fn(v); invalidate(); });
   el.addEventListener('change',()=>{ editing=false; if(isEdit && sel){ selDirty(true); invalidate(); } queueSave(); }); }
-const stampGrid=(id,kinds,cur)=>`<div class="stamps" id="${id}">${kinds.map(k=>`<button data-kind="${k}" aria-pressed="${k===cur}"><canvas width="88" height="88" data-kind="${k}"></canvas>${k.startsWith('ch_')?k.slice(3):k}</button>`).join('')}</div>`;
+const stampGrid=(id,kinds,cur,stars)=>`<div class="stamps" id="${id}">${kinds.map(k=>`<button data-kind="${k}" aria-pressed="${k===cur}"><canvas width="88" height="88" data-kind="${k}"></canvas>${k.startsWith('ch_')?k.slice(3):k}${stars?`<span class="star${favs.includes(k)?' on':''}" data-fav="${k}" role="button" aria-label="${favs.includes(k)?'Remove from':'Add to'} favourites" title="${favs.includes(k)?'Remove from favourites':'Add to favourites'}">${favs.includes(k)?'★':'☆'}</span>`:''}</button>`).join('')}</div>`;
+/* Favourites and search. favs is the user's list of stamp kinds, in the order added, kept in the library store under '__favs' (not in any map file). The list under the search box is rebuilt
+   on its own as the query changes, so the box keeps its focus; with a query it shows every matching kind in every set (a kind matches on its name or its group's name). */
+let favs=[];
+const kindLabel=k=>k.startsWith('ch_')?k.slice(3):k;
+function toggleFav(kind){ const i=favs.indexOf(kind); if(i>=0) favs.splice(i,1); else favs.push(kind); store.set('__favs',JSON.stringify(favs)); renderPanel(); }
+function favsHTML(){ return `<p class="grp">Favourites</p>`+(favs.length?stampGrid('sg_favs',favs,opts.stamp,true):`<p>Click the star on a stamp to keep it here. Number keys 1 to 9 pick a favourite.</p>`); }
+function stampListHTML(){ const q=(opts.stampQuery||'').trim().toLowerCase(), set=STAMP_SETS[opts.stampSet];
+  if(!q) return set.groups.length ? set.groups.map(n=>`<p class="grp">${n}</p>${stampGrid('sg_'+n,STAMP_GROUPS[n].kinds,opts.stamp,true)}`).join('') : `<p>${set.empty}</p>`;
+  const seen=new Set(), parts=[]; for(const [gn,g] of Object.entries(STAMP_GROUPS)){ if(!Object.values(STAMP_SETS).some(x=>x.groups.includes(gn))) continue;
+    const ks=g.kinds.filter(k=>!seen.has(k) && (kindLabel(k).toLowerCase().includes(q) || k.toLowerCase().includes(q) || gn.toLowerCase().includes(q))); ks.forEach(k=>seen.add(k)); if(ks.length) parts.push(`<p class="grp">${gn}</p>${stampGrid('sr_'+gn.replace(/\W/g,'_'),ks,opts.stamp,true)}`); }
+  return parts.join('') || `<p>No stamp is called that.</p>`; }
+function chooseStamp(kind){ const was=opts.stamp; opts.stamp=kind; const gg=groupOf(kind);      // one place for what choosing a stamp does, whether from the grid, the favourites or a number key
+  if(DUNG() && DUN_FOOT[kind]) opts.stampSizes[gg]=dungSize(kind); else if(KIND_SIZE[kind]) opts.stampSizes[gg]=KIND_SIZE[kind]; else if(KIND_SIZE[was] && groupOf(was)===gg) opts.stampSizes[gg]=STAMP_GROUPS[gg].size;
+  if(!STAMP_SETS[opts.stampSet].groups.includes(gg)){ const k=Object.keys(STAMP_SETS).find(n=>STAMP_SETS[n].groups.includes(gg)); if(k) opts.stampSet=k; }      // a favourite may live in another set
+  renderPanel(); }
 function stampThumbs(){ document.querySelectorAll('.stamps canvas').forEach(c=>{ const x=c.getContext('2d'); x.setTransform(2,0,0,2,0,0); x.clearRect(0,0,44,44); drawStamp(x,{kind:c.dataset.kind,x:22,y:24,size:34,rot:0,v:.6,var:+c.dataset.var||0,tint:c.dataset.tint||undefined}); }); }
 const ORDER_BUTTONS=`<div class="btnrow"><button class="btn" data-flip="1">Mirror</button></div><p class="grp">Order</p><div class="btnrow"><button class="btn" data-z="front">To front</button><button class="btn" data-z="up">Forward</button><button class="btn" data-z="down">Backward</button><button class="btn" data-z="back">To back</button><button class="btn" data-z="auto">Auto</button></div>`;
 function lookControls(kind,curVar,curTint,shuffle){     // shape and colour pickers for stamps that have them
@@ -2350,8 +2407,9 @@ function renderPanel(){
   const TERR_MODES=[['land','Ground'],['water','Water'],['cliff','Cliffs']], modeChips=()=>`<div class="chips" id="paintLayer">${TERR_MODES.map(([k,n])=>`<button class="chip" data-layer="${k}" aria-pressed="${opts.paintLayer===k}">${n}</button>`).join('')}</div>`;      // Terrain does four jobs, picked here
   const wallKindChips=()=>`<p class="grp">Kind</p><div class="chips" id="wallKind">${[['town','Town wall'],['hedge','Hedge'],['fence','Fence'],['wall','Field wall'],['palisade','Palisade']].map(([k,n])=>`<button class="chip" data-wk="${k}" aria-pressed="${opts.wallKind===k}">${n}</button>`).join('')}</div>`; let h = PHONE ? '<button class="btn" id="drawerX">Close settings</button>' : '';
   if(t==='select'){
-    if(!sel) h+=`<section><h2>Select</h2><p>${DUNG()?'Click a room, corridor, wall, stamp or label to change it. Drag to move it.':'Click a landmass, river, road, settlement or label to change it.'}</p></section>`;
-    else if(sel.type==='multi'){ h+=`<section><h2>${sel.items.length} selected</h2><p>Drag any of them to move the lot.</p>${sel.items.some(i=>i.type==='stamp')?ORDER_BUTTONS:''}</section><div class="btnrow"><button class="btn" id="selDup">Duplicate</button><button class="btn danger" id="selDel">Delete</button></div>`; }
+    if(!sel) h+=`<section><h2>Select</h2><p>${DUNG()?'Click a room, corridor, wall, stamp or label to change it. Drag to move it.':'Click a landmass, river, road, settlement or label to change it.'} Shift adds to the selection.</p></section>`+(lockedCount()?`<section><h2>Locked</h2><p>${lockedCount()} locked ${lockedCount()===1?'object is':'objects are'} skipped by clicking. Alt-click picks one.</p><div class="btnrow"><button class="btn" id="unlockAll">Unlock all</button></div></section>`:'');
+    else if(anyLocked()) h+=`<section><h2>Locked</h2><p>${sel.type==='multi'?'These are':'This is'} locked: clicking, dragging and the keys leave ${sel.type==='multi'?'them':'it'} alone. Alt-click picks a locked object.</p><div class="btnrow"><button class="btn" id="selLock">Unlock</button></div></section>`;
+    else if(sel.type==='multi'){ const al=(m,t,l)=>`<button class="btn" data-align="${m}" title="${t}">${l}</button>`; h+=`<section><h2>${sel.items.length} selected</h2><p>Drag any of them to move the lot. Shift-click or Shift-drag adds more.</p><p class="grp">Align</p><div class="btnrow" id="alignRow">${al('L','Left edges','L')}${al('C','Centres across','C')}${al('R','Right edges','R')}${al('T','Top edges','T')}${al('M','Centres down','M')}${al('B','Bottom edges','B')}</div><p class="grp">Space evenly</p><div class="btnrow" id="distRow">${sel.items.length>2?al('H','Spread across, by their centres','Across')+al('V','Spread down, by their centres','Down'):'<small>Needs three or more.</small>'}</div>${sel.items.some(i=>i.type==='stamp')?ORDER_BUTTONS:''}</section><div class="btnrow"><button class="btn" id="selDup">Duplicate</button><button class="btn" id="selLock">Lock all</button><button class="btn danger" id="selDel">Delete</button></div>`; }
     else { const o=sel.obj;
       if(sel.type==='cliff') h+=`<section><h2>${o.mode==='down'?'Lowered area':(o.h ?? 26)<0?'Pit':'Cliff'}</h2>${o.mode==='up'?slider('selH','Height',-220,140,1,o.h ?? 26,num)+'<div class="ends"><span>deep pit</span><span>high cliff</span></div><p>Or drag the round grip under the shape: up raises it, down past level sinks it into a pit. Deep pits fade to black.</p>'+slider('selTaper','Taper',0,1,.01,o.taper||0,pct)+'<div class="ends"><span>even</span><span>ramps to nothing</span></div>'+slider('selDir','Direction',-180,180,1,o.dir ?? -90,deg)+'<p>Drag the arrow on the map to set both at once. It points from the low end to the high end.</p>':''}
         ${slider('selRough','Edge',0,1,.01,o.rough,pct)}<div class="ends"><span>smooth</span><span>jagged</span></div>${o.brush?slider('selBrush','Width',20,600,2,o.size,num):''}<div class="btnrow"><button class="btn" id="selSeed">Reshuffle edge</button></div></section>`;
@@ -2365,7 +2423,7 @@ function renderPanel(){
       if(sel.type==='label') h+=`<section><h2>Label</h2><label class="row wide" for="selText">Text<textarea id="selText" rows="2">${o.text.replace(/&/g,'&amp;').replace(/</g,'&lt;')}</textarea></label>
         <label class="row wide" for="selStyle">Style<select id="selStyle">${Object.entries(LABEL_STYLES).map(([k,s])=>`<option value="${k}"${k===o.style?' selected':''}>${s.name}</option>`).join('')}</select></label>
         ${slider('selSize','Size',10,160,1,o.size,num)}${slider('selRot','Rotation',-180,180,1,o.rot,deg)}${slider('selSpace','Spacing',0,1.5,.01,o.spacing ?? (LABEL_STYLES[o.style]||LABEL_STYLES.place).spacing,pct)}${slider('selBend','Curve',-1,1,.01,o.bend||0,pct)}<div class="ends"><span>dips</span><span>arches</span></div><p>Double-click a label to retype it on the map. A new line in the text makes a second line.</p></section>`;
-      h+=`<div class="btnrow"><button class="btn" id="selDup">Duplicate</button><button class="btn danger" id="selDel">Delete</button></div>`; }
+      h+=`<div class="btnrow"><button class="btn" id="selDup">Duplicate</button><button class="btn" id="selLock">Lock</button><button class="btn danger" id="selDel">Delete</button></div>`; }
   }
   if(t==='room'||t==='corridor'||t==='dwall') h+=dungToolPanel(t);
   if(t==='floor') h+=`<section><h2>Floor</h2><p class="grp">Floor</p><div class="chips" id="floorTex">${FLOORS.filter(f=>f[0]!=='none').concat([['none','Bare']]).map(([k,n])=>`<button class="chip" data-ftex="${k}" aria-pressed="${opts.floorTex===k}">${n}</button>`).join('')}</div><p class="grp">How</p><div class="chips" id="floorMode">${[['paint','Paint'],['fill','Fill a room'],['erase','Rub out']].map(([k,n])=>`<button class="chip" data-fmode="${k}" aria-pressed="${opts.floorMode===k}">${n}</button>`).join('')}</div>${opts.floorMode==='fill'?'<p>Click a room to give it the whole floor.</p>':slider('floorBrush','Brush',20,400,2,opts.floorBrush,num)+'<p>Drag over the rooms to paint a floor on. Right-drag rubs it out. Paint only shows on floor, never on rock.</p>'}</section>`;
@@ -2387,8 +2445,8 @@ function renderPanel(){
   if(t==='stamp'){ const g=groupOf(opts.stamp), sc=scatterOf(opts.stamp), set=STAMP_SETS[opts.stampSet];
     if(set.groups.length){ const nv=VARIANTS[opts.stamp]||1;
       h+=`<section class="placebar"><div class="placerow"><canvas id="pendPrev" width="120" height="120" title="What the next click places"></canvas><div class="placectl"><b>${opts.stamp.startsWith('ch_')?opts.stamp.slice(3):opts.stamp}</b><small id="pendLabel"></small>${nv>1?`<div class="stepper"><button class="btn" id="shapePrev" title="Previous shape ([)">&#8249;</button><button class="chip" id="shapeShuf" aria-pressed="${opts.stampVar==='shuffle'}" title="Pick a shape at random each time">Shuffle</button><button class="btn" id="shapeNext" title="Next shape (])">&#8250;</button></div>`:''}</div></div>${slider('stampSize','Size',14,400,1,opts.stampSizes[g],num)}${slider('stampRot','Rotation',-180,180,1,opts.stampRot,deg)}${slider('stampOpacity','Opacity',0,100,1,opts.stampOpacity,v=>Math.round(v)+'%')}<div class="chips three" id="flipPick">${[['off','Not mirrored'],['on','Mirrored'],['shuffle','Random']].map(([k,n])=>`<button class="chip" data-flipmode="${k}" aria-pressed="${opts.stampFlip===k}">${n}</button>`).join('')}</div></section>`; }
-    h+=`<section id="stampKinds"><h2>Stamps</h2><div class="chips three" id="stampSets">${Object.entries(STAMP_SETS).map(([k,v])=>`<button class="chip" data-set="${k}" aria-pressed="${k===opts.stampSet}">${v.name}</button>`).join('')}</div>
-    ${set.groups.length ? set.groups.map(n=>`<p class="grp">${n}</p>${stampGrid('sg_'+n,STAMP_GROUPS[n].kinds,opts.stamp)}`).join('') : `<p>${set.empty}</p>`}</section>`;
+    h+=`<section id="stampKinds"><h2>Stamps</h2><input type="search" id="stampSearch" placeholder="Search stamps…" aria-label="Search stamps" value="${(opts.stampQuery||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;')}">${favsHTML()}<div class="chips three" id="stampSets"${(opts.stampQuery||'').trim()?' style="display:none"':''}>${Object.entries(STAMP_SETS).map(([k,v])=>`<button class="chip" data-set="${k}" aria-pressed="${k===opts.stampSet}">${v.name}</button>`).join('')}</div>
+    <div id="stampList">${stampListHTML()}</div></section>`;
     if(set.groups.length) h+=`<section>${lookControls(opts.stamp,opts.stampVar,opts.stampTint[opts.stamp]||(TINTS[opts.stamp]||[])[0],true)}${sc?`<p class="grp">Dragging</p><div class="chips" id="stampMode"><button class="chip" data-smode="place" aria-pressed="${opts.stampMode!=='fill'}">Lays a trail</button><button class="chip" data-smode="fill" aria-pressed="${opts.stampMode==='fill'}">Fills an area</button></div>`+(opts.stampMode==='fill'?slider('fillDensity','Density',.4,2,.05,opts.fillDensity,pct)+(STAMP_GROUPS[g].align?'<p>Draw a loop round a district. Buildings line every street inside it; past the middle of the slider they also fill the middles of the blocks.</p>':'<p>Draw a loop round the area. It is filled with this stamp, on land only (sea stamps on water only).</p>'):slider('scatter','Spread',0,400,2,opts.scatter,num)+slider('scatterDensity','Amount',.2,3,.05,opts.scatterDensity,pct)+slider('scatterGap','Spacing',0,1.5,.05,opts.scatterGap,pct)+slider('sizeVar','Size variation',0,.6,.01,opts.sizeVar,pct)+'<p>Drag to lay down many. Spread is how wide the brush is, Amount how many per stroke, Spacing the least gap between them (0 lets them overlap), Size variation how much they differ.</p>'):''}</section>`; }
   if(t==='label') h+=`<section><h2>Label</h2><label class="row wide" for="labelStyle">Style<select id="labelStyle">${Object.entries(LABEL_STYLES).map(([k,s])=>`<option value="${k}"${k===opts.labelStyle?' selected':''}>${s.name}</option>`).join('')}</select></label>${slider('labelSize','Size',10,160,1,opts.labelSize,num)}<p>Click the map and type. Enter finishes, Shift+Enter starts a second line. Curve and spacing are set once the label is selected.</p></section>`;
   if(t==='reshape') h+=`<section><h2>Reshape</h2><div class="chips" id="reshapeModes"><button class="chip" data-rmode="pull" aria-pressed="${opts.reshape==='pull'}">Pull</button><button class="chip" data-rmode="cut" aria-pressed="${opts.reshape==='cut'}">Erase lines</button></div>
@@ -2396,13 +2454,14 @@ function renderPanel(){
   if(t==='measure') h+=`<section><h2>Measure</h2><p style="font-size:17px;margin:0">${measured?'<b>'+fmtDist(pathLen(measured))+'</b> along the route':'Drag along a route on the map.'}</p><p class="grp">Map scale</p><label class="row wide" for="scaleN">100 map units =<input type="number" id="scaleN" min="0.01" step="any" value="${S.scale.per100}" style="width:5.5em"></label><label class="row wide" for="scaleU">Unit<select id="scaleU">${['miles','leagues','km','days','yards','feet','paces'].map(u=>`<option${u===S.scale.unit?' selected':''}>${u}</option>`).join('')}</select></label><p>A grid cell (${S.grid.size}) is ${fmtDist(S.grid.size)}. The whole sheet is ${fmtDist(S.w)} across. Scale bar stamps show this scale.</p></section>`;
   if(t==='pan') h+=`<section><h2>Pan</h2><p>Hold Space with any tool to pan without switching.</p></section>`;
   const setDetail=`<section><h2>Detail</h2>${PHONE?'<p>Phone mode draws at reduced detail.</p>':`<div class="chips" id="detailPick"><button class="chip" data-detail="1" aria-pressed="${R===1}">Normal</button><button class="chip" data-detail="${Math.min(2,maxScale())}" aria-pressed="${R>1}">High</button></div><p>High stays sharp when you zoom in, but painting and undo are slower.</p>`}</section>`;
+  const setRot=`<section><h2>Rotation</h2><div class="layer"><span>Snap to 15°</span><label><input type="checkbox" id="rotSnap" ${opts.rotSnap?'checked':''}>on</label></div><p>Applies to the rotation sliders and the turn handle. Hold Shift while turning with the handle to snap just that once.</p></section>`;
   const setGrid=`<section><h2>Grid</h2><label class="row wide" for="gridType">Type<select id="gridType"><option value="none">None</option><option value="hex">Hex</option><option value="square">Square</option></select></label>${slider('gridSize','Cell',20,200,2,S.grid.size,num)}</section>
   <hr><section><h2>Sheet</h2><label class="row wide" for="frameType">Border<select id="frameType"><option value="none">None</option><option value="line">Double line</option><option value="graduated">Chart border</option></select></label>${DUNG()?slider('dunHatch','Rock hatching',0,2,.05,S.dun.hatch,pct)+'<div class="layer"><span>Wall shadow</span><label><input type="checkbox" id="dunShadow" '+(S.dun.shadow?'checked':'')+'>show</label><span></span></div><p>The rock round the rooms is hatched, and a band of shading runs down the left inside of each wall.</p>':`<div class="layer"><span>Rhumb lines</span><label><input type="checkbox" id="rhumbOn" ${S.rhumb?'checked':''}>show</label><span></span></div><p>Rhumb lines run across the sea from every compass stamp. Compass, scale and cartouche are under Stamps, Furniture.</p>`}</section>`;
   if(DUNG() && ['room','corridor','dwall','floor','stamp'].includes(t)) h+=`<section><div class="layer"><span>Snap to grid</span><label><input type="checkbox" id="snapOn" ${opts.snap?'checked':''}>on</label><label><input type="checkbox" id="snapFine" ${opts.snapFine?'checked':''}>half</label></div></section>`;      // snapping applies to rooms, corridors, walls, floor strokes and door and furniture stamps alike, so it is offered with each of them
   h+=`<hr><section><h2>Layers</h2><div id="lyList">${S.layers.slice().reverse().map(L=>`<div class="lyrow${L.id===S.active?' on':''}" data-ly="${L.id}"><input type="radio" name="lyActive" ${L.id===S.active?'checked':''} aria-label="Draw on ${L.name.replace(/"/g,'')}"><input type="text" class="lyname" value="${L.name.replace(/"/g,'&quot;')}" aria-label="Layer name"><label title="Show"><input type="checkbox" data-lyv ${L.v!==false?'checked':''}>show</label><label title="Lock"><input type="checkbox" data-lyl ${L.lock?'checked':''}>lock</label><span class="lybtns"><button type="button" data-lyup title="Move up" aria-label="Move up">&#9650;</button><button type="button" data-lydn title="Move down" aria-label="Move down">&#9660;</button>${L.id==='base'?'':'<button type="button" data-lydel title="Delete layer" aria-label="Delete layer">&#215;</button>'}</span></div>`).join('')}</div>
     <div class="btnrow"><button class="btn" id="lyAdd">Add layer</button></div><p>New rivers, roads, stamps and labels go on the chosen layer. Hidden layers are left out of the exported picture.</p></section>`;
   const setVis=`<section><h2>Show by kind</h2>${Object.entries(layers).map(([k,l])=>`<div class="layer"><span>${l.name}</span><label><input type="checkbox" id="lv_${k}" ${l.v?'checked':''}>show</label>${'lock' in l?`<label><input type="checkbox" id="ll_${k}" ${l.lock?'checked':''}>lock</label>`:'<span></span>'}</div>`).join('')}</section>`;
-  h+=`<hr><details id="mapSettings" class="settings"${opts.settingsOpen?' open':''}><summary>Map settings</summary>${setDetail}<hr>${setGrid}<hr>${setVis}</details>`;
+  h+=`<hr><details id="mapSettings" class="settings"${opts.settingsOpen?' open':''}><summary>Map settings</summary>${setDetail}<hr>${setRot}<hr>${setGrid}<hr>${setVis}</details>`;
   $('side').innerHTML=h; $('mapSettings')?.addEventListener('toggle',e=>opts.settingsOpen=e.target.open); stampThumbs(); $('drawerX')?.addEventListener('click',()=>document.body.classList.remove('drawer-open')); $('gridType').value=S.grid.type; $('frameType').value=S.frame;
 
   bind('landRough',pct,v=>opts.landRough=v); bind('brush',num,v=>opts.brush=v); bind('lineRough',pct,v=>opts.lineRough=v); bind('lineWidth',v=>v,v=>opts.lineWidth[t]=v);
@@ -2427,7 +2486,8 @@ function renderPanel(){
   $('landModes')?.addEventListener('click',e=>{ const b=e.target.closest('[data-mode]'); if(b){ opts.landMode=b.dataset.mode; setTool(opts.tool); } }); bind('stampRot',deg,v=>opts.stampRot=v); bind('labelSize',num,v=>opts.labelSize=v);
   $('labelStyle')?.addEventListener('change',e=>opts.labelStyle=e.target.value);
   $('terrChips')?.addEventListener('click',e=>{ const l=e.target.closest('[data-layer]'), b=e.target.closest('[data-terr]'); if(l) opts.paintLayer=l.dataset.layer; else if(b) opts[opts.paintLayer==='water'?'water':'terrain']=b.dataset.terr; else return; renderPanel(); });
-  $('stampKinds')?.addEventListener('click',e=>{ const b=e.target.closest('[data-kind]'); if(b){ const was=opts.stamp; opts.stamp=b.dataset.kind; const gg=groupOf(opts.stamp); if(DUNG() && DUN_FOOT[opts.stamp]) opts.stampSizes[gg]=dungSize(opts.stamp); else if(KIND_SIZE[opts.stamp]) opts.stampSizes[gg]=KIND_SIZE[opts.stamp]; else if(KIND_SIZE[was] && groupOf(was)===gg) opts.stampSizes[gg]=STAMP_GROUPS[gg].size; renderPanel(); } });
+  $('stampKinds')?.addEventListener('click',e=>{ const f=e.target.closest('[data-fav]'); if(f){ e.preventDefault(); e.stopPropagation(); toggleFav(f.dataset.fav); return; } const b=e.target.closest('[data-kind]'); if(b) chooseStamp(b.dataset.kind); });
+  $('stampSearch')?.addEventListener('input',e=>{ opts.stampQuery=e.target.value; $('stampSets').style.display=opts.stampQuery.trim()?'none':''; $('stampList').innerHTML=stampListHTML(); stampThumbs(); });
   $('detailPick')?.addEventListener('click',e=>{ const b=e.target.closest('[data-detail]'); if(b){ toast('Redrawing…'); setTimeout(()=>{ setDetail(+b.dataset.detail); renderPanel(); },50); } });
   $('gridType').addEventListener('change',e=>{ pushUndo(); S.grid={...S.grid,type:e.target.value}; if(DUNG()) need.compose='full'; invalidate(); });
   $('scaleN')?.addEventListener('change',e=>{ const v=+e.target.value; if(v>0){ pushUndo(); S.scale={...S.scale,per100:v}; sprites.clear(); queueSave(); renderPanel(); invalidate(); } });
@@ -2444,7 +2504,7 @@ function renderPanel(){
   bind('stampOpacity',v=>Math.round(v)+'%',v=>{ opts.stampOpacity=v; pendPreview(); }); bind('scatterDensity',pct,v=>opts.scatterDensity=v); bind('scatterGap',pct,v=>opts.scatterGap=v); bind('sizeVar',pct,v=>opts.sizeVar=v);
   bind('floorBrush',num,v=>opts.floorBrush=v); pick('floorTex','ftex',v=>opts.floorTex=v); pick('floorMode','fmode',v=>opts.floorMode=v);
   pick('roomShape','shape',v=>{ opts.roomShape=v; draft=null; }); pick('corrW','cw',v=>opts.corrW=+v); pick('roomCut','cut',v=>opts.roomCut=v==='1'); pick('roomTex','tex',v=>opts.roomTex=v);
-  $('snapOn')?.addEventListener('change',e=>opts.snap=e.target.checked); $('snapFine')?.addEventListener('change',e=>opts.snapFine=e.target.checked); bind('dwallW',v=>v,v=>opts.lineWidth.dwall=v);
+  $('rotSnap')?.addEventListener('change',e=>opts.rotSnap=e.target.checked); $('snapOn')?.addEventListener('change',e=>opts.snap=e.target.checked); $('snapFine')?.addEventListener('change',e=>opts.snapFine=e.target.checked); bind('dwallW',v=>v,v=>opts.lineWidth.dwall=v);
   $('selTex')?.addEventListener('click',e=>{ const b=e.target.closest('[data-tex]'); if(!b) return; pushUndo(); editSel(o=>({...o,tex:b.dataset.tex})); selDirty(true); renderPanel(); invalidate(); });
   const lyChanged=()=>{ need.land=true; need.compose='full'; sel=null; renderPanel(); invalidate(); queueSave(); };
   $('lyAdd').addEventListener('click',()=>{ pushUndo(); const id='L'+Date.now().toString(36); S.layers=[...S.layers,{id,name:'Layer '+S.layers.length,v:true,lock:false}]; S.active=id; lyChanged(); });
@@ -2456,6 +2516,7 @@ function renderPanel(){
     if('lyup' in b.dataset){ if(i<S.layers.length-1){ pushUndo(); sw(i,i+1); lyChanged(); } }
     else if('lydn' in b.dataset){ if(i>0){ pushUndo(); sw(i,i-1); lyChanged(); } }
     else if('lydel' in b.dataset){ pushUndo(); const strip=o=>lyOf(o)===id?(({ly,...r})=>r)(o):o; S.lines=S.lines.map(strip); S.stamps=S.stamps.map(strip); S.labels=S.labels.map(strip); S.layers=S.layers.filter(L=>L.id!==id); if(S.active===id) S.active='base'; toast('Layer removed. Its contents moved to '+S.layers.find(L=>L.id==='base').name+'.'); lyChanged(); } });
+  $('unlockAll')?.addEventListener('click',unlockAll); $('selLock')?.addEventListener('click',lockSel); $('alignRow')?.addEventListener('click',e=>{ const b=e.target.closest('[data-align]'); if(b) alignSel(b.dataset.align); }); $('distRow')?.addEventListener('click',e=>{ const b=e.target.closest('[data-align]'); if(b) alignSel(b.dataset.align); });
   $('selLayer')?.addEventListener('change',e=>{ if(!sel) return; pushUndo(); const id=e.target.value; editSel(o=>('lands' in o || o.mode) ? o : id==='base' ? (({ly,...r})=>r)(o) : {...o,ly:id}); need.land=true; need.compose='full'; renderPanel(); invalidate(); queueSave(); });
   for(const k in layers){ $('lv_'+k).addEventListener('change',e=>{ layers[k].v=e.target.checked; if(k==='terrain') need.compose='full'; if(k==='cliffs'){ cliffBuilt.cliffs=null; need.compose='full'; } if(k==='lines'){ need.land=true; need.compose='full'; } invalidate(); }); $('ll_'+k)?.addEventListener('change',e=>{ layers[k].lock=e.target.checked; }); }
   if(sel){ const key=keyOf(sel.type), set=patch=>editSel(o=>({...o,...patch}));
@@ -2470,7 +2531,7 @@ function renderPanel(){
     $('selSeed')?.addEventListener('click',()=>{ pushUndo(); editSel(o=>({...o,seed:rseed()})); selDirty(true); invalidate(); });
     $('selKinds')?.addEventListener('click',e=>{ const b=e.target.closest('[data-kind]'); if(b){ pushUndo(); set({kind:b.dataset.kind}); renderPanel(); invalidate(); } });
     $('selDel')?.addEventListener('click',deleteSel);
-    $('selDup')?.addEventListener('click',()=>{ pushUndo(); const clone=o=>o.pts?{...o,pts:o.pts.map(q=>[q[0]+40,q[1]+40])}:{...o,x:o.x+40,y:o.y+40};
+    $('selDup')?.addEventListener('click',()=>{ pushUndo(); const clone=o=>{ const c=o.pts?{...o,pts:o.pts.map(q=>[q[0]+40,q[1]+40])}:{...o,x:o.x+40,y:o.y+40}; delete c.locked; return c; };
       const riders=ridersOn(selLands()), items=selItems().map(it=>({type:it.type,obj:it.type==='land'?{...clone(it.obj),t:++S.tick}:clone(it.obj)}));
       items.forEach(it=>{ const k=keyOf(it.type); S[k]=[...S[k],it.obj]; }); riders.forEach(([k,objs])=>{ S[k]=[...S[k],...objs.map(q=>(k==='lands'||k==='paints')?{...clone(q),t:++S.tick}:clone(q))]; });
       sel = sel.type==='land' ? {type:'land',obj:items[0].obj,group:items.map(it=>it.obj)} : items.length>1 ? {type:'multi',items} : items[0];
@@ -2489,17 +2550,28 @@ async function saveFile(filename, blob){
   const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=filename; document.body.append(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href),4000); toast('Saved '+filename);
 }
 $('saveBtn').onclick=()=>saveFile(slug()+'.json', new Blob([serialize()],{type:'application/json'}));
-const maxScale = () => { let m=1; for(const k of [1.5,2,3,4]) if(S.w*S.h*k*k<=36e6) m=k; return m; };      // keeps each working image under about 36 megapixels
+/* Export draws on about BUFFER_COUNT full-size images at once: 10 full-size canvases (see initBuffers), 8 more at half size each way (a quarter of the area, so 2), and about 3 for the pixel reads
+   that clean up ground marks and place the woodland edge. EXPORT_BUDGET is the most pixels, counted that way, that is offered; the size dialog shows both numbers. */
+const BUFFER_COUNT=15, EXPORT_BUDGET=260e6, exportMP=k=>S.w*S.h*k*k/1e6, MAX_IMAGE_MP=EXPORT_BUDGET/BUFFER_COUNT/1e6;
+const maxScale = () => { let m=1; for(const k of [1.5,2,3,4]) if(S.w*S.h*k*k*BUFFER_COUNT<=EXPORT_BUDGET) m=k; return m; };
 function setDetail(k){ R=k; initBuffers(); rebuildAll(); }
 function exportPNG(scale){
   toast('Drawing the map at '+Math.round(S.w*scale)+' × '+Math.round(S.h*scale)+'…');
   setTimeout(()=>{ const old=R, back=()=>{ R=old; exporting=false; initBuffers(); rebuildAll(); };
-    try{ R=scale; exporting=true; initBuffers(); rebuildLand(true); compose(true); drawVectors(bc,scale);          // redraw everything from scratch at the bigger size, straight into the picture
-      base.toBlob(b=>{ back(); b ? saveFile(slug()+(scale>1?'-'+scale+'x':'')+'.png',b) : toast('That size was too big for this browser. Try a smaller one.'); },'image/png'); }
-    catch(err){ back(); toast('That size was too big for this browser. Try a smaller one.'); } },80);
+    const tooBig=()=>toast('Your browser could not make a '+Math.round(S.w*scale)+' × '+Math.round(S.h*scale)+' picture ('+exportMP(scale).toFixed(1)+' megapixels). Try a smaller size.');
+    try{ R=scale; exporting=true; initBuffers(); if(!buffersOK()) throw new Error('the browser gave smaller canvases than asked for'); rebuildLand(true); compose(true); drawVectors(bc,scale);          // redraw everything from scratch at the bigger size, straight into the picture
+      releaseBuffers();      // the picture is finished: give back everything but it before it is encoded, which needs room of its own
+      base.toBlob(b=>{ back(); b ? saveFile(slug()+(scale>1?'-'+scale+'x':'')+'.png',b) : tooBig(); },'image/png'); }
+    catch(err){ back(); tooBig(); } },80);
 }
+function buffersOK(){      // a browser that cannot allocate a canvas as large as asked quietly gives a smaller or unusable one: look at the ones that matter and draw one pixel on each
+  const want=[Math.round(S.w*R),Math.round(S.h*R)];
+  return [base,terrainC,landMask,cliffC,waterC].every(c=>{ if(!c || c.width!==want[0] || c.height!==want[1]) return false;
+    try{ const x=c.getContext('2d'); x.save(); x.setTransform(1,0,0,1,0,0); x.globalCompositeOperation='copy'; x.fillStyle='#010203'; x.fillRect(0,0,1,1); const d=x.getImageData(0,0,1,1).data; x.clearRect(0,0,1,1); x.restore(); return d[0]===1 && d[1]===2 && d[2]===3; }catch(e){ return false; } }); }
+function releaseBuffers(){      // shrunk, not nulled: the screen may still be redrawn before the export finishes, and drawing a 1 x 1 canvas is harmless where drawing a missing one is not
+  for(const c of [tmpC,invC,innerC,coastC,ringC,halfC,cliffSolidC,cleanC,landMask,landLayer,terrainC,waterC,cliffC,ecoC,tintC,sbC,clipC]) if(c){ c.width=1; c.height=1; } cleanFor=null; ecoFor=null; }
 $('pngBtn').onclick=()=>{ const top=maxScale();
-  $('expSizes').innerHTML=[1,2,3,4].map(k=>`<label><input type="radio" name="exp" value="${k}" id="ex${k}" ${k===Math.min(2,top)?'checked':''} ${k>top?'disabled':''}> ${k===1?'Standard':k+'× size'} (${S.w*k} × ${S.h*k})${k>top?' · too large for this map':''}</label>`).join('');
+  $('expSizes').innerHTML=[1,2,3,4].map(k=>`<label><input type="radio" name="exp" value="${k}" id="ex${k}" ${k===Math.min(2,top)?'checked':''} ${k>top?'disabled':''}> ${k===1?'Standard':k+'× size'} (${S.w*k} × ${S.h*k})${k>top?` · too large for this map (${exportMP(k).toFixed(0)} megapixels; about ${Math.floor(MAX_IMAGE_MP)} is the most it will draw)`:''}</label>`).join('');
   $('expDlg').showModal(); };
 $('expDlg').addEventListener('close',()=>{ if($('expDlg').returnValue==='ok') exportPNG(+document.querySelector('input[name=exp]:checked').value); });
 $('openBtn').onclick=()=>$('fileIn').click();
@@ -2762,6 +2834,7 @@ function exampleMap(){
 async function start(){
   buildRail(); loadState(blankState(2400,1500));                    // something to stand on while the library is read
   await store.open(); let idx=null; try{ idx=JSON.parse(await store.get('__index')); }catch(e){}
+  try{ const f=JSON.parse(await store.get('__favs')); if(Array.isArray(f)) favs=f.filter(k=>typeof k==='string' && Object.values(STAMP_GROUPS).some(g=>g.kinds.includes(k))); }catch(e){}      // the favourites list
   if(Array.isArray(idx) && idx.length){ lib=idx; const want=await store.get('__current'); if(!(await openMap(lib.some(m=>m.id===want)?want:lib[0].id))){ curId=newId(); loadState(blankState(2400,1500)); } setTool('land'); }
   else { let old=null; try{ old=JSON.parse(localStorage.getItem(STORE_KEY)); }catch(e){}                 // first run: carry over the single map earlier versions kept, or show the example
     curId=newId(); if(validState(old)){ loadState(old); setTool('land'); } else { loadState(exampleMap()); $('note').hidden=false; setTool('select'); } saveDirty=true; setTimeout(saveNow,600); }
