@@ -196,12 +196,15 @@ body.phone .note{top:8px;left:8px;transform:none;max-width:calc(100% - 200px);fo
     <label><input type="radio" name="start" value="continent" id="st2"> A generated continent</label>
     <label><input type="radio" name="start" value="archipelago" id="st3"> A generated archipelago</label>
     <label><input type="radio" name="start" value="city" id="st4"> A generated city</label>
+    <label><input type="radio" name="start" value="dungeon" id="st5"> A blank dungeon sheet</label>
+    <label><input type="radio" name="start" value="dungeongen" id="st6"> A generated dungeon</label>
     <div id="cityBox" hidden><p style="margin:6px 0 0;font-weight:700">The city</p>
       <label style="display:grid;grid-template-columns:7em 2.4em 1fr 2.8em;align-items:center;gap:6px"><span>Size</span><small style="color:var(--muted);text-align:right">town</small><input type="range" id="city_size" min="0" max="2" step="0.1" value="1" aria-label="Size"><small style="color:var(--muted)">great</small></label>
       <label style="display:grid;grid-template-columns:7em 2.4em 1fr 2.8em;align-items:center;gap:6px"><span>Buildings</span><small style="color:var(--muted);text-align:right">loose</small><input type="range" id="city_density" min="0" max="2" step="0.1" value="1" aria-label="Buildings"><small style="color:var(--muted)">packed</small></label>
       <label><input type="checkbox" id="city_walls" checked> Walls and gates</label><label><input type="checkbox" id="city_river" checked> A river through it</label><label><input type="checkbox" id="city_coast"> On the coast, with a harbour</label></div>
     <div id="genBox"><p style="margin:6px 0 0;font-weight:700">How much of each</p>
       <div id="genSliders" style="display:flex;flex-direction:column;gap:5px"></div>
+      <div id="dgSliders" style="display:none;flex-direction:column;gap:5px"><label style="display:grid;grid-template-columns:7em 2.4em 1fr 2.8em;align-items:center;gap:6px"><span>Rooms</span><small style="color:var(--muted);text-align:right">few</small><input type="range" id="dg_rooms" min=".4" max="2" step="0.1" value="1" aria-label="Rooms"><small style="color:var(--muted)">many</small></label><label style="display:grid;grid-template-columns:7em 2.4em 1fr 2.8em;align-items:center;gap:6px"><span>Furnishings</span><small style="color:var(--muted);text-align:right">bare</small><input type="range" id="dg_props" min="0" max="2" step="0.1" value="1" aria-label="Furnishings"><small style="color:var(--muted)">full</small></label><label style="display:grid;grid-template-columns:7em 2.4em 1fr 2.8em;align-items:center;gap:6px"><span>Monsters</span><small style="color:var(--muted);text-align:right">none</small><input type="range" id="dg_foes" min="0" max="2" step="0.1" value="1" aria-label="Monsters"><small style="color:var(--muted)">many</small></label><label><input type="checkbox" id="dg_numbers" checked> Number the rooms (one sticker per digit)</label></div>
       <label style="align-items:center;margin-top:6px">Seed <input type="text" id="genSeed" inputmode="numeric" placeholder="random" style="width:9em;font:inherit;padding:2px 6px"> <button type="button" class="btn" id="genLast" style="padding:2px 8px">Use last</button></label>
       <p style="margin:0;color:var(--muted);font-size:13px">The same seed and settings always give the same map. Leave the seed empty for a new one each time.</p></div>
     <div class="btnrow" style="justify-content:flex-end">
@@ -257,14 +260,16 @@ const LINES = {
   border:{name:'Border', width:2.5, dash:[14,5,3,5]},
   street:{name:'Street', width:8,   dash:null},      // drawn in two passes so crossings merge (see drawStreets)
   wall:  {name:'Wall',   width:7,   dash:null},      // a town wall with its towers (see drawWalls)
+  dwall: {name:'Inner wall', width:5, dash:null},      // dungeon: a thick ink wall across a room (see drawLine)
   fence: {name:'Fence or hedge', width:3, dash:null},      // field boundaries and stockades: l.style is fence, hedge, wall or palisade (see drawFence)
   realm: {name:'Realm',  width:2.5, dash:[10,4,2,4]},      // a closed loop round a territory, marked inside its edge and only on land (drawn in compose, see drawRealms)
 };
 const STAMP_SETS = {           // top-level stamp categories. Add group names to City and Dungeon as that art gets made.
   world:  {name:'World & region', groups:['Settlements','Landmarks','Trees','Plants','Mountains','Hills','Sea','Creatures','Markers','Effects','Furniture']},
   city:   {name:'City',    groups:['Houses','Market','Civic','Defences','Grounds','Outskirts','Waterfront','Furniture']},
-  dungeon:{name:'Dungeon', groups:[], empty:'Nothing here yet. Dungeon stamps (doors, stairs, pillars, chests) will live here.'},
+  dungeon:{name:'Dungeon', groups:['Doors','Stairs & pits','Furnishings','Hazards & features','Humanoids','Beasts & vermin','Horrors','Numbers','Letters']},
 };
+const GLYPH_KINDS='0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('').map(g=>'ch_'+g);
 const STAMP_GROUPS = {         // scatter:true = dragging lays down many, with a little size variation
   Settlements:{kinds:['city','town','village','hamlet','castle','fort','outpost','tower','inn'], size:58},
   Landmarks:  {kinds:['ruins','temple','monastery','lighthouse','windmill','farm','mine','cave','camp','stones','pyramid','obelisk','graveyard','bridge','docks','port'], size:55},
@@ -282,10 +287,19 @@ const STAMP_GROUPS = {         // scatter:true = dragging lays down many, with a
   Outskirts:  {kinds:['farmstead','barn','haystacks','mill','watchtower','outpost','shrine','paddock','vineyard','quarry','tents'], size:60},
   Defences:   {kinds:['keep','gatehouse','walltower','barracks'], size:56},
   Grounds:    {kinds:['fountain','well','statue','garden','orchard','fieldplot','cemetery','treetop','treerow'], size:40, scatter:true},
+  Doors:      {kinds:['door','doubledoor','dooropen','secretdoor','arch','portcullis'], size:60, dun:true},      // dun: sized by the grid square, and snapped to the grid
+  'Stairs & pits':{kinds:['stairs','spiral','ladder','trapdoor','pit','plankbridge'], size:60, dun:true},
+  Furnishings:{kinds:['table','roundtable','chair','stool','bench','bed','bookcase','wardrobe','treasure','cratestack','dbarrel','urn','altar','sarcophagus','throne','fireplace','idol','pillar','roundpillar','brazier','weaponrack','anvil','forge','cauldron','wellshaft','basin','cage','rack','firepit','rug'], size:60, dun:true},
+  'Hazards & features':{kinds:['trap','spikes','lever','rubble','bones','web','pool','puddle','stalagmite','mushrooms','torch','chains','runestone','portal','sigil','crack'], size:60, dun:true},
+  Humanoids:  {kinds:['goblin','orc','zombie','skeleton','ogre','troll','minotaur','lizardfolk','fiend'], size:60, dun:true},      // monsters, seen from above, facing up the page
+  'Beasts & vermin':{kinds:['giantrat','direwolf','giantspider','scorpion','centipede','snake','batswarm','owlbear'], size:60, dun:true},
+  Horrors:    {kinds:['ooze','cube','beholder','drake','wraith','golem','hydra','elemental'], size:60, dun:true},
+  Numbers:    {kinds:GLYPH_KINDS.slice(0,10), size:33, dun:true, noflip:true},      // one character to a sticker, so a room number is as many stamps as it has digits
+  Letters:    {kinds:GLYPH_KINDS.slice(10), size:33, dun:true, noflip:true},
   Waterfront: {kinds:['pier','boat','barge','crane'], size:44},      // map furniture: one of each is usual
   Creatures:  {kinds:['dragon','griffin','giant','spider','unicorn','stag','horse','wolf','bear','mammoth','camel','sheep','eagle','birds','bats'], size:50},
 };
-const VARIANTS = {house:4, stall:3, treetop:3, compass:3, cartouche:3, dragon:4, autumn:4, blossom:4, jungle:2, waves:3, breaker:2, deciduous:4, conifer:4, grove:4, pines:4, mountain:12, snowpeak:12, hill:8};   // how many shapes each stamp has
+const VARIANTS = {...Object.fromEntries(GLYPH_KINDS.map(k=>[k,2])), bones:2, pool:2, fieldplot:8, orchard:3, vineyard:3, house:4, stall:3, treetop:3, compass:3, cartouche:3, dragon:4, autumn:4, blossom:4, jungle:2, waves:3, breaker:2, deciduous:4, conifer:4, grove:4, pines:4, mountain:12, snowpeak:12, hill:8};   // how many shapes each stamp has
 const STONES=['stone','slate','rock'], SANDS=['sand','beach','redsand'], GRASSES=['grass','meadow','forest','steppe','marsh'];
 const swatch = k => TERRAIN[k];
 const TINTS = {};      // stamps are ink only, so none of them takes a colour
@@ -382,26 +396,45 @@ function brushOutline(l){
   return {poly:[...side(L,l.seed), ...cap(c[n-1],ang[n-1]+Math.PI/2), ...side(R,l.seed+1).reverse(), ...cap(c[0],ang[0]-Math.PI/2)], center:c};
 }
 function linePoints(line){
+  if(line.sharp) return line.pts;      // dungeon walls keep their corners
   let p = line.pts.length>6 ? every(line.pts,3,false) : line.pts;
   if(line.rough>0.02) p = fractal(p, line.rough, line.seed, false, 0.3, 3);
   return chaikin(p,2,false);
 }
 function toPath(pts, closed){ const P=new Path2D(); pts.forEach((p,i)=> i?P.lineTo(p[0],p[1]):P.moveTo(p[0],p[1])); if(closed) P.closePath(); return P; }
 const built = new WeakMap();
+/* ---- dungeon floors. A room with straight walls keeps its corners and only wobbles a little along each edge, as a pen hand does;
+   a corridor is a ribbon of flat-ended rectangles, mitred where it turns. ---- */
+function sharpPoly(l){ const rn=mulberry((l.seed||1)+5), out=[], n=l.pts.length;
+  for(let i=0;i<n;i++){ const a=l.pts[i], b=l.pts[(i+1)%n], d=dist(a,b)||1, k=Math.max(1,Math.round(d/16)), nx=-(b[1]-a[1])/d, ny=(b[0]-a[0])/d; out.push(a);
+    for(let j=1;j<k;j++){ const f=j/k, w=(rn()-.5)*1.2; out.push([a[0]+(b[0]-a[0])*f+nx*w,a[1]+(b[1]-a[1])*f+ny*w]); } }
+  return out; }
+function sharpCorridor(l){ const hw=l.size/2, P=new Path2D(), poly=[], pts=l.pts, n=pts.length;
+  const add=q=>{ let A=0; for(let i=0;i<q.length;i++){ const a=q[i], b=q[(i+1)%q.length]; A+=a[0]*b[1]-b[0]*a[1]; } if(A<0) q=q.slice().reverse(); q.forEach((v,i)=>i?P.lineTo(v[0],v[1]):P.moveTo(v[0],v[1])); P.closePath(); poly.push(...q); };
+  if(n<2){ const c=pts[0]; add([[c[0]-hw,c[1]-hw],[c[0]+hw,c[1]-hw],[c[0]+hw,c[1]+hw],[c[0]-hw,c[1]+hw]]); return {poly,path:P}; }
+  const dir=i=>{ const a=pts[i], b=pts[i+1], d=dist(a,b)||1; return [(b[0]-a[0])/d,(b[1]-a[1])/d]; };
+  for(let i=0;i<n-1;i++){ const a=pts[i], b=pts[i+1], u=dir(i); let e0=0, e1=0;
+    if(i>0){ const v=dir(i-1), c=Math.max(-1,Math.min(1,u[0]*v[0]+u[1]*v[1])); e0=hw*Math.tan(Math.acos(c)/2); }
+    if(i<n-2){ const v=dir(i+1), c=Math.max(-1,Math.min(1,u[0]*v[0]+u[1]*v[1])); e1=hw*Math.tan(Math.acos(c)/2); }
+    e0=Math.min(e0,hw*1.6); e1=Math.min(e1,hw*1.6); const nx=-u[1]*hw, ny=u[0]*hw;
+    add([[a[0]-u[0]*e0+nx,a[1]-u[1]*e0+ny],[b[0]+u[0]*e1+nx,b[1]+u[1]*e1+ny],[b[0]+u[0]*e1-nx,b[1]+u[1]*e1-ny],[a[0]-u[0]*e0-nx,a[1]-u[1]*e0-ny]]); }
+  return {poly,path:P}; }
 function landPath(l){ let b=built.get(l); if(!b){
-    if(l.brush){ const o=brushOutline(l); b={poly:o.poly, path:toPath(o.poly,true), core:o.center.length>1?toPath(o.center,false):null, cw:l.size*.55}; }
-    else { const poly=coastPoints(l); b={poly, path:toPath(poly,true)}; }
+    if(l.brush && l.sharp){ const o=sharpCorridor(l); b={poly:o.poly, path:o.path, core:null, cw:1}; }
+    else if(l.brush){ const o=brushOutline(l); b={poly:o.poly, path:toPath(o.poly,true), core:o.center.length>1?toPath(o.center,false):null, cw:l.size*.55}; }
+    else { const poly=l.sharp?sharpPoly(l):coastPoints(l); b={poly, path:toPath(poly,true)}; }
     const xs=b.poly.map(p=>p[0]), ys=b.poly.map(p=>p[1]); b.bb=[Math.min(...xs),Math.min(...ys),Math.max(...xs),Math.max(...ys)];
     built.set(l,b);} return b.path; }
 function lineBuilt(l){ let b=built.get(l); if(!b){ const pts=linePoints(l); b={pts, path:toPath(pts,false)}; built.set(l,b);} return b; }
 
 /* ============================================================ state */
+const DUN_DEF = {hatch:1, shadow:true};      // dungeon sheet settings: how far the rock is hatched, and the shadow along the left of each wall
 let S = blankState(2400,1500);
-function blankState(w,h){ return {w,h,name:'Untitled map',lands:[],cliffs:[],paints:[],lines:[],stamps:[],labels:[],grid:{type:'none',size:60},tick:0,theme:'sketchp',frame:'none',rhumb:false,scale:{per100:10,unit:'miles'},layers:[{id:'base',name:'Map',v:true,lock:false}],active:'base'}; }
+function blankState(w,h){ return {w,h,kind:'world',dun:{...DUN_DEF},name:'Untitled map',lands:[],cliffs:[],paints:[],lines:[],stamps:[],labels:[],grid:{type:'none',size:60},tick:0,theme:'sketchp',frame:'none',rhumb:false,scale:{per100:10,unit:'miles'},layers:[{id:'base',name:'Map',v:true,lock:false}],active:'base'}; }
 const layers = { terrain:{name:'Ground & water paint',v:true}, cliffs:{name:'Cliffs',v:true}, lines:{name:'Rivers, roads, borders',v:true,lock:false}, stamps:{name:'Stamps',v:true,lock:false}, labels:{name:'Labels',v:true,lock:false} };
 const opts = { tool:'land', reshape:'pull', reach:160, cliffMode:'outline', cliffBrush:120, cliffRough:.4, cliffH:26, cliffPrimary:'up', paintLayer:'land', water:'deep', landPrimary:'land', hard:.6, bop:1, landMode:'outline', landBrush:140, landRough:0.55, terrain:'grass', brush:110, scatter:60,
-  stampSizes:Object.fromEntries(Object.entries(STAMP_GROUPS).map(([g,v])=>[g,v.size])), lineRough:0.35, lineWidth:{river:4,road:2.5,border:2.5,realm:2.5,street:8,wall:7,fence:3}, fenceStyle:'hedge', realmFill:'band',
-  stamp:'town', stampRot:0, stampSet:'world', stampFlip:'shuffle', stampMode:'place', fillDensity:1, stampVar:'shuffle', stampTint:{}, labelStyle:'place', labelSize:30 };
+  stampSizes:Object.fromEntries(Object.entries(STAMP_GROUPS).map(([g,v])=>[g,v.size])), lineRough:0.35, lineWidth:{river:4,road:2.5,border:2.5,realm:2.5,street:8,wall:7,fence:3,dwall:5}, fenceStyle:'hedge', realmFill:'band',
+  roomShape:'rect', roomCut:false, roomTex:'flag', corrW:1, snap:true, snapFine:false, caveRough:.55, partW:5, stamp:'town', stampRot:0, stampSet:'world', stampFlip:'shuffle', stampMode:'place', fillDensity:1, stampVar:'shuffle', stampTint:{}, labelStyle:'place', labelSize:30 };
 let sel = null;                        // {type:'land'|'line'|'stamp'|'label', obj}
 let undoStack=[], redoStack=[], editing=false;
 /* Layers: rivers, roads, borders, realms, stamps and labels each sit on one layer (S.layers, bottom first). A layer can be hidden, locked,
@@ -409,7 +442,7 @@ let undoStack=[], redoStack=[], editing=false;
 const lyOf = o => o.ly || 'base', layerOf = o => S.layers.find(L=>L.id===lyOf(o)) || S.layers[0];
 const lyVisible = o => layerOf(o).v!==false, lyPickable = o => { const L=layerOf(o); return L.v!==false && !L.lock; };
 const withLy = o => (S.active && S.active!=='base' && S.layers.some(L=>L.id===S.active)) ? {...o,ly:S.active} : o;
-const snap = () => ({w:S.w,h:S.h,name:S.name,cliffs:S.cliffs,lands:S.lands,paints:S.paints,lines:S.lines,stamps:S.stamps,labels:S.labels,grid:{...S.grid},tick:S.tick,theme:S.theme,frame:S.frame,rhumb:S.rhumb,scale:{...S.scale},layers:S.layers,active:S.active});   // lists are never changed in place, so sharing them is safe
+const snap = () => ({w:S.w,h:S.h,kind:S.kind,dun:S.dun,name:S.name,cliffs:S.cliffs,lands:S.lands,paints:S.paints,lines:S.lines,stamps:S.stamps,labels:S.labels,grid:{...S.grid},tick:S.tick,theme:S.theme,frame:S.frame,rhumb:S.rhumb,scale:{...S.scale},layers:S.layers,active:S.active});   // lists are never changed in place, so sharing them is safe
 function pushUndo(){ undoStack.push(snap()); if(undoStack.length>60) undoStack.shift(); redoStack=[]; syncButtons(); queueSave(); }
 function restore(s){ S={...s,theme:S.theme}; sel=null; rebuildAll(); renderPanel(); syncButtons(); queueSave(); }
 function undo(){ if(!undoStack.length) return; redoStack.push(snap()); restore(undoStack.pop()); }
@@ -457,18 +490,20 @@ function migrate(d){   // maps saved before trees and mountains became stamps
   d.paints.forEach((p,i)=>{ const o=old[p.type]; if(o) add=add.concat(scatterAlong(o[0],p.pts,p.size,o[1],o[2],i+2)); else if(p.type==='erase'||TERRAIN[p.type]||WATER[p.type]) keep.push(p); });
   d.paints=keep; d.stamps=d.stamps.filter(s=>SKETCH_DRAW[s.kind]).concat(add);
   const sparse=(pts,closed)=>{ let len=0; for(let i=1;i<pts.length;i++) len+=dist(pts[i-1],pts[i]); return pts.length>=(closed?3:2) && len/pts.length>16; };   // hand-written shapes get the same point spacing as drawn ones
-  d.lands=d.lands.map(l=>!l.brush && sparse(l.pts,true) ? {...l,pts:resample(l.pts,10,true)} : l); d.lines=d.lines.map(l=>sparse(l.pts,false) ? {...l,pts:resample(l.pts,10,false)} : l);
+  d.lands=d.lands.map(l=>!l.brush && !l.sharp && sparse(l.pts,true) ? {...l,pts:resample(l.pts,10,true)} : l); d.lines=d.lines.map(l=>sparse(l.pts,false) ? {...l,pts:resample(l.pts,10,false)} : l);
   if(!d.tick){ let n=0; d.lands=d.lands.map(l=>({...l,t:++n})); d.paints=d.paints.map(p=>({...p,t:++n})); d.tick=n; }   // t = the order things were made in
   return d; }
-function loadState(d){ d=migrate(d); S={w:d.w,h:d.h,name:d.name||'Untitled map',cliffs:Array.isArray(d.cliffs)?d.cliffs:[],lands:d.lands,paints:d.paints,lines:d.lines,stamps:d.stamps,labels:d.labels,grid:d.grid||{type:'none',size:60},tick:d.tick||0,theme:'sketchp',frame:['line','graduated'].includes(d.frame)?d.frame:'none',rhumb:!!d.rhumb,scale:d.scale && d.scale.per100>0 ? {per100:+d.scale.per100,unit:String(d.scale.unit||'miles')} : {per100:10,unit:'miles'},
+function loadState(d){ d=migrate(d); S={w:d.w,h:d.h,kind:d.kind==='dungeon'?'dungeon':'world',dun:{...DUN_DEF,...(d.dun||{})},name:d.name||'Untitled map',cliffs:Array.isArray(d.cliffs)?d.cliffs:[],lands:d.lands,paints:d.paints,lines:d.lines,stamps:d.stamps,labels:d.labels,grid:d.grid||{type:'none',size:60},tick:d.tick||0,theme:'sketchp',frame:['line','graduated'].includes(d.frame)?d.frame:'none',rhumb:!!d.rhumb,scale:d.scale && d.scale.per100>0 ? {per100:+d.scale.per100,unit:String(d.scale.unit||'miles')} : {per100:10,unit:'miles'},
     layers:Array.isArray(d.layers) && d.layers.length && d.layers.some(L=>L.id==='base') ? d.layers.map(L=>({id:String(L.id),name:String(L.name||'Layer'),v:L.v!==false,lock:!!L.lock})) : [{id:'base',name:'Map',v:true,lock:false}], active:'base'};
   if(S.layers.some(L=>L.id===d.active)) S.active=d.active;
-  undoStack=[]; redoStack=[]; sel=null; $('mapName').value=S.name; initBuffers(); rebuildAll(); fitView(); renderPanel(); syncButtons(); }
+  undoStack=[]; redoStack=[]; sel=null; draft=null; $('mapName').value=S.name; initBuffers(); buildRail(); if(!TOOLS.some(t=>t.id===opts.tool && (!t.m || t.m===(S.kind==='dungeon'?'d':'w')))) opts.tool=S.kind==='dungeon'?'room':'land'; if(S.kind==='dungeon' && opts.stampSet!=='dungeon'){ opts.stampSet='dungeon'; opts.stamp='door'; opts.stampSizes['Doors']=dungSize('door'); } else if(S.kind!=='dungeon' && opts.stampSet==='dungeon'){ opts.stampSet='world'; opts.stamp='town'; }
+  setTool(opts.tool); rebuildAll(); fitView(); renderPanel(); syncButtons(); }
 
 /* ============================================================ raster buffers */
 let landMask,lm, landLayer,lc, base,bc, tmpC,tc, invC,iv, innerC,ic, coastC,cc, ringC,rc, halfC,hc, terrainC,tx, waterC,wx, sbC,sb, clipC,cl, wSynced=[], pat={}, coastDirty=true;
 let synced={lands:null,paints:null}; const tcache=[];
 let cliffSolidC,csx, cleanC,cnx, cleanFor=null;
+let dgF,dgFx, dgT,dgTx;
 let cliffC,cf, landVer=0, cliffBuilt={cliffs:null,landVer:-1};
 const tone=(hex,f)=>{ const n=parseInt(hex.slice(1),16); return '#'+[n>>16&255,n>>8&255,n&255].map(v=>Math.round(f>0?v+(255-v)*f:v*(1+f)).toString(16).padStart(2,'0')).join(''); };
 const withA=(hex,a)=>{ const n=parseInt(hex.slice(1),16); return `rgba(${n>>16&255},${n>>8&255},${n&255},${a})`; };
@@ -554,6 +589,7 @@ function initBuffers(){
   { const mk=()=>{ const a=mkCanvas(W*WASH_SCALE,H*WASH_SCALE); a[1].setTransform(WASH_SCALE,0,0,WASH_SCALE,0,0); return a; }; [washLand,wtx]=mk(); [washSea,wwx]=mk(); [washTmp,wtt]=mk(); }
   [terrainC,tx]=full();                         // every ground paint stroke, already textured, in the order it was painted
   [sbC,sb]=mkCanvas(mw,mh); [clipC,cl]=mkCanvas(mw,mh);   // one brush stroke as opacity; and the land it is allowed to land on
+  if(S.kind==='dungeon'){ [dgF,dgFx]=full(); [dgT,dgTx]=full(); }      // the dungeon's floor plan, and the textures laid on it
   synced={lands:null,paints:null}; tcache.length=0; wSynced=[]; sprites.clear(); hitMaps.clear();
   const mkPat=(col,kind,seed,sk=SK())=>{ const p=bc.createPattern(texture(col,kind,seed,sk),'repeat'); p.setTransform(new DOMMatrix().scale(1/Math.min(R,3))); return p; };   // one tile always covers 256 map units
   pat.paper = mkPat(PAPER(),'paper',9,false);
@@ -774,6 +810,7 @@ function rebuildCoast(){
   coastDirty=false;
 }
 function compose(full){
+  if(S.kind==='dungeon') return composeDungeon(full);
   const W=S.w,H=S.h, live = act && act.type==='paint' && act.pts.length ? act.stroke : null;
   if(full){ if(coastDirty) rebuildCoast(); syncTerrain(); syncWater(); }
   if(cliffBuilt.cliffs!==S.cliffs || (full && cliffBuilt.landVer!==landVer)) rebuildCliffs();
@@ -809,13 +846,58 @@ function drawRealms(W,H){ const rs=layers.lines.v ? S.lines.filter(l=>l.kind==='
       tc.restore(); }
     tc.setLineDash(LINES.realm.dash.map(d=>d*k)); tc.lineWidth=(l.width||2.5)*.9; tc.stroke(P); tc.globalAlpha=1; tc.setLineDash([]); }
   tc.globalCompositeOperation='destination-in'; tc.drawImage(landMask,0,0,W,H); tc.globalCompositeOperation='source-over'; bc.drawImage(tmpC,0,0,W,H); }
+/* ============================================================ dungeon sheet
+   The floor plan is the union of the room and corridor shapes (S.lands; a cut shape digs a hole). Everything else is made from it:
+   a distance field over the rock gives the hatching, thickest at the wall and thinning out; the wall is the floor's own silhouette nudged
+   round in ink; and, light being from the left, a band of close shading runs down the inside of each wall that faces it. */
+function distField(){ const ds=.33, w=Math.max(2,Math.round(S.w*ds)), h=Math.max(2,Math.round(S.h*ds)), [c,x]=mkCanvas(w,h); x.drawImage(dgF,0,0,w,h);
+  const a=x.getImageData(0,0,w,h).data, d=new Float32Array(w*h); for(let i=0;i<w*h;i++) d[i]=a[i*4+3]>110?0:1e6;
+  for(let y=0;y<h;y++) for(let xx=0;xx<w;xx++){ const i=y*w+xx; let v=d[i]; if(!v) continue; if(xx>0) v=Math.min(v,d[i-1]+3); if(y>0){ v=Math.min(v,d[i-w]+3); if(xx>0) v=Math.min(v,d[i-w-1]+4); if(xx<w-1) v=Math.min(v,d[i-w+1]+4); } d[i]=v; }
+  for(let y=h-1;y>=0;y--) for(let xx=w-1;xx>=0;xx--){ const i=y*w+xx; let v=d[i]; if(!v) continue; if(xx<w-1) v=Math.min(v,d[i+1]+3); if(y<h-1){ v=Math.min(v,d[i+w]+3); if(xx<w-1) v=Math.min(v,d[i+w+1]+4); if(xx>0) v=Math.min(v,d[i+w-1]+4); } d[i]=v; }
+  return (px,py)=>d[Math.min(h-1,Math.max(0,Math.round(py*ds)))*w+Math.min(w-1,Math.max(0,Math.round(px*ds)))]/3/ds; }
+function dgHatch(c,at,reach,fast){ const W=S.w, H=S.h, Ld=Math.hypot(W,H), cx=W/2, cy=H/2, passes=[[.95,4.6,1,.75],[-.55,5.8,.62,.7],[.95,2.6,.3,.8]];
+  c.save(); c.globalAlpha=.9; c.lineCap='round'; passes.forEach(([ang,sp,rf,lw],pi)=>{ if(fast && pi<2) return; const ux=Math.cos(ang), uy=Math.sin(ang), nx=-uy, ny=ux; let i=0;
+    for(let t=-Ld/2;t<Ld/2;t+=sp*(.85+((i*7919+pi*131)%97)/97*.3),i++){ engSeed=(pi*7919+i*104729+11)%2147483000+1; const thr=reach*rf*(.74+.3*engR()); let run=null, last=null;
+      for(let q=-Ld/2;q<=Ld/2;){ const x=cx+nx*t+ux*q, y=cy+ny*t+uy*q; let step=2.5;
+        if(x<-20||y<-20||x>W+20||y>H+20){ step=Math.max(2.5,Math.min(Ld/2-q,Math.abs(x<0?-x:x>W?x-W:0),20)); }
+        else { const d=at(x,y); if(d>0&&d<thr&&x>=0&&y>=0&&x<=W&&y<=H){ if(!run) run=[x,y]; last=[x,y]; } else { if(run){ if(dist(run,last)>1.5) engScratch(c,run,last,lw); run=null; } step=d>=thr?Math.max(2.5,(d-thr)*.8):d===0?4:2.5; } }
+        q+=step; }
+      if(run && dist(run,last)>1.5) engScratch(c,run,last,lw); } });
+  c.restore(); }
+function dgTexture(c,l,cell){ const tex=l.tex; if(!tex||tex==='none'||l.mode==='sea') return; landPath(l); const b=built.get(l), bb=b.bb; c.save(); c.clip(b.path); c.strokeStyle=INK; c.fillStyle=INK; c.globalAlpha=.5; engSeed=((l.seed|0)%2147483000)+7;
+  const x0=Math.floor(bb[0]/cell)*cell, y0=Math.floor(bb[1]/cell)*cell, x1=bb[2]+cell, y1=bb[3]+cell;
+  if(tex==='flag'){ const rh=cell/2; let row=0; for(let y=y0;y<y1;y+=rh,row++){ engScratch(c,[x0,y],[x1,y],.3); for(let x=x0+(row%2)*cell*.3+engR()*cell*.2;x<x1;x+=cell*(.45+engR()*.7)) engScratch(c,[x,y],[x+(engR()-.5)*1.4,y+rh],.28); } }
+  else if(tex==='plank'){ const bh=cell/4; let row=0; for(let y=y0;y<y1;y+=bh,row++){ engScratch(c,[x0,y],[x1,y],.3); for(let x=x0+engR()*cell*1.4;x<x1;x+=cell*(1+engR()*1.3)) engScratch(c,[x,y],[x,y+bh],.26); } }
+  else if(tex==='dirt'){ const n=Math.round((x1-x0)*(y1-y0)/(cell*cell)*13); for(let i=0;i<n;i++){ const x=x0+engR()*(x1-x0), y=y0+engR()*(y1-y0); if(engR()<.55){ c.beginPath(); c.arc(x,y,.35+engR()*.5,0,7); c.fill(); } else engScratch(c,[x,y],[x+2+engR()*4,y+(engR()-.5)*1.5],.28); } }
+  c.restore(); }
+function composeDungeon(full){      // while something is being dragged (full is false) only the thick hatching nearest the wall is drawn, and no floor texture, to keep it quick
+  const W=S.w, H=S.h, cell=cellSz(), amt=S.dun.hatch ?? 1, ww=clamp(cell*.05,2,4.2);
+  bc.globalAlpha=1; bc.globalCompositeOperation='source-over'; bc.fillStyle=pat.paper||PAPER(); bc.fillRect(0,0,W,H); bc.drawImage(ageC,0,0,W,H); tnx.clearRect(0,0,W,H);
+  dgFx.globalCompositeOperation='source-over'; dgFx.clearRect(0,0,W,H); dgFx.fillStyle='#000';
+  for(const l of S.lands){ dgFx.globalCompositeOperation=l.mode==='sea'?'destination-out':'source-over'; dgFx.fill(landPath(l)); }
+  dgFx.globalCompositeOperation='source-over';
+  if(amt>0) dgHatch(bc,distField(),cell*amt*1.15,!full);                                                                                     // the rock
+  tc.globalAlpha=1; tc.globalCompositeOperation='source-over'; tc.clearRect(0,0,W,H); tc.drawImage(dgF,0,0,W,H); tc.globalCompositeOperation='source-in'; tc.fillStyle=INK; tc.fillRect(0,0,W,H); tc.globalCompositeOperation='source-over';
+  for(let i=0;i<8;i++){ const a=i/8*Math.PI*2+.39; bc.drawImage(tmpC,Math.cos(a)*ww,Math.sin(a)*ww,W,H); }                                   // the wall: the floor's silhouette, nudged round
+  tc.clearRect(0,0,W,H); tc.drawImage(dgF,0,0,W,H); tc.globalCompositeOperation='source-in'; tc.fillStyle=pat.paper||PAPER(); tc.fillRect(0,0,W,H); tc.globalCompositeOperation='source-atop'; tc.drawImage(ageC,0,0,W,H); tc.globalCompositeOperation='source-over';
+  bc.drawImage(tmpC,0,0,W,H);                                                                                                          // the floor, over the wall's inner half
+  dgTx.globalCompositeOperation='source-over'; dgTx.clearRect(0,0,W,H);
+  if(S.grid.type!=='none'){ dgTx.globalAlpha=.3; dgTx.strokeStyle=INK; dgTx.lineWidth=.7; dgTx.stroke(gridPath()); dgTx.globalAlpha=1; dgTx.globalCompositeOperation='destination-in'; dgTx.drawImage(dgF,0,0,W,H); dgTx.globalCompositeOperation='source-over'; }
+  if(full) for(const l of S.lands){ if(l.mode==='sea'){ dgTx.globalCompositeOperation='destination-out'; dgTx.fill(landPath(l)); dgTx.globalCompositeOperation='source-over'; } else dgTexture(dgTx,l,cell); }
+  bc.drawImage(dgT,0,0,W,H);
+  if(S.dun.shadow){ const sh=Math.max(3,cell*.11), q=Math.min(R,3), [pc,px]=mkCanvas(2.1*q,2.1*q); px.fillStyle=INK; px.fillRect(0,0,.75*q,2.1*q); const pt=bc.createPattern(pc,'repeat'); pt.setTransform(new DOMMatrix().scale(1/q));
+    if(full){ tc.clearRect(0,0,W,H); tc.globalCompositeOperation='source-over'; tc.drawImage(dgF,0,0,W,H); tc.globalCompositeOperation='destination-out'; tc.drawImage(dgF,sh,0,W,H); tc.globalCompositeOperation='source-in'; tc.fillStyle=pt; tc.fillRect(0,0,W,H); tc.globalCompositeOperation='source-over'; bc.globalAlpha=.7; bc.drawImage(tmpC,0,0,W,H); bc.globalAlpha=1; }
+    else { hc.save(); hc.setTransform(R/2,0,0,R/2,0,0); hc.globalAlpha=1; hc.globalCompositeOperation='source-over'; hc.clearRect(0,0,W,H); hc.drawImage(dgF,0,0,W,H); hc.globalCompositeOperation='destination-out'; hc.drawImage(dgF,sh,0,W,H); hc.globalCompositeOperation='source-in'; hc.fillStyle=pt; hc.fillRect(0,0,W,H); hc.globalCompositeOperation='source-over'; hc.restore(); bc.globalAlpha=.7; bc.drawImage(halfC,0,0,W,H); bc.globalAlpha=1; } }
+}
 function rebuildAll(){ rebuildLand(true); compose(true); invalidate(); }
 
 /* ============================================================ vector drawing: lines, stamps, labels, grid */
 function drawLine(c,l){
   const b=lineBuilt(l), st=LINES[l.kind]; c.lineCap='round'; c.lineJoin='round';
+  if(l.kind==='dwall'){ c.save(); c.lineCap='square'; c.lineJoin='miter'; c.strokeStyle=INK; c.lineWidth=l.width; c.stroke(b.path); c.restore(); return; }
   if(l.kind==='fence'){ drawFence(c,l,b.pts); return; }
-  if(l.kind==='river' || l.kind==='realm' || l.kind==='street' || l.kind==='wall') return;   // rivers and realms are drawn with the land (see riverPath, drawRealms)
+  if(l.kind==='river' || l.kind==='realm' || l.kind==='street' || l.kind==='wall' || l.kind==='road') return;      // roads are drawn together so that they join (see drawRoads)
+     // rivers and realms are drawn with the land (see riverPath, drawRealms)
   if(l.kind==='river'){ c.setLineDash([]); c.strokeStyle=MAP.riverEdge; c.lineWidth=l.width+1.8; c.stroke(b.path); c.strokeStyle=MAP.river; c.lineWidth=l.width; c.stroke(b.path); }
   else { c.setLineDash(st.dash.map(d=>d*l.width/2.5)); c.strokeStyle=SK()?INK:MAP[l.kind]; c.lineWidth=l.width; c.globalAlpha=l.kind==='border'?.85:1; c.stroke(b.path); c.globalAlpha=1; c.setLineDash([]); }
 }
@@ -900,18 +982,18 @@ const engRows=(a,b,n,dx,dy)=>Array.from({length:n},(_,k)=>[[a[0]+dx*(k+.6),a[1]+
    door, the side wall is hatched upright, the roof is hatched down its slope and overhangs. No two are quite the same size or pitch. ---- */
 function engHouse(c,x,y,w,d,h,rh,m=1,o={}){ const v=()=>.9+engR()*.2; w*=v(); h*=v(); rh*=v(); if(ENG_M<0) x=-x-m*(w+d); c.save(); c.translate(x,y); c.scale(m,1); const sy=-d*.36, ov=.5, lean=(engR()-.5)*.3, P=(px,py)=>[px+lean*(-py/ (h+rh)),py];
   for(let k=0;k<4;k++) engScratch(c,[w+d-.6+k*.3,sy+.5+k*.42],[w+d+1.4+engR()*2.6-k*.3,sy+.5+k*.42],.24);
-  const side=[P(w,0),P(w+d,sy),P(w+d,sy-h),P(w,-h)], vh=[]; for(let xx=w+.3;xx<w+d;xx+=.42){ const f=(xx-w)/d; vh.push([P(xx,f*sy),P(xx,f*sy-h)]); } for(let k=0;k<3;k++) vh.push([P(w,-h+.5+k*.5),P(w+d,sy-h+.5+k*.5)]); engFace(c,side,vh,.4);
-  const ap=P(w/2,-h-rh), ridge=P(w/2+d,-h-rh+sy+(engR()-.3)*.4), eL=P(w+ov,-h+ov*.7), eR=P(w+d+ov,-h+sy+ov*.7), nr=Math.max(4,Math.round(Math.hypot(d,sy)/.46)), rh2=[]; for(let k=0;k<nr;k++){ const f=(k+.5)/nr; rh2.push([[ap[0]+(ridge[0]-ap[0])*f,ap[1]+(ridge[1]-ap[1])*f],[eL[0]+(eR[0]-eL[0])*f,eL[1]+(eR[1]-eL[1])*f]]); }
+  const side=[P(w,0),P(w+d,sy),P(w+d,sy-h),P(w,-h)], vh=[]; for(let xx=w+.3;xx<w+d;xx+=.42/ENG_K){ const f=(xx-w)/d; vh.push([P(xx,f*sy),P(xx,f*sy-h)]); } for(let k=0;k<Math.max(2,Math.round(3*ENG_K));k++) vh.push([P(w,-h+.5+k*.5/ENG_K),P(w+d,sy-h+.5+k*.5/ENG_K)]); engFace(c,side,vh,.4);
+  const ap=P(w/2,-h-rh), ridge=P(w/2+d,-h-rh+sy+(engR()-.3)*.4), eL=P(w+ov,-h+ov*.7), eR=P(w+d+ov,-h+sy+ov*.7), nr=Math.max(4,Math.round(Math.hypot(d,sy)/.46*ENG_K)), rh2=[]; for(let k=0;k<nr;k++){ const f=(k+.5)/nr; rh2.push([[ap[0]+(ridge[0]-ap[0])*f,ap[1]+(ridge[1]-ap[1])*f],[eL[0]+(eR[0]-eL[0])*f,eL[1]+(eR[1]-eL[1])*f]]); }
   engFace(c,[ap,eL,eR,ridge],rh2,.4); engFace(c,[P(0,0),P(w,0),P(w,-h),ap,P(0,-h)],null,.4); engInk(c,[P(-ov,-h+ov*.7),ap,eL],.5,false); engInk(c,[ap,ridge],.55,false);
   c.fillStyle=INK; c.beginPath(); const dx=w*(.3+engR()*.25), dw=w*.2, dh=h*(.5+engR()*.12); c.moveTo(dx,0); c.lineTo(dx,-dh+dw*.5); c.quadraticCurveTo(dx+dw*.5,-dh-dw*.3,dx+dw,-dh+dw*.5); c.lineTo(dx+dw,0); c.closePath(); c.fill(); c.fillRect(w*.5-.3,-h-rh*.42,.6,.75); if(w>5) c.fillRect(dx>w*.42?w*.14:w*.7,-h*.72,.55,.7);
-  for(let k=0;k<3;k++){ const tx=engR()*w*.8, ty=-engR()*h*.9; engScratch(c,[tx,ty],[tx+.5+engR()*.7,ty],.22); }
+  for(let k=0,n=Math.round(3*ENG_K);k<n;k++){ const tx=engR()*w*.8, ty=-engR()*h*.9; engScratch(c,[tx,ty],[tx+.5+engR()*.7,ty],.22); }
   if(o.ch||engR()<.3){ const f=.35+engR()*.4, bx=ap[0]+(ridge[0]-ap[0])*f, by=ap[1]+(ridge[1]-ap[1])*f; engFace(c,[[bx+.5,by+.3],[bx+1.1,by+.1],[bx+1.1,by-1.8],[bx+.5,by-1.6]],engRows([bx+.5,by+.3],[bx+1.1,by+.1],4,0,-.45),.36); engFace(c,[[bx-.5,by+.5],[bx+.5,by+.3],[bx+.5,by-1.6],[bx-.5,by-1.6]],null,.36); }
   c.restore(); }
 function engTower(c,x,y,w,h,top,m=1){ if(ENG_M<0) x=-x-m*w*1.5; c.save(); c.translate(x,y); c.scale(m,1); const d=w*.5, sy=-d*.36, fl=w*.06, vh=[];
   for(let k=0;k<3;k++) engScratch(c,[w+d-.4+k*.3,sy+.5+k*.42],[w+d+1.6+engR()*2-k*.3,sy+.5+k*.42],.24);
-  for(let xx=w+.28;xx<w+d;xx+=.4){ const f=(xx-w)/d; vh.push([[xx,f*sy],[xx,f*sy-h]]); } for(let k=0;k<4;k++) vh.push([[w,-h+.5+k*.55],[w+d,sy-h+.5+k*.55]]);
+  for(let xx=w+.28;xx<w+d;xx+=.4/ENG_K){ const f=(xx-w)/d; vh.push([[xx,f*sy],[xx,f*sy-h]]); } for(let k=0;k<Math.max(3,Math.round(4*ENG_K));k++) vh.push([[w,-h+.5+k*.55/ENG_K],[w+d,sy-h+.5+k*.55/ENG_K]]);
   engFace(c,[[w+fl,0],[w+d+fl,sy],[w+d,sy-h],[w,-h]],vh,.4); engFace(c,[[-fl,0],[w+fl,0],[w,-h],[0,-h]],null,.4);
-  for(let yy=-1.4;yy>-h+.6;yy-=1.35+engR()*.5){ let xx=engR()*1.2; while(xx<w-.5){ const l=.6+engR()*1.3; if(engR()<.6) engScratch(c,[xx,yy],[Math.min(w-.2,xx+l),yy],.2); xx+=l+.4+engR()*.8; } }
+  for(let yy=-1.4;yy>-h+.6;yy-=(1.35+engR()*.5)/ENG_K){ let xx=engR()*1.2; while(xx<w-.5){ const l=.6+engR()*1.3; if(engR()<.6) engScratch(c,[xx,yy],[Math.min(w-.2,xx+l),yy],.2); xx+=l+.4+engR()*.8; } }
   c.fillStyle=INK; for(let k=0,nw=h>9?2:1;k<nw;k++){ const wy=-h*(nw>1?(.42+k*.34):.62); c.fillRect(w*.5-.28,wy,.56,Math.min(1.5,h*.14)); }
   if(top==='flat'){ engFace(c,[[w-.2,-h],[w+d+.3,-h+sy],[w+d+.3,-h+sy-.7],[w-.2,-h-.7]],[[[w,-h-.35],[w+d,-h+sy-.35]]],.36); engFace(c,[[-.3,-h],[w+.2,-h],[w+.2,-h-.7],[-.3,-h-.7]],null,.36);
     const n=Math.max(3,Math.round(w/1.5)), mw=(w+.5)/(n*2-1); for(let k=0;k<n;k++) engFace(c,[[-.3+k*2*mw,-h-.7],[-.3+k*2*mw+mw,-h-.7],[-.3+k*2*mw+mw,-h-1.8],[-.3+k*2*mw,-h-1.8]],null,.36); for(let k=0;k<2;k++){ const f0=k*.6+.05, f1=f0+.35; engFace(c,[[w+.2+d*f0,-h-.7+sy*f0],[w+.2+d*f1,-h-.7+sy*f1],[w+.2+d*f1,-h-1.8+sy*f1],[w+.2+d*f0,-h-1.8+sy*f0]],[[[w+.2+d*f0,-h-1.2+sy*f0],[w+.2+d*f1,-h-1.2+sy*f1]]],.34); } }
@@ -919,7 +1001,7 @@ function engTower(c,x,y,w,h,top,m=1){ if(ENG_M<0) x=-x-m*w*1.5; c.save(); c.tran
     if(top==='spire'){ engInk(c,[ap,[ap[0],ap[1]-1.9]],.4,false); engInk(c,[[ap[0]-.6,ap[1]-1.15],[ap[0]+.6,ap[1]-1.15]],.4,false); } }
   c.restore(); }
 function engRound(c,x,y,w,h,top){ const X=EX(x); for(let k=0;k<3;k++) engScratch(c,[X+w*.4+k*.3,y+.3+k*.42],[X+w*.5+2+engR()*2,y+.3+k*.42],.24); engCyl(c,x,y,w,h,{taper:.92,top:top==='cone'?'cone':'flat',capH:w*1.15,sp:.38});      // a round tower: conical cap, or an open top with battlements
-  for(let yy=y-1.4;yy>y-h+.6;yy-=1.4+engR()*.5){ const xx=X-w*.42+engR()*w*.2; engScratch(c,[xx,yy],[xx+.6+engR()*w*.3,yy],.2); } c.fillStyle=INK; c.fillRect(X-w*.14,y-h*.66,.5,Math.min(1.4,h*.14));
+  for(let yy=y-1.4;yy>y-h+.6;yy-=(1.4+engR()*.5)/ENG_K){ const xx=X-w*.42+engR()*w*.2; engScratch(c,[xx,yy],[xx+.6+engR()*w*.3,yy],.2); } c.fillStyle=INK; c.fillRect(X-w*.14,y-h*.66,.5,Math.min(1.4,h*.14));
   if(top!=='cone'){ const b=w*.46, yt=y-h; for(const f of [-.82,-.3,.24,.74]) engFace(c,[[X+f*b-.45,yt-.1+Math.abs(f)*-.12],[X+f*b+.45,yt-.1+Math.abs(f)*-.12],[X+f*b+.45,yt-1.25],[X+f*b-.45,yt-1.25]],f>.1?[[[X+f*b-.45,yt-.7],[X+f*b+.45,yt-.7]]]:null,.34); } }
 function engWall(c,x0,x1,y,h,gate){ if(ENG_M<0) [x0,x1]=[-x1,-x0]; const hs=[]; for(let yy=y-1.1;yy>y-h+.3;yy-=1.15){ let xx=x0+engR()*1.5; while(xx<x1-.6){ const l=.8+engR()*2; if(engR()<.7) hs.push([[xx,yy],[Math.min(x1-.2,xx+l),yy]]); xx+=l+.3+engR(); } } for(let xx=x1-1.8;xx<x1;xx+=.4) hs.push([[xx,y],[xx,y-h]]);
   engFace(c,[[x0,y],[x1,y],[x1,y-h],[x0,y-h]],hs,.42); const n=Math.max(3,Math.round((x1-x0)/1.9)), mw=(x1-x0)/(n*2-1); for(let k=0;k<n;k++) engFace(c,[[x0+k*2*mw,y-h],[x0+k*2*mw+mw,y-h],[x0+k*2*mw+mw,y-h-1.05],[x0+k*2*mw,y-h-1.05]],null,.36);
@@ -936,6 +1018,9 @@ function engShade(c,q,dir='d',sp=.9,o={}){ let x0=1e9,x1=-1e9,y0=1e9,y1=-1e9; fo
   else if(dir==='v') for(let x=x0+sp*.5;x<x1;x+=sp) engScratch(c,[x,y0],[x,y1],lw);
   else { const H=y1-y0; for(let x=x0-H;x<x1;x+=sp) engScratch(c,[x,y1],[x+H,y0],lw); if(dir==='x') for(let x=x0;x<x1+H;x+=sp*1.3) engScratch(c,[x,y1],[x-H,y0],lw); }
   c.restore(); }
+function engFurrow(c,q,ang,sp,o={}){ let x0=1e9,x1=-1e9,y0=1e9,y1=-1e9; for(const p of q){ x0=Math.min(x0,p[0]); x1=Math.max(x1,p[0]); y0=Math.min(y0,p[1]); y1=Math.max(y1,p[1]); }      // ploughed rows laid at an angle across a field, closer together on a bigger one; bend curves them like contours
+  const cx=(x0+x1)/2, cy=(y0+y1)/2, Ld=Math.hypot(x1-x0,y1-y0)/2+2, ux=Math.cos(ang)*ENG_M, uy=Math.sin(ang), nx=-uy, ny=ux, bend=o.bend||0; sp/=ENG_K; c.save(); engPath(c,q,1); c.clip();
+  for(let t=-Ld;t<=Ld;t+=sp){ const pts=[]; for(let k=0;k<=10;k++){ const f=k/10*2-1, off=bend*(1-f*f); pts.push([cx+nx*(t+off)+ux*f*Ld,cy+ny*(t+off)+uy*f*Ld]); } for(let k=0;k<10;k++) engScratch(c,pts[k],pts[k+1],o.lw||.24); } c.restore(); }
 function engPoly(c,pts,o={}){ const q=pts.map(p=>engJt([o.raw?p[0]:EX(p[0]),p[1]],o.j??.4)); if(!o.open){ engPath(c,q,1); c.fillStyle=o.ink?INK:PAPER(); c.fill(); } if(o.shade) engShade(c,q,o.shade,o.sp||.9);
   engInk(c,q,(o.lw||.6)*.72,!o.open,{gap:o.open?.02:.04}); return q; }
 const engLn=(c,pts,lw=.5)=>engPoly(c,pts,{open:1,lw,j:.3});
@@ -1004,7 +1089,8 @@ function engHead(c,hx,hy,a,s,shut){ const T=p=>[hx+(p[0]*Math.cos(a)-p[1]*Math.s
 function cChim(c,x,y){ const X=EX(x); c.fillStyle=PAPER(); c.fillRect(X-1.1,y-1.1,2.2,2.2); engInk(c,[[X-1.1,y-1.1],[X+1.1,y-1.1],[X+1.1,y+1.1],[X-1.1,y+1.1]],.34,true,{gap:0,rough:.05}); c.fillStyle=INK; c.fillRect(X-.4,y-.4,.8,.8); }
 function cRoof(c,x,y,w,d,o={}){ c.save(); c.translate(EX(x),y); if(o.a) c.rotate(o.a*ENG_M); const hw=w/2, hd=d/2, P=[[-hw,-hd],[hw,-hd],[hw,hd],[-hw,hd]], k=o.hip?Math.min(hd*.9,hw*.6):0;      // a roof from above: ridge down the middle, hipped or gabled, the far slope hatched
   engPath(c,P,1); c.fillStyle=PAPER(); c.fill(); engShade(c,o.hip?[[-hw,hd],[hw,hd],[hw-k,0],[-hw+k,0]]:[[-hw,0],[hw,0],[hw,hd],[-hw,hd]],'v',.72); if(o.hip) engShade(c,[[hw,-hd],[hw,hd],[hw-k,0]],'h',.72);
-  for(let i=0;i<Math.round(w/5);i++){ const tx=-hw+1+engR()*(w-2), ty=-hd+.6+engR()*(hd-1.6); engScratch(c,[tx,ty],[tx,ty+.9+engR()],.2); }
+  if(ENG_K>1.12) engShade(c,o.hip?[[-hw,-hd],[hw,-hd],[hw-k,0],[-hw+k,0]]:[[-hw,-hd],[hw,-hd],[hw,0],[-hw,0]],'h',3.6,{lw:.2});      // a big roof also shows its tile courses on the lit slope
+  for(let i=0,n=Math.round(w/5*ENG_K*ENG_K);i<n;i++){ const tx=-hw+1+engR()*(w-2), ty=-hd+.6+engR()*(hd-1.6); engScratch(c,[tx,ty],[tx,ty+.9+engR()],.2); }      // tile flecks on the lit slope: a bigger roof has more of them
   engInk(c,[[-hw+k,0],[hw-k,0]],.5,false,{gap:0}); if(o.hip) for(const [a,b] of [[[-hw+k,0],[-hw,-hd]],[[-hw+k,0],[-hw,hd]],[[hw-k,0],[hw,-hd]],[[hw-k,0],[hw,hd]]]) engInk(c,[a,b],.4,false,{gap:0});
   engInk(c,P,.52,true,{gap:.02}); c.restore(); if(o.ch){ c.save(); c.translate(EX(x),y); if(o.a) c.rotate(o.a*ENG_M); const M=ENG_M; ENG_M=1; cChim(c,hw*.45,-hd*.45); ENG_M=M; c.restore(); } }
 function cSpire(c,x,y,r){ const X=EX(x), P=[[X-r,y-r],[X+r,y-r],[X+r,y+r],[X-r,y+r]]; engPath(c,P,1); c.fillStyle=PAPER(); c.fill(); engShade(c,[[X,y],[X+r,y-r],[X+r,y+r]],'h',.6); engShade(c,[[X,y],[X+r,y+r],[X-r,y+r]],'v',.6); engInk(c,P,.5,true,{gap:0}); engInk(c,[P[0],P[2]],.36,false,{gap:0}); engInk(c,[P[1],P[3]],.36,false,{gap:0}); c.fillStyle=INK; c.beginPath(); c.arc(X,y,.6,0,7); c.fill(); }      // a tower or spire from above: a square with its four hips
@@ -1388,7 +1474,7 @@ const SKETCH_DRAW = {
   house(c,n){ const v=[[26,16,0,1],[22,17,1,0],[28,14,0,1],[20,19,1,0]][n%4]; cRoof(c,0,0,v[0],v[1],{hip:v[2],ch:v[3]}); },
   terrace(c){ cRoof(c,0,0,35,14,{}); for(const x of [-9,0,9]) engInk(c,[[EX(x),-7],[EX(x),7]],.4,false,{gap:0}); for(const x of [-13,-4.5,4.5,13]) cChim(c,x,-3.5); },
   lhouse(c){ cRoof(c,7,4.5,19,12,{a:Math.PI/2,hip:1}); cRoof(c,-3,-4.5,26,12,{ch:1}); },
-  cottage(c){ const g=engPoly(c,[[-2,-9],[15,-9],[15,9],[-2,9]],{j:.5,lw:.4}); for(let y=-6.5;y<9;y+=2.6) engScratch(c,[EX(0),y],[EX(14),y],.22); cRoof(c,-7,-1,15,12,{ch:1}); },
+  cottage(c){ const g=engPoly(c,[[-2,-9],[15,-9],[15,9],[-2,9]],{j:.5,lw:.4}); for(let y=-6.5;y<9;y+=2.6/ENG_K) engScratch(c,[EX(0),y],[EX(14),y],.22); cRoof(c,-7,-1,15,12,{ch:1}); },
   courtyard(c){ const o=[[-15,-13],[15,-13],[15,13],[-15,13]].map(p=>[EX(p[0]),p[1]]), i=[[-7.5,-5.5],[7.5,-5.5],[7.5,5.5],[-7.5,5.5]].map(p=>[EX(p[0]),p[1]]); engPath(c,o,1); c.fillStyle=PAPER(); c.fill();
     engShade(c,[[-15,13],[15,13],[7.5,5.5],[-7.5,5.5]].map(p=>[EX(p[0]),p[1]]),'v',.75); engShade(c,[[EX(15)*1,-13],[EX(15),13],[EX(7.5),5.5],[EX(7.5),-5.5]].sort(()=>0),'h',.75); engInk(c,o,.5,true); engInk(c,i,.45,true); engInk(c,[[-11.2,-9.2],[11.2,-9.2],[11.2,9.2],[-11.2,9.2]].map(p=>[EX(p[0]),p[1]]),.36,true,{gap:.03});
     for(let k=0;k<4;k++) engInk(c,[o[k],i[k]],.36,false,{gap:0}); engDot(c,0,0,.7,1); },
@@ -1415,8 +1501,20 @@ const SKETCH_DRAW = {
   statue(c){ for(let k=0;k<5;k++) engScratch(c,[EX(3+k*.6),1+k*1.3],[EX(13-k*1.2),2.4+k*1.3],.24); engPoly(c,[[-4.5,-4.5],[4.5,-4.5],[4.5,4.5],[-4.5,4.5]],{j:.2,lw:.5}); engPoly(c,[[-2.6,-2.6],[2.6,-2.6],[2.6,2.6],[-2.6,2.6]],{j:.1,lw:.4,shade:'d',sp:.6}); engDot(c,0,0,1.1); },
   garden(c){ engPoly(c,[[-17,-12],[17,-12],[17,12],[-17,12]],{j:.3,lw:.55}); engInk(c,[[-15.6,-10.6],[15.6,-10.6],[15.6,10.6],[-15.6,10.6]].map(p=>[EX(p[0]),p[1]]),.3,true,{gap:.04});
     for(const [x,y] of [[-8,-5.3],[8,-5.3],[-8,5.3],[8,5.3]]){ const q=[[x-5.6,y-3.6],[x+5.6,y-3.6],[x+5.6,y+3.6],[x-5.6,y+3.6]].map(p=>[EX(p[0]),p[1]]); engInk(c,q,.34,true); engShade(c,q,(x*y>0)?'h':'v',.9); } const f=engArc(EX(0),0,2.4,2.4,0,Math.PI*2,10); engPath(c,f,1); c.fillStyle=PAPER(); c.fill(); engInk(c,f,.4,true,{gap:0}); },
-  orchard(c){ engInk(c,[[-17,-12],[17,-12],[17,12],[-17,12]].map(p=>[EX(p[0]),p[1]]),.36,true,{gap:.14}); for(let i=0;i<4;i++) for(let j=0;j<3;j++) cTree(c,-12+i*8+(j%2)*1.5,-7.5+j*7.5,2.9,i*3+j); },
-  fieldplot(c){ const xs=[-18,-7,5,18]; for(let k=0;k<3;k++){ const q=[[xs[k],-11+k],[xs[k+1],-11+k*.5],[xs[k+1],11-k*.5],[xs[k],11]].map(p=>[EX(p[0]),p[1]]); engPath(c,q,1); c.fillStyle=PAPER(); c.fill(); engShade(c,q,['v','h','d'][k],1.5); engInk(c,q,.36,true,{gap:.06}); } },
+  orchard(c,n){ n%=3; engInk(c,[[-17,-12],[17,-12],[17,12],[-17,12]].map(p=>[EX(p[0]),p[1]]),.36,true,{gap:.14});
+    if(n===0){ for(let i=0;i<4;i++) for(let j=0;j<3;j++) cTree(c,-12+i*8+(j%2)*1.5,-7.5+j*7.5,2.9,i*3+j); }      // trees in staggered rows
+    else if(n===1){ for(let i=0;i<5;i++) for(let j=0;j<4;j++) cTree(c,-14.5+i*6.2+(j%2)*3.1,-9+j*6,2.2,i*4+j+20); }      // a close-planted orchard, small trees
+    else { for(let i=0;i<3;i++) for(let j=0;j<2;j++) cTree(c,-10+i*10,-6+j*12,3.8,i*2+j+40); engFurrow(c,[[-17,-12],[17,-12],[17,12],[-17,12]].map(p=>[EX(p[0]),p[1]]),0,3.4,{lw:.18}); } },      // old spreading trees in grass
+  fieldplot(c,n){ const J=q=>q.map(p=>[EX(p[0]),p[1]]), fill=(q)=>{ engPath(c,q,1); c.fillStyle=PAPER(); c.fill(); }, rn=mulberry(n*53+9); n%=8;      // eight kinds of field, all seen from above
+    if(n===0){ const xs=[-18,-7,5,18]; for(let k=0;k<3;k++){ const q=J([[xs[k],-11+k],[xs[k+1],-11+k*.5],[xs[k+1],11-k*.5],[xs[k],11]]); fill(q); engShade(c,q,['v','h','d'][k],1.5); engInk(c,q,.36,true,{gap:.06}); } }
+    else if(n===1){ const q=J([[-18,-10],[17,-12],[19,10],[-17,12]]); fill(q); engFurrow(c,q,.1,1.7,{bend:1.2}); engInk(c,q,.4,true,{gap:.05}); engInk(c,J([[-15,-8],[15,-9.5],[16.5,8],[-14,9.5]]),.22,true,{gap:.3,rough:.3}); }      // one big ploughed field with a headland
+    else if(n===2){ const P=[[[-18,-11],[-3,-12],[-2,0],[-18,1]],[[-18,1],[-2,0],[-3,12],[-17,11]],[[-3,-12],[18,-10],[18,-2],[-2,0]],[[-2,0],[18,-2],[18,11],[-3,12]]]; P.forEach((r,k)=>{ const q=J(r); fill(q); if(k===3){ const a=Math.sqrt(ENG_K); for(let i=0,m=Math.round(46*ENG_K);i<m;i++){ const x=-1+engR()*18, y=-1+engR()*12; if(x<17&&y>-1) engDot(c,x*ENG_M,y,.22); } } else engFurrow(c,q,[.0,Math.PI/2,.5,0][k],1.5); engInk(c,q,.34,true,{gap:.06}); }); }      // a patchwork of small closes
+    else if(n===3){ for(let k=0;k<6;k++){ const x0=-18+k*6, q=J([[x0,-12+k*.4],[x0+6,-12+(k+1)*.4],[x0+6,12-(k+1)*.3],[x0,12-k*.3]]); fill(q); if(k%2===0) engFurrow(c,q,Math.PI/2,1.1); engInk(c,q,.32,true,{gap:.05}); } }      // open-field strips, ploughed and fallow in turn
+    else if(n===4){ const R=[1,.92,1,.84,.94,1,.88,.97,.9,1], q=R.map((r,i)=>{ const a=i/R.length*6.283; return [EX(Math.cos(a)*18*r),Math.sin(a)*11.5*r]; }); fill(q); engFurrow(c,q,.5,1.6,{bend:4}); engInk(c,q,.4,true,{gap:.05}); }      // furrows following the lie of the hill
+    else if(n===5){ const R=[1,.9,.97,.85,.95,1,.88,.96,.92,1], q=R.map((r,i)=>{ const a=i/R.length*6.283; return [EX(Math.cos(a)*17.5*r),Math.sin(a)*11*r]; }); fill(q); engInk(c,q,.36,true,{gap:.12,rough:.35});
+      for(let i=0,m=Math.round(24*ENG_K);i<m;i++){ const x=(engR()*2-1)*15, y=(engR()*2-1)*8.5; if(x*x/270+y*y/80>1) continue; for(let k=-1;k<=1;k++) engInk(c,[[EX(x+k*.5),y],[EX(x+k*.9),y-1.3-engR()*.7]],.3,false,{gap:0}); } }      // meadow, tufted, with a rough edge
+    else if(n===6){ const q=J([[-18,-11],[18,-11],[18,11],[-18,11]]); fill(q); engInk(c,q,.38,true,{gap:.05}); const st=3.6/Math.sqrt(ENG_K); for(let y=-8;y<=9;y+=st) for(let x=-15+((y*7)%2);x<=15;x+=st*1.1){ engInk(c,[[EX(x-.8),y+.9],[EX(x),y-.7],[EX(x+.8),y+.9]],.3,false,{gap:0}); engInk(c,[[EX(x+.3),y+.9],[EX(x+1.1),y+.9]],.2,false,{gap:0}); } }      // a cut field with its stooks standing in rows
+    else { const A=J([[-18,-12],[1,-12],[-3,12],[-18,11]]), B=J([[5,-12],[18,-11],[18,12],[1,12]]); for(const q of [A,B]) fill(q); engFurrow(c,A,.0,1.4); engFurrow(c,B,Math.PI/2.4,1.5); for(const q of [A,B]) engInk(c,q,.36,true,{gap:.06}); for(let y=-11;y<12;y+=2.6) engDot(c,(1-y*.17)*1,y,.3); } },      // two fields either side of a green lane
   cemetery(c){ engPoly(c,[[-15,-11],[15,-11],[15,11],[-15,11]],{j:.4,lw:.6}); for(let i=0;i<5;i++) for(let j=0;j<3;j++){ const x=-11+i*5.5+(j%2), y=-6.5+j*6.5; engInk(c,[[EX(x),y-1.6],[EX(x),y+1.6]],.45,false,{gap:0}); engInk(c,[[EX(x-1.1),y-.5],[EX(x+1.1),y-.5]],.45,false,{gap:0}); } },
   treetop(c,n){ cTree(c,0,0,[10,8.4,11.5][n%3],n+1); },
   treerow(c,n){ for(let k=0;k<4;k++) cTree(c,-14+k*9.2,(k%2?1.2:-1.2),4.6,k+n*5); },
@@ -1435,7 +1533,7 @@ const SKETCH_DRAW = {
   pavilion(c){ const r=11, q=[]; for(let i=0;i<16;i++){ const a=i/16*6.283, rr=r*(i%2?1:.9); q.push([Math.cos(a)*rr,Math.sin(a)*rr]); } engPath(c,q,1); c.fillStyle=PAPER(); c.fill(); for(let i=0;i<8;i++) engShade(c,[[0,0],q[i*2],q[i*2+1],q[(i*2+2)%16]],'d',.7,i%2?{}:{lw:.01}); for(let i=0;i<16;i+=2) engInk(c,[[0,0],q[i]],.34,false,{gap:0}); engInk(c,q,.5,true,{gap:0}); engDot(c,0,0,.9); },
   /* ---- the outskirts: what lies outside the walls ---- */
   farmstead(c){ engInk(c,[[-18,-13],[18,-13],[18,13],[4,13]].map(p=>[EX(p[0]),p[1]]),.36,false,{gap:.1}); engInk(c,[[-3,13],[-18,13],[-18,-13]].map(p=>[EX(p[0]),p[1]]),.36,false,{gap:.1});      // a farmhouse, barn and byre round a fenced yard, with ricks and a kitchen plot
-    cRoof(c,-8,-6.5,17,10,{ch:1}); cRoof(c,10,-3,11,17,{a:Math.PI/2}); cRoof(c,-11,7,10,7,{}); cRound(c,2.5,7.5,2.8); cRound(c,8,9,2.2); for(let y=3;y<12;y+=2.2) engScratch(c,[EX(12),y],[EX(17),y],.22); },
+    cRoof(c,-8,-6.5,17,10,{ch:1}); cRoof(c,10,-3,11,17,{a:Math.PI/2}); cRoof(c,-11,7,10,7,{}); cRound(c,2.5,7.5,2.8); cRound(c,8,9,2.2); for(let y=3;y<12;y+=2.2/ENG_K) engScratch(c,[EX(12),y],[EX(17),y],.22); },
   barn(c){ cRoof(c,0,0,30,17,{}); engInk(c,[[EX(-3),8.5],[EX(-3),11],[EX(3),11],[EX(3),8.5]],.4,false,{gap:0}); },
   haystacks(c){ cRound(c,-8,-2,5.4); cRound(c,4,-5,4.6); cRound(c,2,6,5); cRound(c,11,3,3.4); },
   mill(c){ for(let k=0;k<4;k++){ const a=.5+k*Math.PI/2, d=[Math.cos(a),Math.sin(a)], n=[-d[1],d[0]], P=(t,s)=>[d[0]*t+n[0]*s,d[1]*t+n[1]*s]; engInk(c,[[0,0],P(17,0)],.7,false,{gap:0}); const q=[P(5,0),P(17,0),P(17,3.6),P(5,3.6)]; engPath(c,q,1); c.fillStyle=PAPER(); c.fill(); engInk(c,q,.4,true,{gap:0}); for(let t=7;t<17;t+=2) engInk(c,[P(t,0),P(t,3.6)],.26,false,{gap:0}); }      // a post mill from above: the round house, four sails and the tail pole
@@ -1447,7 +1545,10 @@ const SKETCH_DRAW = {
   shrine(c){ engPoly(c,[[-7,-7],[7,-7],[7,7],[-7,7]],{j:.3,lw:.4}); engPoly(c,[[-4.6,-4.6],[4.6,-4.6],[4.6,4.6],[-4.6,4.6]],{j:.2,lw:.5,shade:'d',sp:.7}); const X=EX(0); c.fillStyle=PAPER(); c.fillRect(X-2.6,-2.6,5.2,5.2); engInk(c,[[X,-2.4],[X,2.4]],.7,false,{gap:0}); engInk(c,[[X-1.7,-.6],[X+1.7,-.6]],.7,false,{gap:0}); },
   paddock(c){ const q=[[-17,-11],[16,-12],[18,10],[-16,12]].map(p=>[EX(p[0]),p[1]]); engInk(c,q,.4,true,{gap:.05}); for(let i=0;i<4;i++){ const a=q[i], b=q[(i+1)%4], n=Math.round(dist(a,b)/4.5); for(let k=0;k<=n;k++){ const x=a[0]+(b[0]-a[0])*k/n, y=a[1]+(b[1]-a[1])*k/n; c.fillStyle=INK; c.beginPath(); c.arc(x,y,.5,0,7); c.fill(); } }
     for(const [x,y,a] of [[-8,-3,.3],[2,-5,-.4],[7,3,.8],[-3,5,-.2],[-11,5,1.2]]){ c.save(); c.translate(EX(x),y); c.rotate(a*ENG_M); c.fillStyle=PAPER(); c.beginPath(); c.ellipse(0,0,2.6,1.3,0,0,7); c.fill(); c.strokeStyle=INK; c.lineWidth=.4; c.stroke(); c.fillStyle=INK; c.beginPath(); c.arc(2.9,0,.75,0,7); c.fill(); c.restore(); } },
-  vineyard(c){ engInk(c,[[-17,-12],[17,-12],[17,12],[-17,12]].map(p=>[EX(p[0]),p[1]]),.36,true,{gap:.08}); for(let y=-9.5;y<12;y+=2.9){ let x=-15; while(x<15){ const l=1.6+engR()*1.4; engInk(c,[[EX(x),y],[EX(Math.min(15,x+l)),y+.3]],.55,false,{gap:0}); x+=l+1.1; } } },
+  vineyard(c,n){ n%=3; const q=[[-17,-12],[17,-12],[17,12],[-17,12]].map(p=>[EX(p[0]),p[1]]); engInk(c,q,.36,true,{gap:.08});
+    if(n===0) { for(let y=-9.5;y<12;y+=2.9/ENG_K){ let x=-15; while(x<15){ const l=1.6+engR()*1.4; engInk(c,[[EX(x),y],[EX(Math.min(15,x+l)),y+.3]],.55,false,{gap:0}); x+=l+1.1; } } }
+    else if(n===1) { c.save(); engPath(c,q,1); c.clip(); for(let t=-26;t<26;t+=3.2/ENG_K){ let x=-19; while(x<19){ const l=1.5+engR()*1.2; engInk(c,[[EX(x),x*.4+t],[EX(x+l),(x+l)*.4+t]],.5,false,{gap:0}); x+=l+1; } } c.restore(); engInk(c,q,.36,true,{gap:.08}); }      // rows set aslant
+    else { c.save(); engPath(c,q,1); c.clip(); for(let y=-9;y<13;y+=3.4/ENG_K){ const pts=[]; for(let x=-18;x<=18;x+=3) pts.push([EX(x),y+Math.sin(x*.16+y*.5)*.9]); for(let i=0;i<pts.length-1;i++) if(engR()<.92) engInk(c,[pts[i],pts[i+1]],.5,false,{gap:0}); } c.restore(); } },      // terraced rows following the slope
   quarry(c){ const o=[[-15,-6],[-8,-12],[4,-11],[14,-7],[16,3],[9,11],[-5,12],[-14,6]], i=o.map(p=>[p[0]*.56+1,p[1]*.56+1]); engPoly(c,o,{j:.6,lw:.55}); const O=o.map(p=>[EX(p[0]),p[1]]), I=i.map(p=>[EX(p[0]),p[1]]); for(let k=0;k<8;k++){ const a=O[k], b=O[(k+1)%8], e=I[(k+1)%8], d=I[k]; engShade(c,[a,b,e,d],k<4?'v':'d',k<4?1.1:.7); engInk(c,[a,d],.3,false,{gap:0}); } engInk(c,I,.45,true,{gap:.03});
     for(const [x,y] of [[0,1],[4,3],[-2,4.4]]) engPoly(c,[[x-1.5,y-1.1],[x+1.5,y-1.1],[x+1.5,y+1.1],[x-1.5,y+1.1]],{j:.2,lw:.4}); },
   tents(c){ for(const [x,y,a] of [[-9,-4,.2],[5,-6,-.3],[-1,6,.1],[11,5,.5]]) cRoof(c,x,y,9,7,{a}); const f=engArc(EX(1),-.5,1.8,1.8,0,Math.PI*2,8); engInk(c,f,.4,true,{gap:.1}); engDot(c,1,-.5,.6); },
@@ -1474,6 +1575,196 @@ const SKETCH_DRAW = {
     const R=(x,y)=>[[-x,-y],[x,-y],[x,y],[-x,y]], o=R(18,9.4), i=R(15.6,7); engPath(c,o,1); c.fillStyle=PAPER(); c.fill(); engShade(c,[[18,-9.4],[18,9.4],[-18,9.4],[-15.6,7],[15.6,7],[15.6,-7]],'d',.55); engInk(c,o,.65,true,{gap:0,rough:.08}); engInk(c,i,.45,true,{gap:0,rough:.06}); engInk(c,R(14.6,6),.22,true,{gap:.03});      // a plain tablet with a moulded edge
     for(const [x,y] of R(16.8,8.2)) engDot(c,x,y,.5); for(const [a,b] of [[o[0],i[0]],[o[1],i[1]],[o[2],i[2]],[o[3],i[3]]]) engInk(c,[a,b],.36,false,{gap:0}); for(const s of [-1,1]){ curl(s*19.4,-2.6,s,-1); curl(s*19.4,2.6,s,1); } },
 };
+/* ---- dungeon stamps, all seen from above. Drawn in the usual 40-unit box, and sized so that one box is the object's footprint in grid squares (see DUN_FOOT):
+   a door spans one square, a table two. Raised things take their shading on the right, as everywhere else on the atlas. ---- */
+const dQ=(x0,y0,x1,y1)=>[[x0,y0],[x1,y0],[x1,y1],[x0,y1]];
+function dBox(c,x0,y0,x1,y1,o={}){ const q=engPoly(c,dQ(x0,y0,x1,y1),{j:.3,lw:o.lw||.55}); if(o.sh!==false){ const xs=q.map(p=>p[0]), a=Math.min(...xs), b=Math.max(...xs); engShade(c,q,'d',o.sp||.8,{clipX:a+(b-a)*(o.at||.64)}); } return q; }
+function dRing(c,x,y,r,o={}){ const X=EX(x), q=engArc(X,y,r,o.ry||r,0,Math.PI*2,Math.max(16,Math.round(r*2))); engPath(c,q,1); c.fillStyle=PAPER(); c.fill(); if(o.sh!==false) engShade(c,q,'d',o.sp||.8,{clipX:X+r*(o.at??.3)}); engInk(c,q,o.lw||.55,true,{gap:.03,rough:.07}); return q; }
+function dPost(c,x,y,w=2.4,h=3.8){ engPoly(c,dQ(x-w,y-h,x+w,y+h),{ink:true,j:.12,lw:.4}); }
+function dJambs(c){ dPost(c,-19,0); dPost(c,19,0); }
+function dDoorLeaf(c,x0,x1){ dBox(c,x0,-3,x1,3,{sh:false,lw:.5}); engInk(c,[[EX(x0+2),0],[EX(x1-2),0]],.28,false,{gap:.2}); }
+Object.assign(SKETCH_DRAW,{
+  door(c){ dDoorLeaf(c,-17,17); dJambs(c); engDot(c,-15,0,.8); engDot(c,12,0,.55); },
+  doubledoor(c){ dDoorLeaf(c,-17,-.6); dDoorLeaf(c,.6,17); dJambs(c); engDot(c,-15,0,.7); engDot(c,15,0,.7); },
+  dooropen(c){ dJambs(c); dBox(c,-20.5,-30,-17.5,0,{lw:.45,sp:.6}); engInk(c,ENG_M<0?engArc(EX(-19),0,30,30,Math.PI,Math.PI*1.5,12):engArc(-19,0,30,30,-Math.PI/2,0,12),.3,false,{gap:.35,rough:.1}); engInk(c,[[EX(-17),0],[EX(18),0]],.25,false,{gap:.5}); },
+  secretdoor(c){ dJambs(c); engInk(c,[[EX(-17),0],[EX(17),0]],1.4,false,{gap:.04,rough:.15}); c.save(); c.fillStyle=INK; c.font='italic 600 15px "IM Fell English", Georgia, serif'; c.textAlign='center'; c.textBaseline='middle'; c.fillText('S',EX(0),-9); c.restore(); },
+  arch(c){ dBox(c,-20,-5,-13,5,{lw:.5}); dBox(c,13,-5,20,5,{lw:.5}); engInk(c,[[EX(-12),-3],[EX(12),-3]],.4,false,{gap:.3}); engInk(c,[[EX(-12),3],[EX(12),3]],.4,false,{gap:.3}); },
+  portcullis(c){ dJambs(c); engInk(c,[[EX(-17),0],[EX(17),0]],.45,false,{gap:.05}); for(let x=-15;x<=15;x+=5){ engInk(c,[[EX(x),-3.8],[EX(x),3.8]],.5,false,{gap:0}); engDot(c,x,3.8,.55); } },
+  stairs(c){ engPoly(c,dQ(-16,-19,16,19),{j:.3,lw:.6}); for(let i=1;i<9;i++){ const y=-19+i*38/9; engScratch(c,[EX(-16),y],[EX(16),y],.42); const n=Math.round(i*ENG_K*.8); for(let k=0;k<n;k++){ const x=-14+(k+.5)*28/Math.max(n,1); engScratch(c,[EX(x),y],[EX(x+(k%2?.4:-.4)),y+38/9*.8],.2); } }
+    engInk(c,[[EX(-16),-19],[EX(-16),19]],.8,false,{gap:0}); engInk(c,[[EX(16),-19],[EX(16),19]],.8,false,{gap:0}); },
+  spiral(c){ dRing(c,0,0,17,{sh:false}); for(let k=0;k<12;k++){ const a=k/12*Math.PI*2; engInk(c,[[EX(Math.cos(a)*4.5),Math.sin(a)*4.5],[EX(Math.cos(a)*17),Math.sin(a)*17]],.4,false,{gap:.05}); } for(let k=0;k<6;k++){ const a=k/6*Math.PI*2+.26; engScratch(c,[EX(Math.cos(a)*7),Math.sin(a)*7],[EX(Math.cos(a+.3)*14),Math.sin(a+.3)*14],.2); } dRing(c,0,0,4.2,{sh:false}); engDot(c,0,0,3.2); },
+  ladder(c){ engInk(c,[[EX(-6),-19],[EX(-6),19]],.9,false,{gap:.02,rough:.1}); engInk(c,[[EX(6),-19],[EX(6),19]],.9,false,{gap:.02,rough:.1}); for(let y=-16;y<=16;y+=4.4) engInk(c,[[EX(-6),y],[EX(6),y]],.55,false,{gap:0,rough:.1}); },
+  trapdoor(c){ dBox(c,-15,-15,15,15,{sh:false,lw:.6}); for(let y=-10;y<15;y+=5) engInk(c,[[EX(-15),y],[EX(15),y]],.3,false,{gap:.1}); engInk(c,[[EX(-15),-15],[EX(-9),-9]],.4,false,{gap:0}); dRing(c,5,5,2.8,{sh:false,lw:.5}); engDot(c,-11,-11,.8); engDot(c,-11,11,.8); },
+  pit(c){ const q=engPoly(c,[[-16,-14],[-2,-17],[14,-15],[17,-1],[15,14],[0,17],[-15,15],[-18,0]],{j:.5,lw:.7}); engShade(c,q,'d',1.5); c.save(); engPath(c,q,1); c.clip(); engShade(c,[[-20,-18],[-6,-18],[-6,18],[-20,18]].map(v=>[EX(v[0]),v[1]]),'x',1.1); c.restore(); engPoly(c,[[-16,-14],[-2,-17],[14,-15],[17,-1],[15,14],[0,17],[-15,15],[-18,0]],{j:.5,lw:.7,open:true}); },
+  table(c){ dBox(c,-19,-9,19,9,{lw:.65}); for(let y=-4.5;y<9;y+=4.5) engScratch(c,[EX(-17),y],[EX(17),y],.25); engInk(c,[[EX(-13),-9],[EX(-13),9]],.3,false,{gap:.5}); },
+  roundtable(c){ dRing(c,0,0,18); for(let k=0;k<3;k++){ const y=-7+k*7, w=Math.sqrt(Math.max(0,18*18-y*y))-3; engScratch(c,[EX(-w),y],[EX(w),y],.25); } },
+  chair(c){ dBox(c,-8,-7,8,7,{lw:.55}); engInk(c,[[EX(-8),-9],[EX(8),-9]],1.4,false,{gap:.05,rough:.1}); },
+  bed(c){ dBox(c,-11,-19,11,19,{lw:.65}); dBox(c,-8,-17,8,-8,{lw:.5,sh:false}); for(let y=-4;y<18;y+=3.2) engScratch(c,[EX(-10),y],[EX(10),y+.8],.22); engInk(c,[[EX(-11),-5],[EX(11),-5]],.45,false,{gap:.1}); },
+  bookcase(c){ dBox(c,-19,-5,19,5,{lw:.6}); for(let x=-15;x<=15;x+=6) engInk(c,[[EX(x),-5],[EX(x),5]],.35,false,{gap:.05}); for(let x=-17;x<18;x+=2.2) engScratch(c,[EX(x),-2.2],[EX(x+.2),2.2],.2); },
+  treasure(c){ dBox(c,-13,-9,13,9,{lw:.65}); engInk(c,[[EX(-13),-3],[EX(13),-3]],.4,false,{gap:.05}); dBox(c,-2,-5,2,-1,{lw:.4,sh:false}); engInk(c,[[EX(-9),-9],[EX(-9),9]],.35,false,{gap:.1}); engInk(c,[[EX(9),-9],[EX(9),9]],.35,false,{gap:.1}); },
+  dbarrel(c){ dRing(c,0,0,13); for(const r of [8.5,4.2]) engInk(c,engArc(EX(0),0,r,r,0,Math.PI*2,18),.3,true,{gap:.15,rough:.04}); for(let k=0;k<8;k++){ const a=k/8*Math.PI; engScratch(c,[EX(Math.cos(a)*13),Math.sin(a)*13],[EX(-Math.cos(a)*13),-Math.sin(a)*13],.18); } },
+  altar(c){ dBox(c,-17,-10,17,10,{lw:.7}); dBox(c,-13,-6,13,6,{lw:.4,sh:false}); engInk(c,[[EX(0),-5],[EX(0),5]],.5,false,{gap:0}); engInk(c,[[EX(-4),-1.5],[EX(4),-1.5]],.5,false,{gap:0}); engDot(c,-9,0,1.1); engDot(c,9,0,1.1); },
+  sarcophagus(c){ const q=engPoly(c,[[-9,-19],[9,-19],[11,-6],[8,19],[-8,19],[-11,-6]],{j:.35,lw:.7}); engShade(c,q,'d',.8,{clipX:EX(1)}); engPoly(c,[[-6,-15],[6,-15],[7,-5],[5,15],[-5,15],[-7,-5]],{j:.3,lw:.4,open:true}); engInk(c,[[EX(0),-12],[EX(0),6]],.45,false,{gap:0}); engInk(c,[[EX(-3.5),-7],[EX(3.5),-7]],.45,false,{gap:0}); },
+  throne(c){ dBox(c,-9,-6,9,9,{lw:.65}); dBox(c,-11,-12,11,-6,{lw:.7}); dBox(c,-13,-6,-9,9,{lw:.5,sh:false}); dBox(c,9,-6,13,9,{lw:.5}); for(let y=-3;y<9;y+=2.4) engScratch(c,[EX(-8),y],[EX(8),y],.2); },
+  fireplace(c){ dBox(c,-19,-6,19,6,{lw:.7}); engPoly(c,dQ(-12,-3,12,6),{j:.3,lw:.55}); for(let k=0;k<14;k++){ const x=-10+engR()*20, y=-1.5+engR()*6; engScratch(c,[EX(x),y],[EX(x+1.2+engR()*1.5),y+(engR()-.5)],.3); } engDot(c,-4,2.2,1.4); engDot(c,3,1.2,1.1); },
+  idol(c){ dBox(c,-11,-11,11,11,{lw:.65}); dRing(c,0,1.5,6.2,{lw:.55}); engInk(c,engArc(EX(0),-3.2,3.6,3.6,0,Math.PI*2,10),.45,true,{gap:.1}); },
+  pillar(c){ dBox(c,-12,-12,12,12,{lw:.75,sp:.7}); engInk(c,[[EX(-12),-12],[EX(12),12]],.3,false,{gap:.3}); engInk(c,[[EX(12),-12],[EX(-12),12]],.3,false,{gap:.3}); },
+  roundpillar(c){ dRing(c,0,0,13,{lw:.75,sp:.7}); engInk(c,engArc(EX(0),0,8,8,0,Math.PI*2,14),.35,true,{gap:.25,rough:.04}); },
+  brazier(c){ dRing(c,0,0,12,{lw:.7}); dRing(c,0,0,7.5,{sh:false,lw:.45}); for(let k=0;k<10;k++){ const a=k/10*Math.PI*2+.3, r=2+engR()*4; engScratch(c,[EX(0),0],[EX(Math.cos(a)*r+1),Math.sin(a)*r],.3); } for(let k=0;k<3;k++){ const a=k/3*Math.PI*2+.5; engDot(c,Math.cos(a)*13.8,Math.sin(a)*13.8,1.1); } },
+  rug(c){ engPoly(c,dQ(-19,-13,19,13),{j:.4,lw:.5}); engPoly(c,dQ(-16,-10,16,10),{j:.3,lw:.35,open:true}); engPoly(c,[[0,-7],[11,0],[0,7],[-11,0]],{j:.2,lw:.35,open:true}); for(let y=-12;y<=12;y+=3){ engInk(c,[[EX(-19),y],[EX(-21),y]],.25,false,{gap:.1}); engInk(c,[[EX(19),y],[EX(21),y]],.25,false,{gap:.1}); } },
+  trap(c){ dBox(c,-13,-13,13,13,{lw:.65,sh:false}); engInk(c,[[EX(-13),-13],[EX(13),13]],.35,false,{gap:.25}); engInk(c,[[EX(13),-13],[EX(-13),13]],.35,false,{gap:.25}); engPoly(c,dQ(-5,-5,5,5),{j:.2,lw:.5,ink:true}); },
+  spikes(c){ dBox(c,-15,-15,15,15,{lw:.65,sh:false}); for(let i=0;i<4;i++) for(let j=0;j<4;j++){ const x=-10.5+i*7, y=-10.5+j*7; engPoly(c,[[x-2.2,y+2],[x+2.2,y+2],[x,y-2.6]],{j:.1,lw:.4,shade:'d',sp:.45}); } },
+  lever(c){ dBox(c,-6,-3,6,3,{lw:.6}); engInk(c,[[EX(0),0],[EX(9),-11]],.9,false,{gap:0}); engDot(c,9,-11,2.2); engDot(c,0,0,1); },
+  rubble(c){ const rn=mulberry(12); for(let k=0;k<9;k++){ const x=(rn()-.5)*28, y=(rn()-.5)*24, r=2+rn()*4, a=rn()*6, pts=[0,1,2,3,4].map(i=>{ const t=a+i*1.26, rr=r*(.7+rn()*.5); return [x+Math.cos(t)*rr,y+Math.sin(t)*rr*.8]; }); engPoly(c,pts,{j:.15,lw:.45,shade:'d',sp:.5}); } },
+  bones(c){ const rn=mulberry(5); for(let k=0;k<5;k++){ const x=(rn()-.5)*22, y=(rn()-.5)*20, a=rn()*Math.PI, l=5+rn()*5, dx=Math.cos(a)*l, dy=Math.sin(a)*l; engInk(c,[[EX(x-dx),y-dy],[EX(x+dx),y+dy]],.8,false,{gap:0,rough:.1}); engDot(c,x-dx,y-dy,1.2,true); engDot(c,x+dx,y+dy,1.2,true); } for(let k=0;k<4;k++) engInk(c,engArc(EX(-6),-8+k*2.4,6,3,.2,Math.PI-.2,6),.4,false,{gap:.1}); },
+  web(c){ for(let k=0;k<=6;k++){ const a=k/6*Math.PI/2; engInk(c,[[EX(-19),-19],[EX(-19+Math.cos(a)*30),-19+Math.sin(a)*30]],.28,false,{gap:.1,rough:.05}); } for(let r=7;r<=29;r+=6) engInk(c,engArc(EX(-19),-19,r,r,0,Math.PI/2,8),.25,false,{gap:.1,rough:.1}); },
+  pool(c){ const R=[1,.9,1,.82,.95,1,.86,.94], q=R.map((r,i)=>{ const a=i/R.length*Math.PI*2; return [EX(Math.cos(a)*18*r),Math.sin(a)*13*r]; }); engPath(c,q,1); c.fillStyle=PAPER(); c.fill(); engInk(c,q,.6,true,{gap:.05,rough:.3}); engShade(c,q,'h',1.3,{clipX:-30}); for(let k=0;k<3;k++){ const y=-6+k*6; engInk(c,[[EX(-8),y],[EX(-5),y-1],[EX(-2),y],[EX(1),y-1],[EX(4),y]],.28,false,{gap:.2}); } },
+  stalagmite(c){ for(const [x,y,r] of [[-6,-3,7],[7,5,5.2],[-2,10,3.6],[10,-8,3.4]]){ dRing(c,x,y,r,{lw:.5,at:.1}); engInk(c,engArc(EX(x),y,r*.45,r*.45,0,Math.PI*2,8),.28,true,{gap:.2}); } },
+  torch(c){ dRing(c,0,0,4.2,{sh:false,lw:.5}); engDot(c,0,0,1.8); for(let k=0;k<10;k++){ const a=k/10*Math.PI*2; engInk(c,[[EX(Math.cos(a)*7),Math.sin(a)*7],[EX(Math.cos(a)*(10+(k%2)*5)),Math.sin(a)*(10+(k%2)*5)]],.3,false,{gap:0}); } },
+  sigil(c){ for(const r of [17,14.5]) engInk(c,engArc(EX(0),0,r,r,0,Math.PI*2,28),.5,true,{gap:.03,rough:.06}); const st=[0,2,4,1,3].map(i=>{ const a=-Math.PI/2+i*Math.PI*2/5; return [EX(Math.cos(a)*14.5),Math.sin(a)*14.5]; }); engInk(c,[...st,st[0]],.4,false,{gap:.05}); for(let k=0;k<12;k++){ const a=k/12*Math.PI*2; engInk(c,[[EX(Math.cos(a)*14.5),Math.sin(a)*14.5],[EX(Math.cos(a)*17),Math.sin(a)*17]],.3,false,{gap:0}); } },
+  crack(c){ engInk(c,[[EX(-18),-6],[EX(-12),-2],[EX(-9),-5],[EX(-3),1],[EX(2),-1],[EX(8),5],[EX(18),3]],.6,false,{gap:.05,rough:.3}); engInk(c,[[EX(-3),1],[EX(-5),7],[EX(-9),10]],.4,false,{gap:.05,rough:.25}); engInk(c,[[EX(8),5],[EX(11),11]],.35,false,{gap:.1,rough:.2}); },
+  plankbridge(c){ dBox(c,-19,-8,19,8,{lw:.55,sh:false}); for(let x=-17;x<=17;x+=3.4) engInk(c,[[EX(x),-8],[EX(x),8]],.3,false,{gap:.1}); engInk(c,[[EX(-19),-9.5],[EX(19),-9.5]],.9,false,{gap:.03,rough:.12}); engInk(c,[[EX(-19),9.5],[EX(19),9.5]],.9,false,{gap:.03,rough:.12}); },
+});
+/* ---- more dungeon art: monsters seen from above (each faces up the page, so the stamp's rotation points it), further furnishings, and single letters and numbers.
+   Bodies are engForm shapes, limbs are engLimb, so a creature is shaded from the left like everything else; and none of them has a face. ---- */
+const mRing=(x,y,rx,ry=rx,n=9,r0=0)=>Array.from({length:n},(_,i)=>{ const a=i/n*Math.PI*2+r0; return [x+Math.cos(a)*rx,y+Math.sin(a)*ry]; });
+const mBody=(c,pts,o={})=>engForm(c,pts,{sp:.62,ang:1.15,lw:.45,...o});
+const mLimb=(c,j,o={})=>engLimb(c,j,{sp:.6,ang:1.3,...o});
+const mClaw=(c,x,y,dx,dy)=>{ for(const k of [-.55,0,.55]) engStroke(c,[[x,y],[x+dx*1.2-dy*k,y+dy*1.2+dx*k],[x+dx*2.2-dy*k*1.7,y+dy*2.2+dx*k*1.7]],.5,.3); };
+const mLine=(c,a,b,lw=.7)=>engInk(c,[[EX(a[0]),a[1]],[EX(b[0]),b[1]]],lw,false,{gap:0,rough:.05});
+function mWpn(c,k,x,y,t,L){ const dx=Math.sin(t), dy=-Math.cos(t), tip=[x+dx*L,y+dy*L], px=-dy, py=dx;      // a weapon from the hand at (x,y), t clockwise from straight up
+  if(k==='sword'){ mLine(c,[x,y],tip,.9); mLine(c,[x+dx*L*.2-px*2.4,y+dy*L*.2-py*2.4],[x+dx*L*.2+px*2.4,y+dy*L*.2+py*2.4],.8); }
+  else if(k==='spear'){ const b=[x-dx*L*.3,y-dy*L*.3]; mLine(c,b,tip,.7); engPoly(c,[[tip[0]+px*1.6,tip[1]+py*1.6],[tip[0]+dx*4.6,tip[1]+dy*4.6],[tip[0]-px*1.6,tip[1]-py*1.6]],{j:.1,lw:.4,ink:true}); }
+  else if(k==='trident'){ const b=[x-dx*L*.3,y-dy*L*.3]; mLine(c,b,tip,.7); for(const s of [-1,0,1]){ const q=[tip[0]+px*s*2.6,tip[1]+py*s*2.6]; mLine(c,[tip[0],tip[1]],[q[0]+dx*4.4*(s?.8:1.2),q[1]+dy*4.4*(s?.8:1.2)],.6); } mLine(c,[tip[0]+px*2.6,tip[1]+py*2.6],[tip[0]-px*2.6,tip[1]-py*2.6],.6); }
+  else if(k==='axe'){ mLine(c,[x-dx*2,y-dy*2],tip,.9); const m=[x+dx*L*.82,y+dy*L*.82], Q=(u,w)=>[m[0]+dx*u+px*w,m[1]+dy*u+py*w], A=[]; for(let a=-1.2;a<=1.201;a+=.3) A.push(Q(6.2*Math.sin(a),7.4*Math.cos(a)-.4)); for(let a=1.2;a>=-1.201;a-=.4) A.push(Q(4.6*Math.sin(a),3.4*Math.cos(a)+.6)); engPoly(c,A,{raw:false,j:.05,lw:.5,shade:'d',sp:1}); }
+  else if(k==='club'){ mLimb(c,[[x-dx*2,y-dy*2,1.6],[x+dx*L*.5,y+dy*L*.5,2.6],[tip[0],tip[1],5.4]],{sp:.55}); engInk(c,engArc(EX(tip[0]+dx*1.4),tip[1]+dy*1.4,2.8,2.8,0,Math.PI*2,8),.4,true,{gap:.1,rough:.05}); for(const f of [.7,.85]) engDot(c,x+dx*L*f+px*1.6,y+dy*L*f+py*1.6,.5); }
+  else if(k==='staff'){ mLine(c,[x-dx*4,y-dy*4],tip,.7); engDot(c,tip[0],tip[1],1.8,true); }
+  else if(k==='dagger'){ mLine(c,[x,y],tip,.8); mLine(c,[x+dx*L*.15-px*1.4,y+dy*L*.15-py*1.4],[x+dx*L*.15+px*1.4,y+dy*L*.15+py*1.4],.6); } }
+function mHead(c,x,y,dx,dy,len,w,o={}){ const px=-dy, py=dx; return mBody(c,[[x+dx*len,y+dy*len],[x+px*w*.9+dx*len*.35,y+py*w*.9+dy*len*.35],[x+px*w*.6-dx*len*.4,y+py*w*.6-dy*len*.4],[x-px*w*.6-dx*len*.4,y-py*w*.6-dy*len*.4],[x-px*w*.9+dx*len*.35,y-py*w*.9+dy*len*.35]],{sp:.5,...o}); }      // a pointed head along (dx,dy)
+const mRot=(dx,dy,a)=>[dx*Math.cos(a)-dy*Math.sin(a),dx*Math.sin(a)+dy*Math.cos(a)];
+function mJaws(c,x,y,dx,dy,len,w){ for(const s of [-1,1]){ const [rx,ry]=mRot(dx,dy,s*.3), px=-ry, py=rx; mBody(c,[[x+rx*len,y+ry*len],[x+px*w*.5+rx*len*.4,y+py*w*.5+ry*len*.4],[x+px*w*.5-rx*len*.2,y+py*w*.5-ry*len*.2],[x-px*w*.5-rx*len*.2,y-py*w*.5-ry*len*.2],[x-px*w*.5+rx*len*.4,y-py*w*.5+ry*len*.4]].map((q,i)=>i?q:[q[0],q[1],1]),{sp:.5,lw:.4}); engDot(c,x+rx*len*.94,y+ry*len*.94,.5); } for(const s of [-1,1]) engInk(c,[[EX(x+s*2.4-dy*0),y+dy*0+1.4],[EX(x+s*4.4),y+3]],.35,false,{gap:0}); }      // an open-mouthed serpent's head
+function mStone(c,x,y,rx,ry,seed,o={}){ const rn=mulberry(seed*31+5), n=o.n||8, pts=[]; for(let i=0;i<n;i++){ const a=i/n*Math.PI*2+rn()*.3, r=.8+rn()*.36; pts.push([x+Math.cos(a)*rx*r,y+Math.sin(a)*ry*r,1]); } return mBody(c,pts,{sp:.7,thr:.12,...o}); }      // an angular boulder
+function mRag(c,x,y0,w,L,n,seed,o={}){ const rn=mulberry(seed*17+3), pts=[[x-w*.5,y0],[x+w*.5,y0],[x+w*.56,y0+L*.5]]; for(let k=n;k>=0;k--) pts.push([x+w*.52-k/n*w*1.04,y0+L*(k%2?.9:1)+rn()*L*.08,1]); pts.push([x-w*.56,y0+L*.5]); return mBody(c,pts,{sp:.8,...o}); }      // a ragged length of cloth
+const mFur=(c,x,y,rx,ry,n,o={})=>mBody(c,Array.from({length:n*2},(_,i)=>{ const a=i/(n*2)*Math.PI*2, r=i%2?.9:1.04; return [x+Math.cos(a)*rx*r,y+Math.sin(a)*ry*r,i%2?0:1]; }),{sp:.7,...o});      // a shaggy mantle
+const HEADS={
+  goblin(c,hy){ for(const s of [-1,1]){ mBody(c,[[s*2.4,hy-1.2,1],[s*6,hy-3.2],[s*13.4,hy+2.4,1],[s*8.4,hy+3],[s*3,hy+1.8]],{sp:.7,lw:.4}); engInk(c,[[EX(s*3.6),hy-.2],[EX(s*9),hy+.8]],.28,false,{gap:.1}); } mBody(c,mRing(0,hy,3.3,3.5,8),{sp:.45,dark:.1}); for(let k=0;k<3;k++) engPoly(c,[[(k-1)*1.4-.6,hy+2.8],[(k-1)*1.4,hy+5.6],[(k-1)*1.4+.6,hy+2.8]],{j:.05,lw:.3,ink:true}); engInk(c,[[EX(-2.4),hy-1.8],[EX(0),hy-2.6],[EX(2.4),hy-1.8]],.4,false,{gap:0}); },
+  orc(c,hy){ for(const s of [-1,1]) mBody(c,[[s*3.6,hy-.4],[s*5.6,hy-1.6],[s*6.2,hy+1.4],[s*4,hy+2]],{sp:.6,lw:.4}); mBody(c,mRing(0,hy,4.4,4.6,8),{sp:.45}); for(let k=0;k<9;k++) engInk(c,[[EX(-.5+(k%2)*1),hy-3.6+k*1.1],[EX(-.3+(k%2)*.6),hy-2.6+k*1.1]],.8,false,{gap:0}); for(let k=0;k<5;k++) engInk(c,[[EX(-2),hy-3+k*1.5],[EX(-4.2),hy-2+k*1.5]],.25,false,{gap:0}); engInk(c,[[EX(-3.6),hy-3.2],[EX(0),hy-4.4],[EX(3.6),hy-3.2]],.7,false,{gap:0}); for(const s of [-1,1]) engStroke(c,[[s*1.8,hy-4.2],[s*3.2,hy-6.4],[s*2.4,hy-9]],.9,.25); },
+  zombie(c,hy){ mBody(c,mRing(1.2,hy,3.8,3.6,8),{sp:.5,dark:.2}); for(let k=0;k<5;k++){ const a=.5+k*.5; engInk(c,[[EX(1.2+Math.cos(a)*3),hy+Math.sin(a)*3],[EX(1.2+Math.cos(a)*5+(k%2?.8:-.8)),hy+Math.sin(a)*5.4]],.3,false,{gap:0}); } mBody(c,mRing(5.4,hy+.6,1.5,2,5),{sp:.5,lw:.35}); engInk(c,[[EX(-2),hy-2],[EX(1),hy-.4],[EX(.4),hy+1.6]],.3,false,{gap:.2}); },
+  ogre(c,hy){ mBody(c,mRing(0,hy,3.8,3.6,8),{sp:.45,dark:.1}); for(let k=0;k<5;k++) engInk(c,[[EX(-2+k),hy-3.4],[EX(-2.4+k*1.1),hy-1.2]],.3,false,{gap:0}); engInk(c,[[EX(1.4),hy-2.6],[EX(2.6),hy+.2],[EX(1.8),hy+2.4]],.4,false,{gap:.1}); engInk(c,[[EX(-2.8),hy-1.4],[EX(2.8),hy-1.4]],.55,false,{gap:0}); engInk(c,[[EX(-3),hy+2.4],[EX(0),hy+3.4],[EX(3),hy+2.4]],.3,false,{gap:0}); },
+  troll(c,hy){ for(const s of [-1,1]) engStroke(c,[[s*3,hy],[s*7.4,hy+1.2],[s*8.4,hy+6]],1.6,.2); mHead(c,0,hy+1,0,-1,9,4.6,{dark:.15}); engPoly(c,[[-1.4,hy-6],[0,hy-8.6],[1.4,hy-6]],{j:.05,lw:.4,ink:true}); for(let k=0;k<6;k++) engInk(c,[[EX(-3+k*1.2),hy+1],[EX(-3.4+k*1.2),hy+4]],.28,false,{gap:0}); },
+  minotaur(c,hy){ for(const s of [-1,1]){ mBody(c,[[s*3.4,hy-.4],[s*9.6,hy-1],[s*8,hy+2.6],[s*3.6,hy+2.4]],{sp:.7,lw:.4}); engStroke(c,[[s*3.6,hy-2],[s*10,hy-5],[s*12.6,hy-12],[s*9.6,hy-17.4]],1.1,.2); } mBody(c,mRing(0,hy+1,3.8,4.2,8),{sp:.45,dark:.15}); mHead(c,0,hy-1,0,-1,8,3.6,{dark:.1}); engDot(c,-1.2,hy-8,.6); engDot(c,1.2,hy-8,.6); for(let k=0;k<5;k++) engInk(c,[[EX(-2+k),hy+2],[EX(-2.4+k),hy+5]],.3,false,{gap:0}); },
+  lizard(c,hy){ for(let k=-3;k<=3;k++){ const a=Math.PI/2+k*.34; engInk(c,[[EX(Math.cos(a)*3),hy+Math.sin(a)*2.4],[EX(Math.cos(a)*9.6),hy+Math.sin(a)*8]],.5,false,{gap:0}); } for(let k=-3;k<3;k++){ const a1=Math.PI/2+k*.34, a2=a1+.34; engInk(c,[[EX(Math.cos(a1)*8.2),hy+Math.sin(a1)*6.8],[EX(Math.cos(a2)*8.2),hy+Math.sin(a2)*6.8]],.3,false,{gap:0}); } mBody(c,mRing(0,hy+1,3,3.4,7),{sp:.45}); mHead(c,0,hy-1,0,-1,9,2.4,{dark:.1}); engDot(c,-.9,hy-9,.5); engDot(c,.9,hy-9,.5); },
+};
+function mMan(c,o={}){ const sw=o.sw||8.5, hn=o.hunch||0, hL=o.hl||[-3,-12], hR=o.hr2||[3,-12], el=o.elbow||1.5, k=o.k||1.22;      // a figure from above, drawn large: pack and cloak behind, shoulders, arms bent forward round the weapon, and a head of its own kind (HEADS)
+  c.save(); c.translate(0,3); c.scale(k,k);
+  if(o.tail) mLimb(c,[[0,3,3.6],[2,9,3],[-2,15,2.2],[1,21,1.4],[-1,26,.5]],{dark:.2,sp:.5}); if(o.tailThick) mLimb(c,[[0,3,5],[1,10,4],[-1,17,2.8],[1,24,1.2],[0,28,.4]],{dark:.2,sp:.5});
+  if(o.pack){ mBody(c,[[-sw*.55,1],[sw*.55,1],[sw*.62,10],[0,12],[-sw*.62,10]],{sp:.8,dark:.15}); engInk(c,[[EX(-sw*.3),1],[EX(-sw*.3),11]],.3,false,{gap:0}); engInk(c,[[EX(sw*.3),1],[EX(sw*.3),11]],.3,false,{gap:0}); engInk(c,[[EX(-sw*.5),5],[EX(sw*.5),5]],.4,false,{gap:0}); }
+  if(o.cloak!==false && !o.pack) mBody(c,[[-sw*.85,0],[sw*.85,0],[sw*.78,7],[sw*.4,11],[0,9.4],[-sw*.4,12],[-sw*.78,7]],{sp:.8,dark:.25,thr:.1});
+  if(o.shield){ mBody(c,mRing(-sw-3.6,-7,5.8,5.8,9),{sp:.55}); engInk(c,engArc(EX(-sw-3.6),-7,3.6,3.6,0,Math.PI*2,9),.3,true,{gap:.1}); engDot(c,-sw-3.6,-7,1.1); }
+  if(o.mantle) mFur(c,0,-.6,sw*1.12,sw*.66,8,{dark:.2,thr:.1}); mBody(c,mRing(0,-.4,sw*.94,sw*.5,10),{sp:.62}); engInk(c,[[EX(-sw*.8),-2],[EX(-sw*.35),-3.6],[EX(sw*.35),-3.6],[EX(sw*.8),-2]],.4,false,{gap:.1}); if(o.belly){ mBody(c,mRing(0,5,sw*.74,5.6,8),{sp:.7}); engInk(c,[[EX(-sw*.74),4.4],[EX(sw*.74),4.4]],.7,false,{gap:0}); engDot(c,0,4.4,1); }
+  if(o.spikes) for(const sx of [-1,1]) for(let q=0;q<3;q++) engPoly(c,[[sx*(sw*.62+q*2)-1,-2-q*.6],[sx*(sw*.66+q*2),-6.6-q*.6],[sx*(sw*.62+q*2)+1,-2-q*.6]],{j:.1,lw:.3,ink:true});
+  if(o.ragged) for(let q=0;q<9;q++){ const a=-2.8+q*.7; engInk(c,[[EX(Math.cos(a)*sw*.95),Math.sin(a)*sw*.52-.4],[EX(Math.cos(a)*sw*1.15+(q%2?.8:-.8)),Math.sin(a)*sw*.6+1.2]],.4,false,{gap:0}); }
+  if(o.dorsal) for(let q=0;q<6;q++) engPoly(c,[[-1.2,-1+q*1.9],[0,-3.4+q*1.9],[1.2,-1+q*1.9]],{j:.05,lw:.3,ink:true});
+  mLimb(c,[[-sw*.82,-1.6,3.6],[-sw-el,-6.2,3],[hL[0],hL[1],2.2]],{dark:.1}); mLimb(c,[[sw*.82,-1.6,3.6],[sw+el,-6.2,3],[hR[0],hR[1],2.2]],{dark:.1}); engDot(c,hL[0],hL[1],1.8,true); engDot(c,hR[0],hR[1],1.8,true); if(o.claws){ mClaw(c,hL[0],hL[1],hL[0]<-8?-.6:-.2,-1); mClaw(c,hR[0],hR[1],.2,-1); }
+  if(o.w) mWpn(c,o.w,hR[0],hR[1],o.wa??0,o.wl||16); if(o.w2) mWpn(c,o.w2,hL[0],hL[1],o.wa2??-.1,o.wl||16);
+  HEADS[o.head||'ogre'](c,-3.4-hn); c.restore(); }
+Object.assign(SKETCH_DRAW,{
+  goblin(c){ mMan(c,{head:'goblin',sw:6.2,k:1.3,w:'dagger',wl:10,wa:.15,shield:1,pack:1,hl:[-5.5,-9],hr2:[5,-10],elbow:1}); },
+  orc(c){ mMan(c,{head:'orc',sw:10.2,k:1.16,w:'axe',wl:20,wa:.04,hl:[-2.4,-11],hr2:[3,-14],mantle:1,elbow:2.4,cloak:false}); for(const s of [-1,1]){ engPoly(c,[[s*10-1.6,-1],[s*14,-5.4],[s*12,0]],{j:.05,lw:.4,ink:true}); } },
+  zombie(c){ mMan(c,{head:'zombie',sw:7.8,k:1.2,hunch:2.4,hl:[-5,-17],hr2:[4.4,-14],elbow:-.4,ragged:1,cloak:false}); for(let k=0;k<6;k++){ const x=(engR()-.5)*12, y=-1+engR()*7; engScratch(c,[EX(x),y],[EX(x+(engR()-.5)*4),y+2.6],.3); } },
+  ogre(c){ mMan(c,{head:'ogre',sw:12.4,k:1.02,w:'club',wl:21,wa:.1,belly:1,hl:[-2,-11],hr2:[5,-14],elbow:2.6,cloak:false}); },
+  troll(c){ mMan(c,{head:'troll',sw:9.6,k:1.1,w:'club',wl:15,wa:.25,hl:[-15,-13],hr2:[10,-10],hunch:1.6,elbow:3.4,dorsal:1,claws:1,cloak:false}); },
+  minotaur(c){ mMan(c,{head:'minotaur',sw:11,k:1.05,w:'axe',wl:21,wa:.05,hl:[-2.4,-11],hr2:[3,-14],elbow:2.4,mantle:1,cloak:false}); },
+  lizardfolk(c){ mMan(c,{head:'lizard',sw:7,k:1.15,w:'spear',wl:23,wa:.04,tailThick:1,hl:[-5,-9],hr2:[5,-11],elbow:1.2,claws:1,cloak:false}); },
+  fiend(c){ const wing=sx=>{ const P=[[5,-3],[19,-13,1],[31,-9,1],[25,-4],[30,3,1],[22,3],[23,11,1],[14,6],[14,12,1],[7,6]].map(p=>[sx*p[0],p[1],p[2]]); mBody(c,P,{sp:.85,dark:.15,thr:.25}); for(const f of [[31,-9],[30,3],[23,11],[14,12]]) mLine(c,[sx*19,-13],[sx*f[0],f[1]],.6); mLimb(c,[[sx*5,-3,3],[sx*12,-9,2.2],[sx*19,-13,1.4]],{sp:.5}); }; wing(-1); wing(1);
+    mMan(c,{head:'minotaur',sw:7.4,k:1,w:'trident',wl:20,wa:.05,tail:1,hl:[-3,-10],hr2:[4,-12],elbow:1.2,cloak:false}); },
+  skeleton(c){ for(let k=0;k<5;k++){ const y=-2.4+k*2.4, w=6.6-Math.abs(k-1.4)*.8; for(const sx of [-1,1]) engInk(c,[[EX(0),y],[EX(sx*w*.5),y-1.8],[EX(sx*w),y-.2],[EX(sx*w*.86),y+2]],.6,false,{gap:.04,rough:.05}); } engInk(c,[[EX(0),-5],[EX(0),10.4]],.8,false,{gap:0}); for(let k=0;k<7;k++) engDot(c,0,-4+k*2.2,.55);
+    engPoly(c,[[-4.6,10.4],[-1,9],[1,9],[4.6,10.4],[3.4,14.6],[0,13],[-3.4,14.6]],{j:.15,lw:.5}); engInk(c,[[EX(-7),-4],[EX(-2.4),-6.2],[EX(2.4),-6.2],[EX(7),-4]],.6,false,{gap:0});
+    for(const sx of [-1,1]){ engInk(c,[[EX(sx*7),-4],[EX(sx*10.6),-8],[EX(sx*6),-14]],.9,false,{gap:0}); engDot(c,sx*7,-4,1.3,true); engDot(c,sx*10.6,-8,1.1,true); engDot(c,sx*6,-14,1.3,true); } mWpn(c,'sword',6,-14,.1,15);
+    const s=mBody(c,mRing(0,-9.6,3.8,4.2,9),{sp:.5}); engInk(c,[[EX(0),-13.6],[EX(0),-5.8]],.3,false,{gap:.1}); engInk(c,[[EX(-3),-9.8],[EX(3),-9.8]],.3,false,{gap:.2}); },
+  giantrat(c){ engStroke(c,[[0,9],[3,14],[-3,19],[2,25],[-1,29]],.8,.25); for(const sx of [-1,1]){ mLimb(c,[[sx*3.6,-3,2.2],[sx*5.4,-6.4,1.4],[sx*5,-9,.8]],{sp:.5}); mLimb(c,[[sx*4.2,5,3],[sx*6.6,8,1.8],[sx*5.2,10.6,.9]],{sp:.5}); }
+    mBody(c,[[0,-8],[4,-4.4],[4.8,3],[2.4,9],[0,10.4],[-2.4,9],[-4.8,3],[-4,-4.4]],{sp:.55}); mBody(c,[[0,-17.4],[2.2,-12.6],[1.8,-8.4],[-1.8,-8.4],[-2.2,-12.6]],{sp:.5}); for(const sx of [-1,1]){ mBody(c,mRing(sx*3.4,-9.6,2.2,2.2,6),{sp:.5,lw:.35}); for(const k of [-.6,0,.6]) engInk(c,[[EX(sx*1),-15.6],[EX(sx*(5+k*2)),-16.4+k*3]],.22,false,{gap:0}); } engDot(c,0,-17.2,.8); },
+  direwolf(c){ for(const sx of [-1,1]){ mLimb(c,[[sx*3.8,-5,2.8],[sx*5.2,-9,1.8],[sx*4.6,-12,1]],{sp:.5}); mLimb(c,[[sx*4.4,6,3.4],[sx*6.4,9.4,2],[sx*5,12.6,1]],{sp:.5}); }
+    engLimb(c,[[0,10,4.2],[1.6,16,3.8],[.4,22,2.8],[-1.2,27,.8]],{sp:.5,dark:.15}); mBody(c,[[0,-9],[5,-6],[5.6,2],[4,10],[0,12.6],[-4,10],[-5.6,2],[-5,-6]],{sp:.58});
+    for(let k=0;k<9;k++){ const x=(engR()-.5)*7, y=-5+engR()*14; engScratch(c,[EX(x),y],[EX(x*.8),y+2.6],.28); } mBody(c,[[0,-22.4],[1.8,-18],[3.6,-13],[3.6,-10],[0,-8.6],[-3.6,-10],[-3.6,-13],[-1.8,-18]],{sp:.5});
+    for(const sx of [-1,1]) engPoly(c,[[sx*1.8,-12.4],[sx*5,-16],[sx*4.4,-10.6]],{j:.1,lw:.4,ink:true}); engDot(c,0,-22.2,.9); },
+  giantspider(c){ for(const sx of [-1,1]) for(let k=0;k<4;k++){ const y0=-6+k*3.4, sp=(k-1.5)*5.8; engInk(c,[[EX(sx*3),y0],[EX(sx*10),y0-5+k],[EX(sx*(16+Math.abs(k-1.5))),y0+sp*.55]].map(p=>p),.75,false,{gap:0}); engInk(c,[[EX(sx*(16+Math.abs(k-1.5))),y0+sp*.55],[EX(sx*(19.5)),y0+sp*.9]],.55,false,{gap:0}); engDot(c,sx*10,y0-5+k,.7); }
+    mBody(c,mRing(0,6,6.4,8.6,9),{sp:.55}); for(let k=0;k<3;k++) engInk(c,[[EX(-2.4),2+k*4],[EX(0),4+k*4],[EX(2.4),2+k*4]],.3,false,{gap:.1}); mBody(c,mRing(0,-6,4,4.6,8),{sp:.5}); for(const sx of [-1,1]){ engInk(c,[[EX(sx*1.4),-10],[EX(sx*2.2),-14]],.7,false,{gap:0}); engInk(c,[[EX(sx*3.2),-8.4],[EX(sx*6.4),-12.6]],.55,false,{gap:0}); } },
+  scorpion(c){ for(const sx of [-1,1]){ for(let k=0;k<4;k++) engInk(c,[[EX(sx*3),-3+k*2.6],[EX(sx*8.4),-6+k*3.2],[EX(sx*11),-3.4+k*3.6]],.6,false,{gap:0});
+      engInk(c,[[EX(sx*3),-8],[EX(sx*8),-12],[EX(sx*8.4),-19]],.9,false,{gap:0}); mBody(c,[[sx*8,-19],[sx*12.4,-23],[sx*10,-27],[sx*7.6,-22]],{sp:.6}); }
+    mBody(c,mRing(0,-3,5.2,6.4,8),{sp:.55}); for(let k=0;k<5;k++) mBody(c,mRing(0,5+k*3.8,4.4-k*.45,2.3,7),{sp:.6,lw:.4}); engStroke(c,[[0,22],[2,28],[7,29],[8,23],[5,19.5]],1.6,.3); engPoly(c,[[3.6,19.4],[6.8,18],[5.2,21.4]],{j:.1,lw:.4,ink:true}); },
+  centipede(c){ const P=k=>[Math.sin(k*.55)*4,-14+k*3.2]; for(let k=0;k<9;k++){ const [x,y]=P(k); for(const sx of [-1,1]) engInk(c,[[EX(x+sx*2.4),y],[EX(x+sx*6.6),y+1.6],[EX(x+sx*8.4),y+4]],.5,false,{gap:0}); }
+    for(let k=8;k>=0;k--){ const [x,y]=P(k); mBody(c,mRing(x,y,4-(k>6?(k-6)*.4:0),2.2,7),{sp:.6,lw:.4}); } for(const sx of [-1,1]) engStroke(c,[[sx*1.4,-15],[sx*3.4,-19],[sx*2.6,-24]],.5,.3); },
+  snake(c){ mLimb(c,[[0,-12,6],[-5,-6,5.4],[-3,0,5],[5,5,4.4],[4,11,3.4],[-3,15,2.4],[-7,19,1.4],[-4,23,.5]],{sp:.55,ang:1.1}); for(let k=0;k<7;k++){ const t=k/6; engInk(c,[[EX(-3+Math.sin(t*5)*4),-6+t*20],[EX(-1+Math.sin(t*5)*4),-5+t*20]],.3,false,{gap:0}); }
+    mBody(c,[[0,-21],[4,-16],[0,-10.4],[-4,-16]],{sp:.5}); engStroke(c,[[0,-21],[0,-24.5],[-1.6,-27]],.35); engStroke(c,[[0,-24.5],[1.6,-27]],.35); },
+  batswarm(c){ const spot=[[-8,-6,.9],[8,-8,.8],[0,2,1.1],[-9,10,.8],[9,9,.9]]; for(const [x,y,s] of spot){ for(const sx of [-1,1]) mBody(c,[[x+sx*1,y-1*s],[x+sx*9*s,y-5*s],[x+sx*7*s,y],[x+sx*5.4*s,y+2*s],[x+sx*3.4*s,y+.4*s],[x+sx*2,y+3.4*s]],{sp:.6,lw:.38,flat:s<.85}); mBody(c,mRing(x,y+.4,1.8*s,3*s,6),{sp:.5,lw:.36}); } },
+  owlbear(c){ for(const sx of [-1,1]){ mLimb(c,[[sx*8,7,5.6],[sx*11.6,10.6,4],[sx*10.6,15.4,3]],{sp:.5}); mClaw(c,sx*10.6,15.4,sx*.2,1); }
+    mBody(c,[[0,-9],[8.6,-5],[11,5],[7,14],[0,17],[-7,14],[-11,5],[-8.6,-5]],{sp:.7}); for(let k=0;k<16;k++){ const a=engR()*6.28, r=engR()*8; engInk(c,[[EX(Math.cos(a)*r),Math.sin(a)*r*1.2+3],[EX(Math.cos(a)*r*.9+(engR()-.5)*2),Math.sin(a)*r*1.2+5.4]],.3,false,{gap:0}); }
+    for(const sx of [-1,1]){ mLimb(c,[[sx*7,-6,6],[sx*10.6,-11,4.4],[sx*9.4,-18,3.4]],{sp:.5}); mClaw(c,sx*9.4,-18,sx*.15,-1); }
+    mBody(c,mRing(0,-11,5.6,5.2,8),{sp:.5}); for(const sx of [-1,1]){ for(let k=0;k<4;k++) engInk(c,[[EX(sx*(2+k*1.2)),-15.6+k*.4],[EX(sx*(2.6+k*1.4)),-12.6+k*.9]],.3,false,{gap:0}); engPoly(c,[[sx*3.6,-15.4],[sx*5.2,-18],[sx*5.6,-14]],{j:.1,lw:.35,ink:true}); } engPoly(c,[[-1.6,-15.6],[0,-19.6],[1.6,-15.6]],{j:.1,lw:.5,ink:true}); },
+  ooze(c){ const R=[1,.8,1.1,.86,1,.76,1.12,.9,1.05,.82], q=R.map((r,i)=>{ const a=i/R.length*Math.PI*2; return [Math.cos(a)*15*r,Math.sin(a)*12.4*r]; }); mBody(c,q,{sp:.9,thr:.3,lw:.5}); for(const [x,y,r] of [[-5,-3,2.4],[3,4,1.8],[6,-4,1.2],[-2,6,1.2],[-8,3,.9]]) engInk(c,engArc(EX(x),y,r,r,0,Math.PI*2,9),.4,true,{gap:.1,rough:.04}); mBody(c,mRing(1,0,4.4,3.6,7),{flat:1,lw:.35}); engDot(c,1,0,1.2); },
+  cube(c){ engPoly(c,dQ(-16,-16,16,16),{j:.4,lw:.7}); engPoly(c,dQ(-12.4,-12.4,12.4,12.4),{j:.3,lw:.3,open:true}); engShade(c,engPoly(c,dQ(-16,-16,16,16),{j:.4,lw:.7}),'d',.9,{clipX:5}); engInk(c,[[EX(-6),-3],[EX(2),-5]],.9,false,{gap:0}); engDot(c,-6,-3,1.1,true); engDot(c,2,-5,1.1,true); engPoly(c,[[3,4],[8,3],[9,8],[4,9]],{j:.2,lw:.4}); },
+  beholder(c){ for(let k=0;k<9;k++){ const a=k/9*Math.PI*2+.3, L=14+(k%3)*3; engStroke(c,[[Math.cos(a)*8,Math.sin(a)*8],[Math.cos(a+.5)*(8+L*.5),Math.sin(a+.5)*(8+L*.5)],[Math.cos(a+.2)*(8+L),Math.sin(a+.2)*(8+L)]],.9,.5); engInk(c,engArc(EX(Math.cos(a+.2)*(8+L)),Math.sin(a+.2)*(8+L),2,2,0,Math.PI*2,8),.5,true,{gap:0}); engDot(c,Math.cos(a+.2)*(8+L),Math.sin(a+.2)*(8+L),.8); }
+    mBody(c,mRing(0,0,10.4,10.4,10),{sp:.6,thr:.1}); engInk(c,engArc(EX(0),0,6,6,0,Math.PI*2,12),.6,true,{gap:0}); c.fillStyle=PAPER(); c.beginPath(); c.arc(EX(0),0,6,0,7); c.fill(); engInk(c,engArc(EX(0),0,6,6,0,Math.PI*2,12),.6,true,{gap:0}); engInk(c,engArc(EX(0),0,2.8,2.8,0,Math.PI*2,9),.5,true,{gap:0}); engDot(c,0,0,2.2); for(let k=0;k<12;k++){ const a=k/12*Math.PI*2; engInk(c,[[EX(Math.cos(a)*3.2),Math.sin(a)*3.2],[EX(Math.cos(a)*5.6),Math.sin(a)*5.6]],.25,false,{gap:0}); } },
+  drake(c){ const wing=sx=>{ const P=[[5,-2],[14,-17,1],[32,-12,1],[26,-6],[34,0,1],[26,3],[28,11,1],[19,7],[19,14,1],[9,7]].map(p=>[sx*p[0],p[1],p[2]]); mBody(c,P,{sp:.9,dark:.2,thr:.2}); for(const f of [[32,-12],[34,0],[28,11],[19,14]]) mLine(c,[sx*14,-17],[sx*f[0],f[1]],.6); mLimb(c,[[sx*5,-2,3.4],[sx*10,-10,2.4],[sx*14,-17,1.6]],{sp:.5}); }; wing(-1); wing(1);
+    mLimb(c,[[0,12,6],[1,20,4.4],[-2,28,3],[1,35,1.6],[0,40,.4]],{sp:.55,dark:.2}); engPoly(c,[[0,36],[5,40],[0,45],[-5,40]],{j:.1,lw:.4,shade:'d',sp:.5}); for(const sx of [-1,1]){ mLimb(c,[[sx*5,10,4.4],[sx*9,13,2.6]],{sp:.5}); mClaw(c,sx*9,13,sx*.3,1); mLimb(c,[[sx*5,-6,3.6],[sx*8,-10,2.2]],{sp:.5}); mClaw(c,sx*8,-10,sx*.3,-1); }
+    mBody(c,[[0,-13],[5,-7],[5.6,6],[0,14],[-5.6,6],[-5,-7]],{sp:.55}); for(let k=0;k<7;k++) engInk(c,[[EX(-2.4),-7+k*2.6],[EX(0),-6+k*2.6],[EX(2.4),-7+k*2.6]],.3,false,{gap:.1}); mBody(c,[[0,-25],[3,-20],[4.4,-15],[0,-12],[-4.4,-15],[-3,-20]],{sp:.5}); for(const sx of [-1,1]) engStroke(c,[[sx*2.2,-20],[sx*5,-24],[sx*4,-29]],.8,.25); },
+  wraith(c){ for(let k=0;k<7;k++){ const x=-11+k*3.7, s=(k%2?1:-1); engStroke(c,[[x*.6,16],[x*.9+s*2,24],[x*1.1-s*2,32],[x*1.2+s*3,40+(k%3)*3]],1.1,.1); }
+    mBody(c,[[-8,-4],[8,-4],[11,6],[13,16,1],[11,26,1],[8,22,1],[6,30,1],[3,24,1],[0,32,1],[-3,24,1],[-6,30,1],[-8,22,1],[-11,26,1],[-13,16,1],[-11,6]],{sp:.7,dark:.3,thr:-.05});
+    for(let k=0;k<9;k++){ const x=-9+k*2.25, L=14+Math.abs(k-4)*-.6+(k%3)*2; engStroke(c,[[x*.5,2],[x*.9+Math.sin(k*2)*1.4,12],[x*1.05+Math.sin(k*3)*1.6,12+L]],.4,.2); }
+    for(const s of [-1,1]){ mBody(c,[[s*6,-5],[s*13.4,-7,1],[s*15.6,-12],[s*12,-17],[s*8.4,-13],[s*5,-9]],{sp:.6,dark:.4}); for(const q of [-.7,-.25,.25,.7]){ const bx=s*(12+q*3), by=-17; engStroke(c,[[bx,by],[bx+s*q*3,by-5],[bx+s*q*4+s*1.4,by-9.6]],.55,.3); engDot(c,bx+s*q*3,by-5,.5); } }
+    mBody(c,mRing(0,-8,6.2,6,9),{sp:.4,dark:.9}); engInk(c,engArc(EX(0),-8,4.6,4.6,Math.PI*1.12,Math.PI*1.88,8),.5,false,{gap:0}); },
+  golem(c){ mStone(c,0,2,10.6,8.4,1); for(const s of [-1,1]){ mStone(c,s*13.4,-1,6.4,5.8,2+s); } mStone(c,0,5,8,4.6,9,{dark:.1,thr:.2});
+    engInk(c,engArc(EX(0),0,3.4,3.4,0,Math.PI*2,10),.5,true,{gap:.05}); engInk(c,[[EX(0),-3.4],[EX(0),3.4]],.4,false,{gap:0}); engInk(c,[[EX(-3.4),0],[EX(3.4),0]],.4,false,{gap:0}); for(let k=0;k<6;k++){ const a=k/6*Math.PI*2+.4; engInk(c,[[EX(Math.cos(a)*4.4),Math.sin(a)*4.4],[EX(Math.cos(a)*5.6),Math.sin(a)*5.6]],.35,false,{gap:0}); }
+    engInk(c,[[EX(-8),6],[EX(-5),9],[EX(-6),12]],.4,false,{gap:.1,rough:.2}); engInk(c,[[EX(6),3],[EX(8),7]],.35,false,{gap:.1,rough:.2});
+    for(const s of [-1,1]){ mStone(c,s*14.6,-8.6,4.8,4.6,5+s); mStone(c,s*13,-16.6,6.2,5.6,7+s,{dark:.05}); for(let k=0;k<3;k++) engInk(c,engArc(EX(s*(10.6+k*2.2)),-21,1.1,1.1,Math.PI,Math.PI*2,4),.35,false,{gap:0}); engInk(c,[[EX(s*10),-14],[EX(s*14),-12.4]],.35,false,{gap:.1,rough:.2}); }
+    mStone(c,0,-9.6,5,4,11,{n:6}); engInk(c,engArc(EX(0),-9.6,1.8,1.8,0,Math.PI*2,8),.45,true,{gap:0}); engDot(c,0,-9.6,.7); for(let k=0;k<8;k++){ const x=(engR()-.5)*30, y=(engR()-.3)*28; engDot(c,x,y,.4+engR()*.4); } },
+  hydra(c){ mLimb(c,[[0,20,6.4],[3,27,4.6],[-2,34,2.8],[1,40,1.2]],{sp:.5,dark:.2}); engPoly(c,[[1,39],[5,44],[1,49],[-3,44]],{j:.1,lw:.4,shade:'d',sp:.5});
+    for(const s of [-1,1]){ mLimb(c,[[s*8,6,5.4],[s*14,3,3.6],[s*17,-1,2.6]],{sp:.5}); mClaw(c,s*17,-1,s*.8,-.6); mLimb(c,[[s*8,18,5.8],[s*14.6,21,3.6],[s*17,26,2.6]],{sp:.5}); mClaw(c,s*17,26,s*.7,.8); }
+    mBody(c,[[0,0],[10,1],[17,8],[16,16],[8,22],[0,24],[-8,22],[-16,16],[-17,8],[-10,1]],{sp:.7}); for(let r=0;r<4;r++) for(let k=-3;k<=3;k++){ const x=k*4.4+(r%2)*2.2, y=5+r*4.6; if(Math.abs(x)<15-Math.abs(r-1.5)*1.6) engInk(c,[[EX(x-1.8),y],[EX(x),y+1.4],[EX(x+1.8),y]],.3,false,{gap:.1}); }
+    for(const [bx,a,L] of [[-9,-1.2,30],[-5,-.62,34],[0,.05,36],[5,.62,34],[9,1.2,30]]){ const hx=Math.sin(a)*L*.86+bx*.3, hy=-Math.cos(a)*L*.6-4, S=(a>=0?1:-1)*(Math.abs(a)>.1?1:.5)*6, J=[]; for(let k=0;k<=6;k++){ const u=k/6; J.push([bx+(hx-bx)*u+Math.sin(u*Math.PI*1.6)*S*(1-u*.4), 4+(hy-4)*u-Math.sin(u*Math.PI)*4, 4.4-u*2.2]); }
+      mLimb(c,J,{sp:.5,dark:.1}); for(let k=1;k<6;k++){ const q=J[k], r=J[k+1]||q, dl=Math.hypot(r[0]-q[0],r[1]-q[1])||1, nx=-(r[1]-q[1])/dl, ny=(r[0]-q[0])/dl, w=q[2]*.4; engInk(c,[[EX(q[0]-nx*w),q[1]-ny*w],[EX(q[0]+(r[0]-q[0])/dl*1.2),q[1]+(r[1]-q[1])/dl*1.2],[EX(q[0]+nx*w),q[1]+ny*w]],.28,false,{gap:0}); }
+      const e=J[6], d=J[5], dl=Math.hypot(e[0]-d[0],e[1]-d[1])||1; mJaws(c,e[0],e[1],(e[0]-d[0])/dl,(e[1]-d[1])/dl,7,3.4); for(const sx of [-1,1]) engInk(c,[[EX(e[0]+sx*2),e[1]+2],[EX(e[0]+sx*4.4),e[1]+5]],.4,false,{gap:0}); } },
+  elemental(c){ const q=[]; for(let i=0;i<14;i++){ const a=i/14*Math.PI*2, r=(i%2?9.5:15)+Math.sin(i*2.3)*1.5; q.push([Math.cos(a)*r,Math.sin(a)*r,i%2?1:0]); } mBody(c,q,{sp:.9,thr:.3,lw:.45}); for(let k=0;k<3;k++){ const r=3+k*3.2; engInk(c,engArc(EX(0),0,r,r,k*1.2,k*1.2+4.6,10),.5,false,{gap:0}); } engDot(c,0,0,1.4); for(let k=0;k<8;k++){ const a=k/8*Math.PI*2+.4; engInk(c,[[EX(Math.cos(a)*16),Math.sin(a)*16],[EX(Math.cos(a)*19),Math.sin(a)*19]],.4,false,{gap:0}); } },
+});
+/* ---- more furnishings and features ---- */
+function dBone(c,x,y,a,l){ const dx=Math.cos(a)*l/2, dy=Math.sin(a)*l/2, px=-Math.sin(a), py=Math.cos(a), P=(u,w)=>[x+dx*u+px*w,y+dy*u+py*w];      // a long bone: a waisted shaft with a double knob at each end
+  engPoly(c,[P(-.86,1.1),P(-.3,.7),P(.3,.7),P(.86,1.1),P(.86,-1.1),P(.3,-.7),P(-.3,-.7),P(-.86,-1.1)],{j:.08,lw:.4});
+  for(const e of [-1,1]) for(const k of [-1,1]){ const q=P(e*.97,k*1.5); engPoly(c,mRing(q[0],q[1],1.5,1.5,6),{raw:true,j:.05,lw:.4}); } }
+Object.assign(SKETCH_DRAW,{
+  bones(c,n){ n%=2; if(n===0){ const rn=mulberry(5); for(let k=0;k<5;k++) dBone(c,(rn()-.5)*14,(rn()-.5)*16,rn()*Math.PI,18+rn()*7); }
+    else { for(let k=0;k<5;k++){ const w=8.4-Math.abs(k-1.5)*1.1; for(const sx of [-1,1]) engInk(c,[[EX(0),-9+k*3.6],[EX(sx*w*.5),-10.8+k*3.6],[EX(sx*w),-8.4+k*3.6],[EX(sx*w*.85),-6+k*3.6]],.6,false,{gap:.05,rough:.06}); } engInk(c,[[EX(0),-11],[EX(0),7]],.8,false,{gap:0}); for(let k=0;k<6;k++) engDot(c,0,-10+k*3.4,.7); dBone(c,-10,12,.5,16); dBone(c,10,13,-.4,15); } },
+  pool(c,n){ n%=2; const R=[1,.9,1.04,.84,.96,1,.88,.95,.9,1.02]; if(n===0){ const q=R.map((r,i)=>{ const a=i/R.length*Math.PI*2; return [Math.cos(a)*18*r,Math.sin(a)*12.6*r]; }); const f=engForm(c,q,{flat:1,lw:.55}); engInk(c,f,.6,true,{gap:.04,rough:.35});
+      c.save(); engPath(c,f,1); c.clip(); for(let y=-11;y<=11;y+=1.5/ENG_K){ for(let x=-17+(y*7%3);x<17;x+=3.4+engR()*2) engInk(c,[[EX(x),y],[EX(x+1.4+engR()),y-.2]],.26,false,{gap:0}); } c.restore(); c.save(); engPath(c,f,1); c.clip(); engShade(c,[[EX(-20),-14],[EX(-7),-14],[EX(-7),14],[EX(-20),14]],'v',1.1); c.restore(); }
+    else { const q=engArc(EX(0),0,17,13,0,Math.PI*2,26); engPath(c,q,1); c.fillStyle=PAPER(); c.fill(); engInk(c,q,.8,true,{gap:.02,rough:.1}); engInk(c,engArc(EX(0),0,13.6,10,0,Math.PI*2,24),.5,true,{gap:.04,rough:.1}); for(let k=0;k<26;k++){ const a=k/26*Math.PI*2; engInk(c,[[EX(Math.cos(a)*13.6),Math.sin(a)*10],[EX(Math.cos(a)*17),Math.sin(a)*13]],.3,false,{gap:0}); } for(let y=-7;y<=7;y+=1.6/ENG_K){ const w=11*Math.sqrt(1-(y/8)**2); engInk(c,[[EX(-w),y],[EX(-w*.3),y-.3],[EX(w*.4),y],[EX(w),y-.2]],.26,false,{gap:.2}); } }
+  },
+  web(c){ for(let k=0;k<=7;k++){ const a=k/7*Math.PI/2; engInk(c,[[EX(-19),-19],[EX(-19+Math.cos(a)*34),-19+Math.sin(a)*34]],.3,false,{gap:.08,rough:.04}); }
+    for(let r=6;r<=32;r+=5.4) for(let k=0;k<7;k++){ const a0=k/7*Math.PI/2, a1=(k+1)/7*Math.PI/2, am=(a0+a1)/2, p0=[-19+Math.cos(a0)*r,-19+Math.sin(a0)*r], p1=[-19+Math.cos(a1)*r,-19+Math.sin(a1)*r], m=[-19+Math.cos(am)*(r*.9),-19+Math.sin(am)*(r*.9)]; engInk(c,[[EX(p0[0]),p0[1]],[EX(m[0]),m[1]],[EX(p1[0]),p1[1]]],.25,false,{gap:.05,rough:.05}); } },
+  stool(c){ dRing(c,0,0,9,{lw:.65}); for(let k=0;k<3;k++){ const a=k/3*Math.PI*2+.5; engDot(c,Math.cos(a)*5.4,Math.sin(a)*5.4,.8); } },
+  bench(c){ dBox(c,-19,-5,19,5,{lw:.6}); for(const x of [-12,12]) engInk(c,[[EX(x),-5],[EX(x),5]],.4,false,{gap:.1}); engScratch(c,[EX(-17),0],[EX(17),0],.22); },
+  wardrobe(c){ dBox(c,-13,-9,13,9,{lw:.7}); engInk(c,[[EX(0),-9],[EX(0),9]],.4,false,{gap:0}); engDot(c,-2,0,.7); engDot(c,2,0,.7); for(const sx of [-1,1]) engPoly(c,dQ(sx*10-2.4,-6,sx*10+2.4,6),{j:.2,lw:.3,open:true}); },
+  weaponrack(c){ dBox(c,-17,-4,17,4,{lw:.6}); for(let k=0;k<5;k++){ const x=-13+k*6.5; mLine(c,[x,-3],[x+(k%2?1:-1),-14],.6); engPoly(c,[[x-1.2+(k%2?1:-1),-14],[x+(k%2?1:-1),-17.4],[x+1.2+(k%2?1:-1),-14]],{j:.1,lw:.3,ink:true}); } },
+  anvil(c){ dRing(c,0,0,12,{lw:.6,sh:false}); for(let k=0;k<3;k++) engInk(c,engArc(EX(0),0,4+k*3.2,4+k*3.2,.4+k,2.4+k,6),.25,false,{gap:.2}); const q=engPoly(c,[[-11,-5],[5,-5],[9,-3.4],[19,-1],[19,1],[9,3.4],[5,5],[-11,5]],{j:.3,lw:.75}); engShade(c,q,'d',1,{clipX:-1}); engPoly(c,dQ(-8,-2,-3,2),{j:.2,lw:.4,open:true}); },
+  forge(c){ dBox(c,-16,-12,16,12,{lw:.75,sp:1}); engPoly(c,dQ(-11,-7,11,7),{j:.3,lw:.55}); for(let k=0;k<26;k++){ const x=-10+engR()*20, y=-6+engR()*12; engDot(c,x,y,.5+engR()*.5); } for(let k=0;k<6;k++){ const x=-8+engR()*16, y=-4+engR()*8; engInk(c,[[EX(x),y],[EX(x+3),y-2]],.4,false,{gap:0}); } },
+  cauldron(c){ dRing(c,0,0,13,{lw:.8}); dRing(c,0,0,10,{sh:false,lw:.5}); for(let k=0;k<3;k++) engInk(c,engArc(EX(-3+k*2.4),-1+k*.8,2+k*.8,2+k*.8,0,Math.PI*2,8),.35,true,{gap:.1,rough:.03}); for(const s of [-1,1]) engDot(c,s*14,0,1.4); for(let k=0;k<8;k++){ const x=-8+engR()*16,y=-8+engR()*16; if(x*x+y*y<64) engScratch(c,[EX(x),y],[EX(x+2.4),y],.22); } },
+  wellshaft(c){ dRing(c,0,0,14,{lw:.8}); dRing(c,0,0,9.6,{sh:false,lw:.5}); for(let k=0;k<12;k++){ const a=k/12*Math.PI*2; engInk(c,[[EX(Math.cos(a)*9.6),Math.sin(a)*9.6],[EX(Math.cos(a)*14),Math.sin(a)*14]],.3,false,{gap:0}); } const q=engArc(EX(0),0,9.4,9.4,0,Math.PI*2,16); c.save(); engPath(c,q,1); c.clip(); engShade(c,q,'d',2.6,{clipX:-30}); engShade(c,[[EX(-10),-10],[EX(-3),-10],[EX(-3),10],[EX(-10),10]],'d',1.4); c.restore(); },
+  basin(c){ const o=[0,1,2,3,4,5,6,7].map(i=>{ const a=i/8*Math.PI*2+Math.PI/8; return [Math.cos(a)*18,Math.sin(a)*18]; }); const q=engPoly(c,o,{j:.25,lw:.8}); engShade(c,q,'d',1.1,{clipX:9}); engPoly(c,o.map(p=>[p[0]*.78,p[1]*.78]),{j:.2,lw:.5,open:true}); for(let r=13;r>2;r-=3.4) engInk(c,engArc(EX(0),0,r,r,0,Math.PI*2,16),.28,true,{gap:.25,rough:.04}); dRing(c,0,0,3.4,{lw:.6}); engDot(c,0,0,1.2); },
+  cage(c){ dBox(c,-13,-13,13,13,{lw:.7,sh:false}); for(let k=-9;k<=9;k+=3) { engInk(c,[[EX(k),-13],[EX(k),13]],.4,false,{gap:.05}); engInk(c,[[EX(-13),k],[EX(13),k]],.4,false,{gap:.05}); } engPoly(c,dQ(-4,-4,4,4),{j:.2,lw:.5,open:true}); },
+  rack(c){ dBox(c,-8,-19,8,19,{lw:.65}); for(const y of [-17,17]) { dRing(c,0,y,4.6,{lw:.55,sh:false}); engInk(c,[[EX(-4.6),y],[EX(4.6),y]],.4,false,{gap:0}); } for(let y=-10;y<=10;y+=3.4) engInk(c,[[EX(-8),y],[EX(8),y]],.3,false,{gap:.1}); engInk(c,[[EX(-3),-6],[EX(3),6]],.5,false,{gap:.1}); },
+  firepit(c){ for(let k=0;k<9;k++){ const a=k/9*Math.PI*2; engPoly(c,mRing(Math.cos(a)*11,Math.sin(a)*11,3.4,3,5,k),{j:.15,lw:.45,shade:'d',sp:.5}); } const q=[]; for(let i=0;i<10;i++){ const a=i/10*Math.PI*2, r=i%2?3.6:7.4; q.push([Math.cos(a)*r,Math.sin(a)*r,i%2?1:0]); } mBody(c,q,{sp:.9,thr:.2,lw:.4}); engDot(c,0,0,1.6); mLine(c,[-5,5],[6,-5],1.2); mLine(c,[5,5],[-6,-5],1.2); },
+  cratestack(c){ dBox(c,-12,-12,2,2,{lw:.6}); dBox(c,0,2,14,15,{lw:.6}); dBox(c,-14,3,-2,14,{lw:.6}); for(const [x0,y0,x1,y1] of [[-12,-12,2,2],[0,2,14,15],[-14,3,-2,14]]){ engInk(c,[[EX(x0),y0],[EX(x1),y1]],.3,false,{gap:.2}); engInk(c,[[EX(x1),y0],[EX(x0),y1]],.3,false,{gap:.2}); } },
+  urn(c){ dRing(c,0,0,7.4,{lw:.65}); dRing(c,0,0,4.6,{sh:false,lw:.45}); for(const s of [-1,1]) engInk(c,engArc(EX(s*8.6),0,2.6,3.4,-1.5,1.5,6),.5,false,{gap:0}); },
+  chains(c){ let x=-17, y=-4; const pts=[]; for(let t=0;t<=1.001;t+=.1) pts.push([-17+t*34,-4+Math.sin(t*Math.PI)*12]); for(let k=0;k<pts.length-1;k++){ const a=pts[k], b=pts[k+1], mx=(a[0]+b[0])/2, my=(a[1]+b[1])/2, ang=Math.atan2(b[1]-a[1],b[0]-a[0]); engInk(c,[[EX(mx-Math.cos(ang)*2.2),my-Math.sin(ang)*2.2-.8],[EX(mx+Math.cos(ang)*2.2),my+Math.sin(ang)*2.2-.8],[EX(mx+Math.cos(ang)*2.2),my+Math.sin(ang)*2.2+.8],[EX(mx-Math.cos(ang)*2.2),my-Math.sin(ang)*2.2+.8]],.45,true,{gap:0,rough:.03}); } engDot(c,-17,-4,1.6); engDot(c,17,-4,1.6); },
+  portal(c){ for(const r of [17,15]) engInk(c,engArc(EX(0),0,r,r,0,Math.PI*2,30),.55,true,{gap:.02,rough:.05}); for(let k=0;k<4;k++){ const r0=2+k*3.4; engInk(c,engArc(EX(0),0,r0+3,r0+3,k*1.4,k*1.4+4.2,10),.45,false,{gap:0}); } for(let k=0;k<16;k++){ const a=k/16*Math.PI*2; engInk(c,[[EX(Math.cos(a)*15),Math.sin(a)*15],[EX(Math.cos(a)*17),Math.sin(a)*17]],.35,false,{gap:0}); } engDot(c,0,0,1.5); },
+  mushrooms(c){ for(const [x,y,r] of [[-8,-4,5.4],[6,-7,4],[8,6,5],[-3,9,3.4],[-11,8,2.6]]){ dRing(c,x,y,r,{lw:.5,at:.1}); for(let k=0;k<5;k++){ const a=k/5*Math.PI*2+x; engInk(c,[[EX(x),y],[EX(x+Math.cos(a)*r*.9),y+Math.sin(a)*r*.9]],.22,false,{gap:.2}); } } },
+  runestone(c){ const R=[1,.9,1.05,.88,1,.92], q=R.map((r,i)=>{ const a=i/R.length*Math.PI*2; return [Math.cos(a)*10*r,Math.sin(a)*12*r]; }); const f=mBody(c,q,{sp:.7,thr:.1}); engInk(c,[[EX(-3),-6],[EX(-3),6]],.5,false,{gap:0}); engInk(c,[[EX(-3),-6],[EX(3),-2],[EX(-3),1]],.5,false,{gap:0}); engInk(c,[[EX(2),2],[EX(2),7]],.5,false,{gap:0}); engInk(c,[[EX(-1),4],[EX(5),4]],.5,false,{gap:0}); },
+  puddle(c){ const R=[1,.8,1.1,.9,1,.7,1.05,.86], q=R.map((r,i)=>{ const a=i/R.length*Math.PI*2; return [Math.cos(a)*14*r,Math.sin(a)*8*r]; }); const f=engForm(c,q,{flat:1,lw:.45}); engInk(c,f,.5,true,{gap:.15,rough:.3}); for(let k=0;k<3;k++) engInk(c,[[EX(-6+k*2),-2+k*2.2],[EX(-2+k*2),-2.6+k*2.2],[EX(2+k*2),-2+k*2.2]],.26,false,{gap:.15}); },
+});
+/* ---- single letters and numbers, to be set down one at a time (a room's number, a key letter on a plan). Variant 2 rings the character. ---- */
+const GLYPHS='0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
+for(const g of GLYPHS) SKETCH_DRAW['ch_'+g]=function(c,n){ c.save(); const r=15; if(n%2){ c.fillStyle=PAPER(); c.beginPath(); c.arc(0,0,r+1,0,7); c.fill(); engInk(c,engArc(0,0,r+1,r+1,0,Math.PI*2,26),.8,true,{gap:.03,rough:.08}); engInk(c,engArc(0,0,r-1.6,r-1.6,0,Math.PI*2,24),.4,true,{gap:.06,rough:.06}); }
+  c.font=`600 ${n%2?25:34}px "IM Fell English", "IM Fell Double Pica", Georgia, serif`; c.textAlign='center'; c.textBaseline='middle'; c.lineJoin='round';
+  if(!(n%2)){ c.strokeStyle=PAPER(); c.lineWidth=4.5; c.strokeText(g,0,1.6); } c.fillStyle=INK; c.fillText(g,0,1.6); c.strokeStyle=INK; c.lineWidth=.45; c.strokeText(g,0,1.6); c.restore(); };
 function sprite(s,px){ const k=stampLook(s), g=['Trees','Plants'].includes(groupOf(s.kind))&&k.g, pen=penOf(s.size), key=[s.kind,k.n,k.tint,g,px,s.flip?1:0,pen].join('|'); let sp=sprites.get(key);
   if(!sp){ const side=Math.ceil(px*1.7), [cn,x]=mkCanvas(side,side); x.translate(side/2,side/2); x.scale(px/40,px/40); paintStamp(x,{kind:s.kind,var:k.n,tint:k.tint,v:g?.75:.25,flip:s.flip,pen}); sp=cn; sprites.set(key,sp); }
   return sp; }
@@ -1505,11 +1796,11 @@ function gridPath(){ const g=S.grid, key=[g.type,g.size,S.w,S.h].join(); if(grid
   gridCache={key,path:P}; return P; }
 function drawVectors(c,k){
   c.save(); c.beginPath(); c.rect(0,0,S.w,S.h); c.clip();
-  if(S.grid.type!=='none'){ c.strokeStyle='rgba(58,42,28,.28)'; c.lineWidth=1; c.stroke(gridPath()); }
+  if(S.grid.type!=='none' && S.kind!=='dungeon'){ c.strokeStyle='rgba(58,42,28,.28)'; c.lineWidth=1; c.stroke(gridPath()); }
   if(S.frame!=='none') drawFrame(c);
   const one=S.layers.length===1, ss=layers.stamps.v?stampsSorted():[];
   for(const L of S.layers){ if(L.v===false) continue; const mine=o=>one || layerOf(o)===L;      // each layer in turn, bottom first: its lines, then its stamps, then its lettering
-    if(layers.lines.v){ const ls=one?S.lines:S.lines.filter(mine); drawWalls(c,ls); drawStreets(c,ls); for(const l of ls) drawLine(c,l); }
+    if(layers.lines.v){ const ls=one?S.lines:S.lines.filter(mine); drawWalls(c,ls); drawStreets(c,ls); drawRoads(c,ls); for(const l of ls) drawLine(c,l); }
     for(const st of ss) if(mine(st)) drawStamp(c,st,k);
     if(layers.labels.v) for(const l of S.labels) if(mine(l)) drawLabel(c,l); }
   c.globalAlpha=1; c.globalCompositeOperation='multiply'; c.drawImage(tintC,0,0,S.w,S.h); c.globalCompositeOperation='source-over';
@@ -1551,7 +1842,17 @@ function draw(){
   const ring = opts.tool==='reshape' ? (opts.reshape==='cut' ? cutR()*2 : 44*px) : opts.tool==='paint' ? opts.brush : landBrushOn() ? opts.landBrush : opts.tool==='cliff' && opts.cliffMode==='brush' ? opts.cliffBrush : opts.tool==='stamp' && opts.stampMode!=='fill' && STAMP_GROUPS[groupOf(opts.stamp)].scatter && opts.scatter>20 ? opts.scatter : 0;
   if(ring && hover){ ctx.beginPath(); ctx.arc(hover[0],hover[1],ring/2,0,7); ctx.strokeStyle='rgba(20,30,30,.8)'; ctx.lineWidth=1.5*px; ctx.stroke(); }
   drawMeasure(ctx,px);
-  if(opts.tool==='stamp' && hover && !act){ ctx.globalAlpha=.55; drawStamp(ctx,{kind:opts.stamp,x:hover[0],y:hover[1],size:opts.stampSizes[groupOf(opts.stamp)],rot:opts.stampRot,flip:opts.stampFlip==='on',var:opts.stampVar==='shuffle'?0:opts.stampVar,tint:opts.stampTint[opts.stamp]}); ctx.globalAlpha=1; }
+  if(DUNG()){ const cell=cellSz(), tool=opts.tool, dtool=tool==='room'||tool==='corridor'||tool==='dwall';
+    if(dtool && hover && !(act && act.type==='pan')){ const q=draft ? draftSnap(hover) : tool==='corridor' ? gsnap(hover,corrOff()) : gsnap(hover); ctx.fillStyle=accent; ctx.beginPath(); ctx.arc(q[0],q[1],4*px,0,7); ctx.fill();
+      if(draft){ const pts=[...draft.pts,q], cutc=draft.cut; ctx.beginPath(); pts.forEach((v,i)=>i?ctx.lineTo(v[0],v[1]):ctx.moveTo(v[0],v[1]));
+        if(draft.kind==='room'){ ctx.closePath(); ctx.fillStyle=cutc?'rgba(120,170,180,.45)':'rgba(234,223,191,.6)'; ctx.fill(); ctx.strokeStyle=accent; ctx.lineWidth=2*px; ctx.setLineDash([6*px,5*px]); ctx.stroke(); ctx.setLineDash([]); }
+        else { const w=draft.kind==='corr'?Math.round(opts.corrW)*cell:opts.lineWidth.dwall; ctx.lineJoin='miter'; ctx.lineCap='butt'; ctx.strokeStyle=draft.kind==='corr'?(cutc?'rgba(120,170,180,.5)':'rgba(234,223,191,.75)'):'rgba(58,42,28,.55)'; ctx.lineWidth=w; ctx.stroke(); ctx.lineJoin='round'; ctx.lineCap='round';
+          ctx.strokeStyle=accent; ctx.lineWidth=1.5*px; ctx.setLineDash([6*px,5*px]); ctx.beginPath(); pts.forEach((v,i)=>i?ctx.lineTo(v[0],v[1]):ctx.moveTo(v[0],v[1])); ctx.stroke(); ctx.setLineDash([]); }
+        if(draft.pts.length) { ctx.fillStyle=accent; for(const v of draft.pts){ ctx.beginPath(); ctx.arc(v[0],v[1],3*px,0,7); ctx.fill(); } } } }
+    if(act && act.type==='drect'){ const a=act.a, b=act.b, x0=Math.min(a[0],b[0]), y0=Math.min(a[1],b[1]), w=Math.abs(b[0]-a[0]), h=Math.abs(b[1]-a[1]); ctx.beginPath();
+      if(act.shape==='ellipse') ctx.ellipse(x0+w/2,y0+h/2,w/2,h/2,0,0,7); else ctx.rect(x0,y0,w,h); ctx.fillStyle=act.mode==='sea'?'rgba(120,170,180,.45)':'rgba(234,223,191,.6)'; ctx.fill(); ctx.strokeStyle=accent; ctx.lineWidth=2*px; ctx.setLineDash([6*px,5*px]); ctx.stroke(); ctx.setLineDash([]);
+      const lab=(Math.round(w/cell*2)/2)+' × '+(Math.round(h/cell*2)/2); ctx.font=`600 ${14*px}px sans-serif`; ctx.lineWidth=4*px; ctx.strokeStyle='rgba(255,255,255,.9)'; ctx.strokeText(lab,x0+4*px,y0-6*px); ctx.fillStyle=accent; ctx.fillText(lab,x0+4*px,y0-6*px); } }
+  if(opts.tool==='stamp' && hover && !act){ ctx.globalAlpha=.55; const gs=DUNG()?dungSnap(opts.stamp,hover,opts.stampRot):{p:hover,rot:opts.stampRot}; drawStamp(ctx,{kind:opts.stamp,x:gs.p[0],y:gs.p[1],size:opts.stampSizes[groupOf(opts.stamp)],rot:gs.rot,flip:opts.stampFlip==='on',var:opts.stampVar==='shuffle'?0:opts.stampVar,tint:opts.stampTint[opts.stamp]}); ctx.globalAlpha=1; }
   if(sel && opts.tool==='select' && !(act && act.type==='box')){ const hs=selHandles(); if(hs){ const [a,b,c2,d2]=hs.corners, q=5*px;      // transform box
       ctx.setLineDash([4*px,4*px]); ctx.strokeStyle=accent; ctx.lineWidth=px; ctx.strokeRect(a[0],a[1],b[0]-a[0],d2[1]-a[1]); ctx.setLineDash([]);
       ctx.beginPath(); ctx.moveTo(hs.rot[0],a[1]); ctx.lineTo(hs.rot[0],hs.rot[1]); ctx.stroke(); ctx.fillStyle='#fff'; ctx.lineWidth=1.6*px;
@@ -1576,6 +1877,21 @@ function draw(){
 }
 
 /* ============================================================ pointer input */
+let draft=null;      // a polygon room, corridor or inner wall being laid out point by point: {kind:'room'|'corr'|'wall', pts, cut}
+const DUNG = () => S.kind==='dungeon', cellSz = () => S.grid.size||60;
+function gsnap(p,off=0){ if(!opts.snap || !DUNG()) return [Math.round(p[0]*10)/10,Math.round(p[1]*10)/10]; const g=cellSz()/(opts.snapFine?2:1); return [Math.round((p[0]-off)/g)*g+off, Math.round((p[1]-off)/g)*g+off]; }
+const corrOff = () => Math.round(opts.corrW)%2===1 ? cellSz()/2 : 0;      // a one-square passage runs down the middle of its squares; a two-square one runs along the grid lines
+const draftSnap = p => gsnap(p, draft && draft.kind==='corr' ? corrOff() : (!draft && opts.tool==='corridor') ? corrOff() : 0);
+function draftClick(p,cut){ const k=opts.tool==='corridor'?'corr':opts.tool==='dwall'?'wall':'room'; if(!draft||draft.kind!==k) draft={kind:k,pts:[],cut}; const q=draftSnap(p), last=draft.pts[draft.pts.length-1];
+  if(last && dist(last,q)<1) return draftEnd();                                    // clicking the same spot again (a double-click) finishes
+  if(k==='room' && draft.pts.length>=3 && dist(q,draft.pts[0])<14/view.k) return draftEnd();      // so does closing the loop
+  draft.pts.push(q); invalidate(); }
+function draftEnd(){ const d=draft; draft=null; invalidate(); if(!d) return; const pts=d.pts;
+  if(d.kind==='room' && pts.length>=3){ pushUndo(); S.lands=[...S.lands,{mode:d.cut?'sea':'land',floor:1,sharp:true,pts:pts.slice(),rough:0,seed:rseed(),t:++S.tick,tex:opts.roomTex}]; need.land=true; need.compose='full'; }
+  else if(d.kind==='corr' && pts.length>=2){ pushUndo(); S.lands=[...S.lands,{mode:d.cut?'sea':'land',floor:1,sharp:true,brush:true,pts:pts.slice(),size:Math.round(opts.corrW)*cellSz(),rough:0,seed:rseed(),t:++S.tick,tex:opts.roomTex}]; need.land=true; need.compose='full'; }
+  else if(d.kind==='wall' && pts.length>=2){ pushUndo(); S.lines=[...S.lines,withLy({kind:'dwall',sharp:true,pts:pts.slice(),rough:0,width:opts.lineWidth.dwall,seed:rseed()})]; need.compose='full'; }
+  invalidate(); }
+function ellipsePts(a,b){ const cx=(a[0]+b[0])/2, cy=(a[1]+b[1])/2, rx=Math.abs(b[0]-a[0])/2, ry=Math.abs(b[1]-a[1])/2, n=Math.max(24,Math.round((rx+ry)/5)), out=[]; for(let i=0;i<n;i++){ const t=i/n*Math.PI*2; out.push([Math.round((cx+Math.cos(t)*rx)*10)/10,Math.round((cy+Math.sin(t)*ry)*10)/10]); } return out; }
 let act=null; const pointers=new Map(); let pinch=null, spaceDown=false;
 const landBrushOn = () => opts.tool==='land' && opts.landMode==='brush';
 const rseed = () => (Math.random()*1e9)|0;
@@ -1593,6 +1909,28 @@ function drawFence(c,l,pts){ const w=l.width||3, style=l.style||'hedge', rn=mulb
   else if(style==='palisade'){ line(w*.5); walk(w*.95,(x,y,tx,ty)=>{ c.beginPath(); c.moveTo(x-tx*w*.4,y-ty*w*.4); c.lineTo(x-ty*w*.9,y+tx*w*.9); c.lineTo(x+tx*w*.4,y+ty*w*.4); c.closePath(); c.fillStyle=PAPER(); c.fill(); c.lineWidth=.45; c.stroke(); }); }
   else { walk(w*1.25,(x,y,tx,ty)=>{ const r=w*(.62+rn()*.3), ox=(rn()-.5)*w*.3, X=x-ty*ox, Y=y+tx*ox; c.beginPath(); c.arc(X,Y,r,0,7); c.fillStyle=PAPER(); c.fill(); c.lineWidth=.45; c.stroke(); c.lineWidth=.3; c.beginPath(); c.arc(X+r*.15,Y+r*.15,r*.55,-.3,1.5); c.stroke(); }); }
   c.restore(); }
+/* Roads join. Where one road crosses another, or ends on it (within a hand's slip, SNAP units), the road is cut at that point and each piece is dashed on its own, with the
+   dashes fitted so every arm begins with a dash right at the junction; a small blot ties them together. Drawn only: the roads in the map file are not changed. */
+let roadNetKey=null, roadNetVal=null;
+function roadNet(rs){ if(roadNetKey && roadNetKey.length===rs.length && rs.every((l,i)=>l===roadNetKey[i])) return roadNetVal;
+  const SNAP=12, P=rs.map(l=>lineBuilt(l).pts.map(p=>[p[0],p[1]])), J=rs.map(()=>[]);
+  const nearest=(pts,q)=>{ let best={d:1e9,x:0,y:0,s:0}, acc=0; for(let i=1;i<pts.length;i++){ const a=pts[i-1], b=pts[i], dx=b[0]-a[0], dy=b[1]-a[1], L2=dx*dx+dy*dy, L=Math.sqrt(L2), t=L2?clamp(((q[0]-a[0])*dx+(q[1]-a[1])*dy)/L2,0,1):0, x=a[0]+dx*t, y=a[1]+dy*t, d=Math.hypot(q[0]-x,q[1]-y); if(d<best.d) best={d,x,y,s:acc+t*L}; acc+=L; } return best; };
+  const ends=[]; P.forEach((pts,i)=>{ if(pts.length<2) return; for(const end of [0,1]){ const q=end?pts[pts.length-1]:pts[0]; let hit=null, hj=-1; P.forEach((o,j)=>{ if(j===i||o.length<2) return; const n=nearest(o,q); if(n.d<SNAP && (!hit||n.d<hit.d)){ hit=n; hj=j; } }); if(hit) ends.push({i,end,hit,hj}); } });
+  for(const e of ends){ const pts=P[e.i], q=[e.hit.x,e.hit.y]; if(e.hit.d>.5){ if(e.end) pts.push(q); else pts.unshift(q); } J[e.hj].push(q); J[e.i].push(q); }
+  const bb=P.map(pts=>{ let x0=1e9,x1=-1e9,y0=1e9,y1=-1e9; for(const p of pts){ x0=Math.min(x0,p[0]); x1=Math.max(x1,p[0]); y0=Math.min(y0,p[1]); y1=Math.max(y1,p[1]); } return [x0,y0,x1,y1]; });
+  for(let i=0;i<P.length;i++) for(let j=i+1;j<P.length;j++){ const A=bb[i], B=bb[j]; if(A[2]<B[0]||B[2]<A[0]||A[3]<B[1]||B[3]<A[1]) continue;
+    for(let a=1;a<P[i].length;a++) for(let b=1;b<P[j].length;b++){ const p=P[i][a-1], q=P[i][a], r=P[j][b-1], u=P[j][b], d=(q[0]-p[0])*(u[1]-r[1])-(q[1]-p[1])*(u[0]-r[0]); if(Math.abs(d)<1e-9) continue;
+      const t=((r[0]-p[0])*(u[1]-r[1])-(r[1]-p[1])*(u[0]-r[0]))/d, v=((r[0]-p[0])*(q[1]-p[1])-(r[1]-p[1])*(q[0]-p[0]))/d; if(t>0&&t<1&&v>0&&v<1){ const x=p[0]+(q[0]-p[0])*t, y=p[1]+(q[1]-p[1])*t; J[i].push([x,y]); J[j].push([x,y]); } } }
+  const pieces=[], dots=[];
+  P.forEach((pts,i)=>{ if(pts.length<2) return; const cum=[0]; for(let k=1;k<pts.length;k++) cum.push(cum[k-1]+dist(pts[k-1],pts[k])); const total=cum[cum.length-1];
+    const cuts=[...new Set(J[i].map(q=>Math.round(nearest(pts,q).s*4)/4))].sort((a,b)=>a-b).filter(v=>v>2&&v<total-2); const sl=[]; for(const v of cuts) if(!sl.length||v-sl[sl.length-1]>4) sl.push(v);
+    const at=sv=>{ let k=1; while(k<cum.length-1&&cum[k]<sv) k++; const f=(sv-cum[k-1])/((cum[k]-cum[k-1])||1); return [pts[k-1][0]+(pts[k][0]-pts[k-1][0])*f,pts[k-1][1]+(pts[k][1]-pts[k-1][1])*f]; };
+    const marks=[0,...sl,total]; for(let m=1;m<marks.length;m++){ const s0=marks[m-1], s1=marks[m], seg=[at(s0)]; for(let k=1;k<cum.length-1;k++) if(cum[k]>s0&&cum[k]<s1) seg.push(pts[k]); seg.push(at(s1)); pieces.push({i,pts:seg,len:s1-s0}); }
+    for(const v of sl) dots.push({i,p:at(v)}); });
+  roadNetKey=rs.slice(); return roadNetVal={pieces,dots}; }
+function drawRoads(c,ls){ const rs=ls.filter(l=>l.kind==='road'); if(!rs.length) return; const net=roadNet(rs); c.save(); c.lineCap='round'; c.lineJoin='round'; c.strokeStyle=c.fillStyle=SK()?INK:MAP.road;
+  for(const pc of net.pieces){ const w=rs[pc.i].width||2.5, k=w/2.5, D=9*k, G=6*k, n=Math.max(1,Math.round((pc.len+G)/(D+G))), d=(pc.len-(n-1)*G)/n; c.lineWidth=w; c.setLineDash(n===1?[]:[d,G]); c.stroke(toPath(pc.pts,false)); }
+  c.setLineDash([]); for(const dt of net.dots){ c.beginPath(); c.arc(dt.p[0],dt.p[1],(rs[dt.i].width||2.5)*.62,0,7); c.fill(); } c.restore(); }
 function drawStreets(c,ls){ const st=ls.filter(l=>l.kind==='street'); if(!st.length) return; c.save(); c.lineCap='round'; c.lineJoin='round'; c.setLineDash([]);
   c.strokeStyle=INK; for(const l of st){ c.lineWidth=l.width+1.9; c.stroke(lineBuilt(l).path); }
   c.strokeStyle=STREET_FILL; for(const l of st){ c.lineWidth=l.width; c.stroke(lineBuilt(l).path); } c.restore(); }
@@ -1665,9 +2003,9 @@ function generateCity(W,H,G={}){ G={size:1,density:1,walls:true,river:true,coast
   st.stamps.push(...housesAlong(S.filter(s=>s.width===11),{inside:q=>!inWall(q,.95)&&okLand(q)&&gates.some(g=>Math.hypot(g.g[0]-q[0],g.g[1]-q[1])<130+G.size*70),size:23,rows:1,density:Math.min(.8,.3*G.density+.15),rnd,kind:()=>rnd()<.6?'house':'cottage',blocked}));
   /* outside: fields, orchards and trees */
   const outside=(need)=>{ for(let t=0;t<30;t++){ const q=[60+rnd()*(W-120),60+rnd()*(H-120)]; if(!inWall(q,.86) && okLand(q) && q[1]<coastY(q[0])-need-10 && rDist(q)>rw/2+need && free(q,need) && netClear(q)>need*.7) return q; } return null; };
-  { const fields=housesAlong(S.filter(s=>s.width===11),{inside:q=>!inWall(q,.8)&&okLand(q)&&q[1]<coastY(q[0])-60&&q[0]>70&&q[1]>70&&q[0]<W-70&&q[1]<H-70&&free(q,40)&&!gates.some(g=>Math.hypot(g.g[0]-q[0],g.g[1]-q[1])<150+G.size*70),size:132,rows:3,density:.62,rnd,kind:()=>rnd()<.88?'fieldplot':'orchard',blocked});      // fields in belts along the roads, squared up to them
+  { const fields=housesAlong(S.filter(s=>s.width===11),{inside:q=>!inWall(q,.8)&&okLand(q)&&q[1]<coastY(q[0])-60&&q[0]>70&&q[1]>70&&q[0]<W-70&&q[1]<H-70&&free(q,40)&&!gates.some(g=>Math.hypot(g.g[0]-q[0],g.g[1]-q[1])<150+G.size*70),size:132,rows:3,density:.62,rnd,kind:()=>{ const r=rnd(); return r<.74?'fieldplot':r<.84?'orchard':r<.92?'vineyard':'paddock'; },blocked});      // fields in belts along the roads, squared up to them
     fields.forEach(f=>{ f.size=Math.round(f.size*(.62+rnd()*.14)); st.stamps.push(f); blocked.push({x:f.x,y:f.y,r:f.size*.4}); }); }
-  for(let i=0;i<10+G.size*4;i++){ const q=outside(40); if(q) put(rnd()<.8?'fieldplot':'orchard',q,Math.round(80+rnd()*40),turn()*1.5); }
+  for(let i=0;i<10+G.size*4;i++){ const q=outside(40); if(q) put(rnd()<.7?'fieldplot':rnd()<.5?'orchard':'vineyard',q,Math.round(80+rnd()*40),turn()*1.5); }
   for(let w=0;w<9+G.size*3;w++){ const c0=outside(30); if(!c0) continue; const n=8+Math.floor(rnd()*26), sp=40+rnd()*70; for(let i=0;i<n;i++){ const a=rnd()*6.283, r=Math.sqrt(rnd())*sp, q=[c0[0]+Math.cos(a)*r,c0[1]+Math.sin(a)*r*.8];      // woods in clumps
       if(inWall(q,.9) || !okLand(q) || !free(q,6) || netClear(q)<8 || q[0]<40||q[1]<40||q[0]>W-40||q[1]>H-40) continue; const sz=Math.round(22+rnd()*20); st.stamps.push({kind:'treetop',x:Math.round(q[0]),y:Math.round(q[1]),size:sz,rot:Math.round(rnd()*360),v:rnd(),var:Math.floor(rnd()*3)}); blocked.push({x:q[0],y:q[1],r:sz*.2}); } }
   for(let i=0;i<40;i++){ const q=outside(9); if(q){ st.stamps.push({kind:rnd()<.8?'treetop':'treerow',x:Math.round(q[0]),y:Math.round(q[1]),size:Math.round(20+rnd()*16),rot:Math.round(rnd()*360),v:rnd(),var:Math.floor(rnd()*3)}); blocked.push({x:q[0],y:q[1],r:7}); } }
@@ -1704,10 +2042,21 @@ function fillArea(pts){      // fills a drawn outline with the chosen stamp: a j
   for(let y=y0;y<=y1;y+=cell*.8,row++) for(let x=x0+(row%2)*cell*.5;x<=x1;x+=cell){ const q=[x+(Math.random()-.5)*cell*.7,y+(Math.random()-.5)*cell*.6]; if(ptInPoly(q,pts) && isLandAt(q)!==sea) spots.push(q); }
   if(!spots.length) return 0; const cap=1500, step=Math.max(1,spots.length/cap); pushUndo(); const before=S.stamps, keep=S.stamps; S.stamps=[]; let n=0;
   for(let i=0;i<spots.length && n<cap;i+=step){ placeStamp(spots[Math.floor(i)],true); n++; } S.stamps=keep.concat(S.stamps); return n; }
-function placeStamp(p,vary,rot){ const kind=opts.stamp, base=opts.stampSizes[groupOf(kind)], v=Math.random(), n=VARIANTS[kind]||1, o={kind,x:Math.round(p[0]),y:Math.round(p[1]),size:Math.round(vary?base*(.82+.36*v):base),rot:rot ?? opts.stampRot,v};
-  if(n>1) o.var = opts.stampVar==='shuffle' ? Math.floor(Math.random()*n) : opts.stampVar%n;
+const DUN_FOOT={...Object.fromEntries(GLYPH_KINDS.map(k=>[k,.55])), goblin:1.1,orc:1.4,zombie:1.3,skeleton:1.3,ogre:2.4,troll:2.4,minotaur:2.4,lizardfolk:1.4,fiend:2.5,giantrat:.8,direwolf:1.3,giantspider:1.5,scorpion:1.5,centipede:1.3,snake:1.5,batswarm:2,owlbear:2,ooze:2,cube:2,beholder:2.5,drake:4,wraith:1.5,golem:2,hydra:3,elemental:2,stool:.5,bench:2,wardrobe:1.2,weaponrack:1.5,anvil:1,forge:1.5,cauldron:1,wellshaft:1.5,basin:2.5,cage:1.5,rack:1.2,firepit:1.5,cratestack:1.2,urn:.6,chains:2,portal:3,mushrooms:1.2,runestone:1,puddle:1.2,door:1,doubledoor:2,dooropen:1,secretdoor:1,arch:1,portcullis:1,stairs:1.5,spiral:2,ladder:1,trapdoor:1,pit:1,plankbridge:2,table:2,roundtable:2,chair:.6,bed:1.5,bookcase:2,treasure:.8,dbarrel:.6,altar:1.5,sarcophagus:1.2,throne:.9,fireplace:2,idol:.8,pillar:.6,roundpillar:.6,brazier:.7,rug:3,trap:1,spikes:1,lever:.5,rubble:1.2,bones:1,web:1.5,pool:2,stalagmite:1.2,torch:.7,sigil:3,crack:1.5};      // each dungeon stamp's footprint, in grid squares
+const dungSize = kind => Math.round((DUN_FOOT[kind]||1)*cellSz());
+const DOORS=new Set(STAMP_GROUPS.Doors.kinds);
+function dungSnap(kind,p,rot){      // doors go on the middle of a square's edge and turn to cross the passage; everything else sits on the half-squares
+  const c=cellSz(), g=c/2; if(!opts.snap) return {p,rot};
+  if(!DOORS.has(kind)) return {p:[Math.round(p[0]/g)*g,Math.round(p[1]/g)*g],rot};
+  const v=[Math.round(p[0]/c)*c, Math.floor(p[1]/c)*c+g], h=[Math.floor(p[0]/c)*c+g, Math.round(p[1]/c)*c], fl=q=>isLandAt(q);
+  const passV = fl([v[0]-g,v[1]]) && fl([v[0]+g,v[1]]) && !fl([v[0],v[1]-g]) && !fl([v[0],v[1]+g]), passH = fl([h[0],h[1]-g]) && fl([h[0],h[1]+g]) && !fl([h[0]-g,h[1]]) && !fl([h[0]+g,h[1]]);      // a passage runs through a vertical edge when floor lies either side of it
+  const useV = passV!==passH ? passV : dist(p,v)<dist(p,h);
+  return useV ? {p:v,rot:90+(rot||0)} : {p:h,rot:rot||0}; }
+function placeStamp(p,vary,rot){ const kind=opts.stamp, base=opts.stampSizes[groupOf(kind)], v=Math.random(), n=VARIANTS[kind]||1; let r0=rot ?? opts.stampRot; if(DUNG()){ const d=dungSnap(kind,p,r0); p=d.p; r0=d.rot; }
+  const o={kind,x:Math.round(p[0]),y:Math.round(p[1]),size:Math.round(vary?base*(.82+.36*v):base),rot:r0,v};
+  if(n>1) o.var = opts.stampVar==='shuffle' ? (STAMP_GROUPS[groupOf(kind)].noflip ? 0 : Math.floor(Math.random()*n)) : opts.stampVar%n;      // numbers and letters stay plain unless a shape is picked
   if(TINTS[kind]) o.tint=opts.stampTint[kind]||TINTS[kind][0];
-  if(opts.stampFlip==='on' || (opts.stampFlip==='shuffle' && vary && Math.random()<.5)) if(!STAMP_GROUPS[groupOf(kind)].align) o.flip=true;      // Random: about half of the stamps laid down by dragging are mirrored
+  if(opts.stampFlip==='on' || (opts.stampFlip==='shuffle' && vary && Math.random()<.5)) if(!STAMP_GROUPS[groupOf(kind)].align && !STAMP_GROUPS[groupOf(kind)].noflip) o.flip=true;      // Random: about half of the stamps laid down by dragging are mirrored
   S.stamps=[...S.stamps,withLy(o)]; }
 const [hitC,hitX]=mkCanvas(1,1);
 function inLand(l,p){ landPath(l); const b=built.get(l); hitX.lineWidth=b.cw||1; return hitX.isPointInPath(b.path,p[0],p[1]) || !!(b.core && hitX.isPointInStroke(b.core,p[0],p[1])); }
@@ -1715,7 +2064,7 @@ function touches(a,b){ landPath(a); landPath(b); const A=built.get(a), B=built.g
   if(A.bb[0]>B.bb[2]||B.bb[0]>A.bb[2]||A.bb[1]>B.bb[3]||B.bb[1]>A.bb[3]) return false;
   return A.poly.some((p,i)=>i%2===0 && inLand(b,p)) || B.poly.some((p,i)=>i%2===0 && inLand(a,p)); }
 function landGroup(l){        // every land shape that overlaps this one, directly or through others: one landmass
-  if(l.mode==='sea') return [l];
+  if(l.mode==='sea' || S.kind==='dungeon') return [l];      // (in a dungeon each room or corridor is picked on its own)
   const lands=S.lands.filter(o=>o.mode!=='sea'), g=[l], seen=new Set(g);
   for(let i=0;i<g.length;i++) for(const o of lands) if(!seen.has(o) && touches(g[i],o)){ seen.add(o); g.push(o); }
   return g; }
@@ -1804,12 +2153,14 @@ cv.addEventListener('pointerdown',e=>{
     const [a,b]=[...pointers.values()]; pinch={d:dist(a,b),cx:(a[0]+b[0])/2,cy:(a[1]+b[1])/2}; invalidate(); return; }
   const p=toWorld(e), t=opts.tool;
   if(e.button===1 || t==='pan' || spaceDown){ act={type:'pan',sx:e.clientX,sy:e.clientY,vx:view.x,vy:view.y}; return; }
-  if(e.button===2 && t!=='land' && t!=='cliff') return;
+  if(DUNG() && (t==='corridor'||t==='dwall'||(t==='room'&&opts.roomShape==='poly'))){ if(e.button===2){ if(draft){ draft.pts.pop(); if(!draft.pts.length) draft=null; invalidate(); } return; } draftClick(p,opts.roomCut&&t!=='dwall'); return; }
+  if(e.button===2 && t!=='land' && t!=='cliff' && t!=='room') return;
   const lmode = (e.button===2)!==(opts.landPrimary==='sea') ? 'sea' : 'land';   // right button does the opposite of the left
   if(t==='cliff'){ const cm = (e.button===2)!==(opts.cliffPrimary==='down') ? 'down' : 'up';
     if(opts.cliffMode==='brush'){ pushUndo(); const c={mode:cm,brush:true,pts:[],size:opts.cliffBrush,rough:opts.cliffRough,seed:rseed(),h:opts.cliffH,taper:0,dir:-90}; act={type:'cbrush',pts:c.pts,cliff:c,pushed:true}; addPoint(act,p,0); S.cliffs=[...S.cliffs,c]; need.compose='fast'; }
     else { act={type:'shape',mode:cm,cliff:true,pts:[]}; addPoint(act,p,0); } }
   else if(landBrushOn()){ pushUndo(); const land={mode:lmode,brush:true,pts:[],size:opts.landBrush,rough:opts.landRough,seed:rseed(),t:++S.tick}; act={type:'lbrush',pts:land.pts,land,pushed:true}; addPoint(act,p,0); S.lands=[...S.lands,land]; need.land=true; need.compose='fast'; }
+  else if(t==='room'){ const cut=(e.button===2)!==opts.roomCut; if(opts.roomShape==='cave'){ act={type:'shape',mode:cut?'sea':'land',cave:true,pts:[]}; addPoint(act,p,0); } else act={type:'drect',shape:opts.roomShape,mode:cut?'sea':'land',a:gsnap(p),b:gsnap(p)}; }
   else if(t==='land'){ act={type:'shape',mode:lmode,pts:[]}; addPoint(act,p,0); }
   else if(LINES[t]){ act={type:'line',kind:t,pts:[]}; addPoint(act,p,0); }
   else if(t==='paint'){ const water=opts.paintLayer==='water', stroke={type:water?opts.water:opts.terrain,size:opts.brush,hard:opts.hard,op:opts.bop,pts:[]}; if(water) stroke.w=true; act={type:'paint',pts:stroke.pts,stroke}; addPoint(act,p,0); need.compose='fast'; }
@@ -1832,13 +2183,14 @@ cv.addEventListener('pointermove',e=>{
   if(pinch && pointers.size===2){ const [a,b]=[...pointers.values()], d=dist(a,b), cx=(a[0]+b[0])/2, cy=(a[1]+b[1])/2, r=cv.getBoundingClientRect();
     view.x+=cx-pinch.cx; view.y+=cy-pinch.cy; zoomAt(cx-r.left,cy-r.top,d/(pinch.d||1)); pinch={d,cx,cy}; return; }
   const p=toWorld(e); hover=p;
-  if(!act){ if(opts.tool==='paint'||opts.tool==='stamp'||opts.tool==='cliff'||opts.tool==='reshape'||landBrushOn()) invalidate(); return; }
+  if(!act){ if(draft || (DUNG() && (opts.tool==='room'||opts.tool==='corridor'||opts.tool==='dwall')) || opts.tool==='paint'||opts.tool==='stamp'||opts.tool==='cliff'||opts.tool==='reshape'||landBrushOn()) invalidate(); return; }
   if(act.type==='pan'){ view.x=act.vx+e.clientX-act.sx; view.y=act.vy+e.clientY-act.sy; }
   else if(act.type==='xf') xfApply(p);
   else if(act.type==='pull'){ const a=act, dx=p[0]-a.start[0], dy=p[1]-a.start[1]; if(!a.moved){ if(Math.hypot(dx,dy)<3/view.k) return; pushUndo(); a.moved=true; }
     const n={...a.cur,pts:a.orig.map((q,i)=>a.w[i]?[q[0]+dx*a.w[i],q[1]+dy*a.w[i]]:q)}; S[a.key]=S[a.key].map(o=>o===a.cur?n:o); a.cur=n; shapeDirty(a.key,n,false); }
   else if(act.type==='cut'){ cutLines(p); }
   else if(act.type==='box') act.b=p;
+  else if(act.type==='drect') act.b=gsnap(p);
   else if(act.type==='shape'||act.type==='line'||act.type==='fill'||act.type==='measure') addPoint(act,p,5);
   else if(act.type==='cbrush'){ if(addPoint(act,p,6)){ const nc={...act.cliff}; S.cliffs=S.cliffs.map(o=>o===act.cliff?nc:o); act.cliff=nc; need.compose='fast'; } }
   else if(act.type==='cheight' && sel){ if(!act.moved){ pushUndo(); act.moved=true; }   // drag up for a plateau, down past level for a pit
@@ -1867,11 +2219,14 @@ function endPointer(e){
     if(Math.hypot(a.b[0]-a.a[0],a.b[1]-a.a[1])<4/view.k) sel=a.click;
     else { const it=boxSelect(a.a,a.b); sel = !it.length ? null : it.length>1 ? {type:'multi',items:it} : it[0].type==='land' ? {...it[0],group:landGroup(it[0].obj)} : it[0]; }
     renderPanel(); }
+  else if(a.type==='drect'){ const w=Math.abs(a.b[0]-a.a[0]), h=Math.abs(a.b[1]-a.a[1]);
+    if(w>=cellSz()*.45 && h>=cellSz()*.45){ pushUndo(); const x0=Math.min(a.a[0],a.b[0]), x1=Math.max(a.a[0],a.b[0]), y0=Math.min(a.a[1],a.b[1]), y1=Math.max(a.a[1],a.b[1]);
+      S.lands=[...S.lands,{mode:a.mode,floor:1,...(a.shape==='ellipse'?{pts:ellipsePts([x0,y0],[x1,y1]),rough:0}:{sharp:true,pts:[[x0,y0],[x1,y0],[x1,y1],[x0,y1]],rough:0}),seed:rseed(),t:++S.tick,tex:opts.roomTex}]; need.land=true; need.compose='full'; } }
   else if(a.type==='shape'){ const xs=a.pts.map(p=>p[0]), ys=a.pts.map(p=>p[1]);
     if(a.pts.length>=4 && Math.max(...xs)-Math.min(...xs)>14 && Math.max(...ys)-Math.min(...ys)>14 && a.cliff){ pushUndo();
       S.cliffs=[...S.cliffs,{mode:a.mode,pts:resample(a.pts,10,true),rough:opts.cliffRough,seed:rseed(),h:opts.cliffH,taper:0,dir:-90}]; need.compose='full'; }
     else if(a.pts.length>=4 && Math.max(...xs)-Math.min(...xs)>14 && Math.max(...ys)-Math.min(...ys)>14){ pushUndo();
-      S.lands=[...S.lands,{mode:a.mode,pts:resample(a.pts,10,true),rough:opts.landRough,seed:rseed(),t:++S.tick}]; need.land=true; need.compose='full'; } }
+      S.lands=[...S.lands,{mode:a.mode,pts:resample(a.pts,10,true),rough:a.cave?opts.caveRough:opts.landRough,seed:rseed(),t:++S.tick,...(a.cave?{floor:1,tex:opts.roomTex==='flag'?'dirt':opts.roomTex}:{})}]; need.land=true; need.compose='full'; } }
   else if(a.type==='line'){ if(a.pts.length>=3){ pushUndo(); S.lines=[...S.lines,withLy({kind:a.kind,pts:resample(a.pts,10,a.kind==='realm'),rough:opts.lineRough,width:opts.lineWidth[a.kind],seed:rseed(),...(a.kind==='realm'?{fill:opts.realmFill}:{}),...(a.kind==='fence'?{style:opts.fenceStyle}:{})})]; if(a.kind==='river'){ need.land=true; need.compose='full'; } } }
   else if(a.type==='paint'){ pushUndo(); S.paints=[...S.paints,{...a.stroke,t:++S.tick}]; need.compose='full'; }
   else if(a.type==='lbrush'){ need.land=true; need.compose='full'; }
@@ -1902,11 +2257,14 @@ window.addEventListener('keydown',e=>{
   if(mod && e.key.toLowerCase()==='z'){ e.preventDefault(); e.shiftKey?redo():undo(); }
   else if(mod && e.key.toLowerCase()==='y'){ e.preventDefault(); redo(); }
   else if(e.key===' '){ spaceDown=true; e.preventDefault(); }
+  else if(draft && e.key==='Enter'){ e.preventDefault(); draftEnd(); }
+  else if(draft && e.key==='Escape'){ draft=null; invalidate(); }
+  else if(draft && e.key==='Backspace'){ e.preventDefault(); draft.pts.pop(); if(!draft.pts.length) draft=null; invalidate(); }
   else if((e.key==='Delete'||e.key==='Backspace') && sel){ e.preventDefault(); deleteSel(); }
   else if(sel && e.key.startsWith('Arrow')){ e.preventDefault(); const d=e.shiftKey?20:2; nudgeSel(e.key==='ArrowLeft'?-d:e.key==='ArrowRight'?d:0, e.key==='ArrowUp'?-d:e.key==='ArrowDown'?d:0); }
   else if(mod && e.key.toLowerCase()==='d' && sel){ e.preventDefault(); $('selDup')?.click(); }
   else if(e.key==='Escape'){ sel=null; renderPanel(); invalidate(); }
-  else if(!mod){ const t=TOOLS.find(t=>t.key===e.key.toLowerCase()); if(t) setTool(t.id); }
+  else if(!mod){ const mode=S.kind==='dungeon'?'d':'w', t=TOOLS.find(t=>t.key===e.key.toLowerCase() && (!t.m || t.m===mode)); if(t) setTool(t.id); }
 });
 window.addEventListener('keyup',e=>{ if(e.key===' ') spaceDown=false; });
 function deleteSel(){ if(!sel) return; pushUndo(); const gone=new Set([...selItems().map(it=>it.obj),...ridersOn(selLands()).flatMap(r=>r[1])]); selDirty(true);
@@ -1916,6 +2274,7 @@ function deleteSel(){ if(!sel) return; pushUndo(); const gone=new Set([...selIte
 const ICON = {
   select:'<path d="M5 3l12 7-5 2 3 6-2 1-3-6-4 4z"/>', reshape:'<path d="M3 17c4-9 8 3 12-6M15 11l5-6M20 5l-4 .5M20 5l-.5 4"/>', pan:'<path d="M12 3v18M3 12h18M12 3l-3 3M12 3l3 3M12 21l-3-3M12 21l3-3M3 12l3-3M3 12l3 3M21 12l-3-3M21 12l-3 3"/>',
   land:'<path d="M4 13c0-5 4-8 8-8s9 2 8 7-4 3-6 6-10 1-10-5z"/>', sea:'<path d="M3 9c2-2 4-2 6 0s4 2 6 0 4-2 6 0M3 15c2-2 4-2 6 0s4 2 6 0 4-2 6 0"/>',
+  room:'<path d="M4 5h16v14H4z M4 12h5M15 12h5"/>', corridor:'<path d="M3 9h12v6H3M15 9v-5h6v16h-6v-5"/>', dwall:'<path d="M3 12h18M7 12v-4M12 12v4M17 12v-4"/>',
   paint:'<path d="M14 4l6 6-8 8H6v-6z M4 21h16"/>', cliff:'<path d="M3 8h11l7 4M3 8v9M6.5 8v7M10 8v9M14 8v8M17.5 10v6M21 12v5"/>', river:'<path d="M7 3c-3 5 6 6 3 10s4 5 6 8"/>', road:'<path d="M5 20L10 4M19 20L14 4M12 6v2M12 11v2M12 16v2"/>',
   border:'<path d="M3 17l4-8 5 5 4-9 5 7" stroke-dasharray="4 3"/>', stamp:'<path d="M4 20V11l4-4 4 4v9zM12 20v-6l4-3 4 3v6z"/>', label:'<path d="M5 6h14M12 6v13M9 19h6"/>', realm:'<path d="M4 9l5-5 8 2 3 7-4 7-9-1z" stroke-dasharray="3 2"/><path d="M8 10l2 2M12 8l2 2M9 14l2 2M13 12l2 2"/>', street:'<path d="M3 9h8V3M3 15h8v6M15 3v6h6M15 21v-6h6"/>', wall:'<path d="M3 18V9h3v3h3V9h3v3h3V9h3v3h3v6z"/>', fence:'<path d="M3 10h18M3 15h18M6 7v11M12 7v11M18 7v11"/>', measure:'<path d="M3 16l13-13 5 5-13 13zM7 12l2 2M10 9l2 2M13 6l2 2"/>',
 };
@@ -1923,25 +2282,31 @@ const TOOLS = [
   {g:'Edit', id:'select', name:'Select', key:'v', hint:'Click to select, or drag a box around several things. Drag a selection to move it. Middle-click or hold Space to pan.'},
   {id:'reshape', name:'Reshape', key:'e', hint:'Drag a coastline, river, road, border or cliff edge to pull it into a new shape.'},
   {id:'pan', name:'Pan', key:'h', hint:'Drag to move around. Scroll or pinch to zoom. Middle-click or Space does the same from any tool.'},
-  {g:'Shape', id:'land', name:'Land', key:'l', hint:'Left-drag a loop to raise land. Right-drag a loop to carve sea or a lake.'},
-  {id:'cliff', name:'Cliffs', key:'c', hint:'Left-drag raises the land into a plateau with cliffs. Right-drag lowers it again.'},
-  {id:'paint', name:'Terrain', key:'t', hint:'Paint ground onto the land, or switch to Water to paint the sea and lakes.'},
-  {g:'Lines', id:'river', name:'River', key:'r', hint:'Draw a river from source to mouth.'},
-  {id:'road', name:'Road', key:'d', hint:'Draw a road between places.'},
-  {id:'border', name:'Border', key:'b', hint:'Draw a border between realms.'},
-  {id:'realm', name:'Realm', key:'k', hint:'Draw a loop round a territory. It is marked along the inside of its edge, on land only.'},
-  {g:'City', id:'street', name:'Street', key:'s', hint:'Draw a street. Where streets meet or cross they join into one junction.'},
-  {id:'fence', name:'Fence', key:'f', hint:'Draw a hedge, fence, field wall or palisade, for plots and outworks.'},
-  {id:'wall', name:'Wall', key:'w', hint:'Draw a town wall. Towers are set along it; a street drawn across it makes a gate.'},
+  {g:'Shape', id:'land', m:'w', name:'Land', key:'l', hint:'Left-drag a loop to raise land. Right-drag a loop to carve sea or a lake.'},
+  {id:'cliff', m:'w', name:'Cliffs', key:'c', hint:'Left-drag raises the land into a plateau with cliffs. Right-drag lowers it again.'},
+  {id:'paint', m:'w', name:'Terrain', key:'t', hint:'Paint ground onto the land, or switch to Water to paint the sea and lakes.'},
+  {g:'Dungeon', id:'room', m:'d', name:'Room', key:'o', hint:'Drag to draw a room. Choose Rectangle, Ellipse, Polygon or Cave below. Right-drag cuts a hole out of the floor.'},
+  {id:'corridor', m:'d', name:'Corridor', key:'i', hint:'Click along the passage, double-click or press Enter to finish. The width is in squares.'},
+  {id:'dwall', m:'d', name:'Wall', key:'p', hint:'Draw an inner wall across a room. Click along it, double-click or press Enter to finish.'},
+  {g:'Lines', id:'river', m:'w', name:'River', key:'r', hint:'Draw a river from source to mouth.'},
+  {id:'road', m:'w', name:'Road', key:'d', hint:'Draw a road between places.'},
+  {id:'border', m:'w', name:'Border', key:'b', hint:'Draw a border between realms.'},
+  {id:'realm', m:'w', name:'Realm', key:'k', hint:'Draw a loop round a territory. It is marked along the inside of its edge, on land only.'},
+  {g:'City', id:'street', m:'w', name:'Street', key:'s', hint:'Draw a street. Where streets meet or cross they join into one junction.'},
+  {id:'fence', m:'w', name:'Fence', key:'f', hint:'Draw a hedge, fence, field wall or palisade, for plots and outworks.'},
+  {id:'wall', m:'w', name:'Wall', key:'w', hint:'Draw a town wall. Towers are set along it; a street drawn across it makes a gate.'},
   {g:'Mark', id:'stamp', name:'Stamp', key:'m', hint:'Click to place one. Drag with trees or mountains to scatter many.'},
   {id:'label', name:'Label', key:'a', hint:'Click where the name should go, then type it.'},
   {g:'Check', id:'measure', name:'Measure', key:'g', hint:'Drag along a route to read its length. Nothing is added to the map.'},
 ];
-function buildRail(){ $('rail').innerHTML = TOOLS.map(t=>`${t.g?`<h3>${t.g}</h3>`:''}<button class="tool" data-tool="${t.id}" title="${t.name} (${t.key.toUpperCase()})" aria-pressed="false"><svg viewBox="0 0 24 24">${ICON[t.id]}</svg>${t.name}</button>`).join('');
+let railBound=false;
+function buildRail(){ const mode=S.kind==='dungeon'?'d':'w'; let pend=null, h='';      // world tools and dungeon tools are offered by map kind; a hidden tool hands its heading to the next one shown
+  for(const t of TOOLS){ if(t.g) pend=t.g; if(t.m && t.m!==mode) continue; h+=`${pend?`<h3>${pend}</h3>`:''}<button class="tool" data-tool="${t.id}" title="${t.name} (${t.key.toUpperCase()})" aria-pressed="false"><svg viewBox="0 0 24 24">${ICON[t.id]}</svg>${t.name}</button>`; pend=null; }
+  $('rail').innerHTML=h; if(railBound) return; railBound=true;
   $('rail').addEventListener('click',e=>{ const b=e.target.closest('[data-tool]'); if(!b) return;
     if(PHONE && b.dataset.tool===opts.tool) document.body.classList.toggle('drawer-open');     // on a phone, tapping the tool you're on opens its settings
     else { setTool(b.dataset.tool); document.body.classList.remove('drawer-open'); } }); }
-function setTool(id){ opts.tool=id; if(id!=='select') sel=null;
+function setTool(id){ opts.tool=id; draft=null; if(id!=='select') sel=null;
   document.querySelectorAll('.tool').forEach(b=>b.setAttribute('aria-pressed',b.dataset.tool===id));
   $('hint').textContent = landBrushOn() ? 'Left-drag paints land. Right-drag paints sea over it.' : TOOLS.find(t=>t.id===id).hint; cv.style.cursor = id==='pan'?'grab': id==='select'?'default':'crosshair'; renderPanel(); invalidate(); }
 
@@ -1950,22 +2315,32 @@ const pct=v=>Math.round(v*100), num=v=>Math.round(v), deg=v=>Math.round(v)+'°';
 function bind(id, fmt, fn, isEdit){ const el=$(id); if(!el) return;
   el.addEventListener('input',()=>{ if(isEdit) beginEdit(); const v=el.type==='range'?+el.value:el.value; const o=$(id+'Out'); if(o) o.textContent=fmt(v); fn(v); invalidate(); });
   el.addEventListener('change',()=>{ editing=false; if(isEdit && sel){ selDirty(true); invalidate(); } queueSave(); }); }
-const stampGrid=(id,kinds,cur)=>`<div class="stamps" id="${id}">${kinds.map(k=>`<button data-kind="${k}" aria-pressed="${k===cur}"><canvas width="88" height="88" data-kind="${k}"></canvas>${k}</button>`).join('')}</div>`;
+const stampGrid=(id,kinds,cur)=>`<div class="stamps" id="${id}">${kinds.map(k=>`<button data-kind="${k}" aria-pressed="${k===cur}"><canvas width="88" height="88" data-kind="${k}"></canvas>${k.startsWith('ch_')?k.slice(3):k}</button>`).join('')}</div>`;
 function stampThumbs(){ document.querySelectorAll('.stamps canvas').forEach(c=>{ const x=c.getContext('2d'); x.setTransform(2,0,0,2,0,0); x.clearRect(0,0,44,44); drawStamp(x,{kind:c.dataset.kind,x:22,y:24,size:34,rot:0,v:.6,var:+c.dataset.var||0,tint:c.dataset.tint||undefined}); }); }
 const ORDER_BUTTONS=`<div class="btnrow"><button class="btn" data-flip="1">Mirror</button></div><p class="grp">Order</p><div class="btnrow"><button class="btn" data-z="front">To front</button><button class="btn" data-z="up">Forward</button><button class="btn" data-z="down">Backward</button><button class="btn" data-z="back">To back</button><button class="btn" data-z="auto">Auto</button></div>`;
 function lookControls(kind,curVar,curTint,shuffle){     // shape and colour pickers for stamps that have them
   const n=VARIANTS[kind]||1, tints=TINTS[kind]; let h='';
   if(n>1) h+=`<p class="grp">Shape</p><div class="stamps" id="varPick">${shuffle?`<button data-var="shuffle" aria-pressed="${curVar==='shuffle'}"><span class="shuf">⤮</span>shuffle</button>`:''}${Array.from({length:n},(_,i)=>`<button data-var="${i}" aria-pressed="${curVar===i}"><canvas width="88" height="88" data-kind="${kind}" data-var="${i}" data-tint="${curTint||''}"></canvas>${i+1}</button>`).join('')}</div>`;
   return h; }
+const FLOORS=[['flag','Flagstone'],['plank','Planks'],['dirt','Earth'],['none','Plain']];
+function dungToolPanel(t){ const chips=(id,items,cur,attr)=>`<div class="chips" id="${id}">${items.map(([k,n])=>`<button class="chip" data-${attr}="${k}" aria-pressed="${String(cur)===String(k)}">${n}</button>`).join('')}</div>`;
+  let h=`<section><h2>${t==='room'?'Room':t==='corridor'?'Corridor':'Inner wall'}</h2>`;
+  if(t==='room') h+=`<p class="grp">Shape</p>${chips('roomShape',[['rect','Rectangle'],['ellipse','Ellipse'],['poly','Polygon'],['cave','Cave']],opts.roomShape,'shape')}<p>${{rect:'Drag out a rectangle. It snaps to the squares, and its size is shown in squares.',ellipse:'Drag out a round or oval room.',poly:'Click the corners. Click the first corner again, double-click or press Enter to close it. Right-click takes back a corner.',cave:'Drag a rough loop for a cavern. It is not snapped to the grid.'}[opts.roomShape]}</p>`;
+  if(t==='corridor') h+=`<p class="grp">Width</p>${chips('corrW',[[1,'1 square'],[2,'2 squares'],[3,'3 squares']],Math.round(opts.corrW),'cw')}<p>Click along the passage. Double-click or press Enter to finish; right-click takes back a point. It runs down the middle of its squares.</p>`;
+  if(t==='dwall') h+=slider('dwallW','Thickness',2,14,.5,opts.lineWidth.dwall,v=>v)+`<p>Click along the wall. Double-click or press Enter to finish; right-click takes back a point. Doors and arches are in Stamps, Doors.</p>`;
+  if(t!=='dwall'){ h+=`<p class="grp">This draws</p>${chips('roomCut',[[0,'Floor'],[1,'A hole in the floor']],opts.roomCut?1:0,'cut')}`; if(!opts.roomCut) h+=`<p class="grp">Floor</p>${chips('roomTex',FLOORS,opts.roomTex,'tex')}`; if(t==='room' && opts.roomShape!=='poly') h+=`<p>Right button does the opposite.</p>`; }
+  h+=`<div class="layer"><span>Snap to grid</span><label><input type="checkbox" id="snapOn" ${opts.snap?'checked':''}>on</label><label><input type="checkbox" id="snapFine" ${opts.snapFine?'checked':''}>half</label></div></section>`; return h; }
+function dungSelPanel(o){ return `<section><h2>${o.mode==='sea'?'Hole in the floor':o.brush?'Corridor':o.sharp?'Room':'Cave or round room'}</h2>${o.mode==='sea'?'':`<p class="grp">Floor</p><div class="chips" id="selTex">${FLOORS.map(([k,n])=>`<button class="chip" data-tex="${k}" aria-pressed="${(o.tex||'none')===k}">${n}</button>`).join('')}</div>`}${o.brush?slider('selBrush','Width',20,600,2,o.size,num):''}${!o.sharp?slider('selRough','Edge',0,1,.01,o.rough,pct)+'<div class="ends"><span>smooth</span><span>rough</span></div>':''}</section>`; }
 function renderPanel(){
   const t=opts.tool; let h = PHONE ? '<button class="btn" id="drawerX">Close settings</button>' : '';
   if(t==='select'){
-    if(!sel) h+=`<section><h2>Select</h2><p>Click a landmass, river, road, border, settlement or label to change it.</p></section>`;
+    if(!sel) h+=`<section><h2>Select</h2><p>${DUNG()?'Click a room, corridor, wall, stamp or label to change it. Drag to move it.':'Click a landmass, river, road, border, settlement or label to change it.'}</p></section>`;
     else if(sel.type==='multi'){ h+=`<section><h2>${sel.items.length} selected</h2><p>Drag any of them to move the lot.</p>${sel.items.some(i=>i.type==='stamp')?ORDER_BUTTONS:''}</section><div class="btnrow"><button class="btn" id="selDup">Duplicate</button><button class="btn danger" id="selDel">Delete</button></div>`; }
     else { const o=sel.obj;
       if(sel.type==='cliff') h+=`<section><h2>${o.mode==='down'?'Lowered area':(o.h ?? 26)<0?'Pit':'Cliff'}</h2>${o.mode==='up'?slider('selH','Height',-220,140,1,o.h ?? 26,num)+'<div class="ends"><span>deep pit</span><span>high cliff</span></div><p>Or drag the round grip under the shape: up raises it, down past level sinks it into a pit. Deep pits fade to black.</p>'+slider('selTaper','Taper',0,1,.01,o.taper||0,pct)+'<div class="ends"><span>even</span><span>ramps to nothing</span></div>'+slider('selDir','Direction',-180,180,1,o.dir ?? -90,deg)+'<p>Drag the arrow on the map to set both at once. It points from the low end to the high end.</p>':''}
         ${slider('selRough','Edge',0,1,.01,o.rough,pct)}<div class="ends"><span>smooth</span><span>jagged</span></div>${o.brush?slider('selBrush','Width',20,600,2,o.size,num):''}<div class="btnrow"><button class="btn" id="selSeed">Reshuffle edge</button></div></section>`;
-      if(sel.type==='land') h+=`<section><h2>${o.mode==='sea'?'Sea shape':'Landmass'}</h2>${sel.group.length>1?`<p>${sel.group.length} overlapping shapes, joined into one landmass.</p>`:''}${slider('selRough','Coastline',0,1,.01,o.rough,pct)}<div class="ends"><span>smooth</span><span>jagged</span></div>${sel.group.some(g=>g.brush)?slider('selBrush','Width',20,600,2,(sel.group.find(g=>g.brush)).size,num):''}<div class="btnrow"><button class="btn" id="selSeed">Reshuffle coast</button></div></section>`;
+      if(sel.type==='land' && DUNG()) h+=dungSelPanel(o);
+      if(sel.type==='land' && !DUNG()) h+=`<section><h2>${o.mode==='sea'?'Sea shape':'Landmass'}</h2>${sel.group.length>1?`<p>${sel.group.length} overlapping shapes, joined into one landmass.</p>`:''}${slider('selRough','Coastline',0,1,.01,o.rough,pct)}<div class="ends"><span>smooth</span><span>jagged</span></div>${sel.group.some(g=>g.brush)?slider('selBrush','Width',20,600,2,(sel.group.find(g=>g.brush)).size,num):''}<div class="btnrow"><button class="btn" id="selSeed">Reshuffle coast</button></div></section>`;
       if(sel.type==='line') h+=`<section><h2>${LINES[o.kind].name}</h2>${slider('selRough','Wander',0,1,.01,o.rough,pct)}${slider('selWidth','Width',1,60,.5,o.width,v=>v)}${o.kind==='fence'?`<p class="grp">Kind</p><div class="chips" id="selFence">${[['hedge','Hedge'],['fence','Fence'],['wall','Field wall'],['palisade','Palisade']].map(([k,n])=>`<button class="chip" data-fstyle="${k}" aria-pressed="${(o.style||'hedge')===k}">${n}</button>`).join('')}</div>`:''}${o.kind==='realm'?`<p class="grp">Marked by</p><div class="chips three" id="selFill">${[['band','Fringe'],['hatch','Hatching'],['dots','Stipple']].map(([k,n])=>`<button class="chip" data-rfill="${k}" aria-pressed="${(o.fill||'band')===k}">${n}</button>`).join('')}</div>`:''}<div class="btnrow"><button class="btn" id="selSeed">Reshuffle bends</button></div></section>`;
       if(S.layers.length>1 && ['stamp','label','line','multi'].includes(sel.type)){ const cur=sel.type==='multi'?'':lyOf(o); h+=`<section><label class="row wide" for="selLayer">Layer<select id="selLayer">${sel.type==='multi'?'<option value="" selected disabled>Move to…</option>':''}${S.layers.slice().reverse().map(L=>`<option value="${L.id}"${L.id===cur?' selected':''}>${L.name.replace(/</g,'&lt;')}</option>`).join('')}</select></label></section>`; }
       if(sel.type==='stamp') h+=`<section><h2>${groupOf(o.kind)}</h2>${stampGrid('selKinds',STAMP_GROUPS[groupOf(o.kind)].kinds,o.kind)}${lookControls(o.kind,stampLook(o).n,stampLook(o).tint,false)}${slider('selSize','Size',14,200,1,o.size,num)}${slider('selRot','Rotation',-180,180,1,o.rot,deg)}
@@ -1976,6 +2351,7 @@ function renderPanel(){
         ${slider('selSize','Size',10,160,1,o.size,num)}${slider('selRot','Rotation',-180,180,1,o.rot,deg)}${slider('selSpace','Spacing',0,1.5,.01,o.spacing ?? (LABEL_STYLES[o.style]||LABEL_STYLES.place).spacing,pct)}${slider('selBend','Curve',-1,1,.01,o.bend||0,pct)}<div class="ends"><span>dips</span><span>arches</span></div><p>Double-click a label to retype it on the map. A new line in the text makes a second line.</p></section>`;
       h+=`<div class="btnrow"><button class="btn" id="selDup">Duplicate</button><button class="btn danger" id="selDel">Delete</button></div>`; }
   }
+  if(t==='room'||t==='corridor'||t==='dwall') h+=dungToolPanel(t);
   if(t==='land') h+=`<section><h2>Land &amp; sea</h2><p>Left button raises land. Right button carves sea. Both use these settings.</p>
     <p class="grp">Brush type</p><div class="chips" id="landModes"><button class="chip" data-mode="outline" aria-pressed="${opts.landMode==='outline'}">Outline</button><button class="chip" data-mode="brush" aria-pressed="${opts.landMode==='brush'}">Brush</button></div>
     <p>${opts.landMode==='brush' ? 'Paints as you drag.' : 'Draw a loop and it fills in when you let go.'}</p>
@@ -1992,7 +2368,7 @@ function renderPanel(){
     ${groups.map(g=>`<p class="grp">${g}</p><div class="chips">${Object.entries(INKS).filter(([k,v])=>v.g===g).map(([k,v])=>`<button class="chip" data-terr="${k}" aria-pressed="${k===cur||DEF[cur]?.tex===v.tex}">${v.name}</button>`).join('')}</div>`).join('')}
     <div class="chips"><button class="chip" data-terr="erase" aria-pressed="${cur==='erase'}"><i style="background:${water?MAP.water:MAP.land}"></i>Eraser</button></div>${slider('brush','Brush',16,400,2,opts.brush,num)}${slider('hard','Hardness',0,1,.01,opts.hard,pct)}<div class="ends"><span>soft edge</span><span>hard edge</span></div>${slider('bop','Opacity',.05,1,.01,opts.bop,pct)}
     <p>${water?'Water paint goes on the sea and lakes. Land always sits on top of it.':'Ground paint goes onto the land. Add trees and mountains from Stamps.'}</p></section>`; }
-  if(LINES[t]) h+=`<section><h2>${LINES[t].name}</h2>${slider('lineRough','Wander',0,1,.01,opts.lineRough,pct)}<div class="ends"><span>straight</span><span>winding</span></div>${slider('lineWidth','Width',1,60,.5,opts.lineWidth[t],v=>v)}${t==='fence'?`<p class="grp">Kind</p><div class="chips" id="fenceStyle">${[['hedge','Hedge'],['fence','Fence'],['wall','Field wall'],['palisade','Palisade']].map(([k,n])=>`<button class="chip" data-fstyle="${k}" aria-pressed="${(opts.fenceStyle)===k}">${n}</button>`).join('')}</div>`:''}${t==='street'?`<p class="grp">Kind</p><div class="chips" id="streetKind">${[[5,'Lane'],[8,'Street'],[12,'Avenue'],[46,'Square']].map(([w,n])=>`<button class="chip" data-sw="${w}" aria-pressed="${opts.lineWidth.street===w}">${n}</button>`).join('')}</div><p>For a square, pick Square and make a very short stroke. Then use the Stamp tool, City, Houses and “Fills an area” to line the streets with buildings.</p>`:''}${t==='realm'?`<p class="grp">Marked by</p><div class="chips three" id="realmFill">${[['band','Fringe'],['hatch','Hatching'],['dots','Stipple']].map(([k,n])=>`<button class="chip" data-rfill="${k}" aria-pressed="${(opts.realmFill)===k}">${n}</button>`).join('')}</div><p>Draw right round the territory; the loop closes itself. Anything over the sea is left out.</p>`:''}</section>`;
+  if(LINES[t] && t!=='dwall') h+=`<section><h2>${LINES[t].name}</h2>${slider('lineRough','Wander',0,1,.01,opts.lineRough,pct)}<div class="ends"><span>straight</span><span>winding</span></div>${slider('lineWidth','Width',1,60,.5,opts.lineWidth[t],v=>v)}${t==='fence'?`<p class="grp">Kind</p><div class="chips" id="fenceStyle">${[['hedge','Hedge'],['fence','Fence'],['wall','Field wall'],['palisade','Palisade']].map(([k,n])=>`<button class="chip" data-fstyle="${k}" aria-pressed="${(opts.fenceStyle)===k}">${n}</button>`).join('')}</div>`:''}${t==='street'?`<p class="grp">Kind</p><div class="chips" id="streetKind">${[[5,'Lane'],[8,'Street'],[12,'Avenue'],[46,'Square']].map(([w,n])=>`<button class="chip" data-sw="${w}" aria-pressed="${opts.lineWidth.street===w}">${n}</button>`).join('')}</div><p>For a square, pick Square and make a very short stroke. Then use the Stamp tool, City, Houses and “Fills an area” to line the streets with buildings.</p>`:''}${t==='realm'?`<p class="grp">Marked by</p><div class="chips three" id="realmFill">${[['band','Fringe'],['hatch','Hatching'],['dots','Stipple']].map(([k,n])=>`<button class="chip" data-rfill="${k}" aria-pressed="${(opts.realmFill)===k}">${n}</button>`).join('')}</div><p>Draw right round the territory; the loop closes itself. Anything over the sea is left out.</p>`:''}</section>`;
   if(t==='stamp'){ const g=groupOf(opts.stamp), sc=STAMP_GROUPS[g].scatter, set=STAMP_SETS[opts.stampSet];
     h+=`<section id="stampKinds"><h2>Stamps</h2><div class="chips three" id="stampSets">${Object.entries(STAMP_SETS).map(([k,v])=>`<button class="chip" data-set="${k}" aria-pressed="${k===opts.stampSet}">${v.name}</button>`).join('')}</div>
     ${set.groups.length ? set.groups.map(n=>`<p class="grp">${n}</p>${stampGrid('sg_'+n,STAMP_GROUPS[n].kinds,opts.stamp)}`).join('') : `<p>${set.empty}</p>`}</section>`;
@@ -2004,7 +2380,7 @@ function renderPanel(){
   if(t==='pan') h+=`<section><h2>Pan</h2><p>Hold Space with any tool to pan without switching.</p></section>`;
   h+=`<hr><section><h2>Detail</h2>${PHONE?'<p>Phone mode draws at reduced detail.</p>':`<div class="chips" id="detailPick"><button class="chip" data-detail="1" aria-pressed="${R===1}">Normal</button><button class="chip" data-detail="${Math.min(2,maxScale())}" aria-pressed="${R>1}">High</button></div><p>High stays sharp when you zoom in, but painting and undo are slower.</p>`}</section>`;
   h+=`<hr><section><h2>Grid</h2><label class="row wide" for="gridType">Type<select id="gridType"><option value="none">None</option><option value="hex">Hex</option><option value="square">Square</option></select></label>${slider('gridSize','Cell',20,200,2,S.grid.size,num)}</section>
-  <hr><section><h2>Sheet</h2><label class="row wide" for="frameType">Border<select id="frameType"><option value="none">None</option><option value="line">Double line</option><option value="graduated">Chart border</option></select></label><div class="layer"><span>Rhumb lines</span><label><input type="checkbox" id="rhumbOn" ${S.rhumb?'checked':''}>show</label><span></span></div><p>Rhumb lines run across the sea from every compass stamp. Compass, scale and cartouche are under Stamps, Furniture.</p></section>
+  <hr><section><h2>${DUNG()?'Sheet':'Sheet'}</h2><label class="row wide" for="frameType">Border<select id="frameType"><option value="none">None</option><option value="line">Double line</option><option value="graduated">Chart border</option></select></label>${DUNG()?slider('dunHatch','Rock hatching',0,2,.05,S.dun.hatch,pct)+'<div class="layer"><span>Wall shadow</span><label><input type="checkbox" id="dunShadow" '+(S.dun.shadow?'checked':'')+'>show</label><span></span></div><p>The rock round the rooms is hatched, and a band of shading runs down the left inside of each wall.</p>':`<div class="layer"><span>Rhumb lines</span><label><input type="checkbox" id="rhumbOn" ${S.rhumb?'checked':''}>show</label><span></span></div><p>Rhumb lines run across the sea from every compass stamp. Compass, scale and cartouche are under Stamps, Furniture.</p>`}</section>
   <hr><section><h2>Layers</h2><div id="lyList">${S.layers.slice().reverse().map(L=>`<div class="lyrow${L.id===S.active?' on':''}" data-ly="${L.id}"><input type="radio" name="lyActive" ${L.id===S.active?'checked':''} aria-label="Draw on ${L.name.replace(/"/g,'')}"><input type="text" class="lyname" value="${L.name.replace(/"/g,'&quot;')}" aria-label="Layer name"><label title="Show"><input type="checkbox" data-lyv ${L.v!==false?'checked':''}>show</label><label title="Lock"><input type="checkbox" data-lyl ${L.lock?'checked':''}>lock</label><span class="lybtns"><button type="button" data-lyup title="Move up" aria-label="Move up">&#9650;</button><button type="button" data-lydn title="Move down" aria-label="Move down">&#9660;</button>${L.id==='base'?'':'<button type="button" data-lydel title="Delete layer" aria-label="Delete layer">&#215;</button>'}</span></div>`).join('')}</div>
     <div class="btnrow"><button class="btn" id="lyAdd">Add layer</button></div><p>New rivers, roads, stamps and labels go on the chosen layer. Hidden layers are left out of the exported picture.</p>
     <p class="grp">Show by kind</p>${Object.entries(layers).map(([k,l])=>`<div class="layer"><span>${l.name}</span><label><input type="checkbox" id="lv_${k}" ${l.v?'checked':''}>show</label>${'lock' in l?`<label><input type="checkbox" id="ll_${k}" ${l.lock?'checked':''}>lock</label>`:'<span></span>'}</div>`).join('')}</section>`;
@@ -2013,7 +2389,7 @@ function renderPanel(){
   bind('landRough',pct,v=>opts.landRough=v); bind('brush',num,v=>opts.brush=v); bind('lineRough',pct,v=>opts.lineRough=v); bind('lineWidth',v=>v,v=>opts.lineWidth[t]=v);
   bind('stampSize',num,v=>opts.stampSizes[groupOf(opts.stamp)]=v); bind('scatter',num,v=>opts.scatter=v); bind('fillDensity',pct,v=>opts.fillDensity=v); $('stampMode')?.addEventListener('click',e=>{ const b=e.target.closest('[data-smode]'); if(b){ opts.stampMode=b.dataset.smode; renderPanel(); invalidate(); } }); bind('landBrush',num,v=>opts.landBrush=v);
   $('flipPick')?.addEventListener('click',e=>{ const b=e.target.closest('[data-flipmode]'); if(b){ opts.stampFlip=b.dataset.flipmode; renderPanel(); invalidate(); } });
-  $('stampSets')?.addEventListener('click',e=>{ const b=e.target.closest('[data-set]'); if(b){ opts.stampSet=b.dataset.set; renderPanel(); } });
+  $('stampSets')?.addEventListener('click',e=>{ const b=e.target.closest('[data-set]'); if(b){ opts.stampSet=b.dataset.set; const gs=STAMP_SETS[opts.stampSet].groups; if(gs.length && !gs.some(g=>STAMP_GROUPS[g].kinds.includes(opts.stamp))){ opts.stamp=STAMP_GROUPS[gs[0]].kinds[0]; if(DUNG() && DUN_FOOT[opts.stamp]) opts.stampSizes[groupOf(opts.stamp)]=dungSize(opts.stamp); } renderPanel(); } });
   const selStamp = sel && sel.type==='stamp' && t==='select';
   $('varPick')?.addEventListener('click',e=>{ const b=e.target.closest('button[data-var]'); if(!b) return; const v=b.dataset.var==='shuffle'?'shuffle':+b.dataset.var;
     if(selStamp){ pushUndo(); editSel(o=>({...o,var:v})); } else opts.stampVar=v; renderPanel(); invalidate(); });
@@ -2028,9 +2404,9 @@ function renderPanel(){
   $('landModes')?.addEventListener('click',e=>{ const b=e.target.closest('[data-mode]'); if(b){ opts.landMode=b.dataset.mode; setTool(opts.tool); } }); bind('stampRot',deg,v=>opts.stampRot=v); bind('labelSize',num,v=>opts.labelSize=v);
   $('labelStyle')?.addEventListener('change',e=>opts.labelStyle=e.target.value);
   $('terrChips')?.addEventListener('click',e=>{ const l=e.target.closest('[data-layer]'), b=e.target.closest('[data-terr]'); if(l) opts.paintLayer=l.dataset.layer; else if(b) opts[opts.paintLayer==='water'?'water':'terrain']=b.dataset.terr; else return; renderPanel(); });
-  $('stampKinds')?.addEventListener('click',e=>{ const b=e.target.closest('[data-kind]'); if(b){ opts.stamp=b.dataset.kind; renderPanel(); } });
+  $('stampKinds')?.addEventListener('click',e=>{ const b=e.target.closest('[data-kind]'); if(b){ opts.stamp=b.dataset.kind; if(DUNG() && DUN_FOOT[opts.stamp]) opts.stampSizes[groupOf(opts.stamp)]=dungSize(opts.stamp); renderPanel(); } });
   $('detailPick')?.addEventListener('click',e=>{ const b=e.target.closest('[data-detail]'); if(b){ toast('Redrawing…'); setTimeout(()=>{ setDetail(+b.dataset.detail); renderPanel(); },50); } });
-  $('gridType').addEventListener('change',e=>{ pushUndo(); S.grid={...S.grid,type:e.target.value}; invalidate(); });
+  $('gridType').addEventListener('change',e=>{ pushUndo(); S.grid={...S.grid,type:e.target.value}; if(DUNG()) need.compose='full'; invalidate(); });
   $('scaleN')?.addEventListener('change',e=>{ const v=+e.target.value; if(v>0){ pushUndo(); S.scale={...S.scale,per100:v}; sprites.clear(); queueSave(); renderPanel(); invalidate(); } });
   $('scaleU')?.addEventListener('change',e=>{ pushUndo(); S.scale={...S.scale,unit:e.target.value}; queueSave(); renderPanel(); invalidate(); });
   $('fenceStyle')?.addEventListener('click',e=>{ const b=e.target.closest('[data-fstyle]'); if(b){ opts.fenceStyle=b.dataset.fstyle; renderPanel(); } });
@@ -2039,8 +2415,13 @@ function renderPanel(){
   $('realmFill')?.addEventListener('click',e=>{ const b=e.target.closest('[data-rfill]'); if(b){ opts.realmFill=b.dataset.rfill; renderPanel(); } });
   $('selFill')?.addEventListener('click',e=>{ const b=e.target.closest('[data-rfill]'); if(b && sel){ pushUndo(); editSel(o=>o.kind==='realm'?{...o,fill:b.dataset.rfill}:o); renderPanel(); invalidate(); queueSave(); } });
   $('frameType').addEventListener('change',e=>{ pushUndo(); S.frame=e.target.value; queueSave(); invalidate(); });
-  $('rhumbOn').addEventListener('change',e=>{ pushUndo(); S.rhumb=e.target.checked; rhumbFor=null; invalidate.sig=null; need.compose=need.compose||true; queueSave(); invalidate(); });
-  bind('gridSize',num,v=>S.grid={...S.grid,size:v},true);
+  $('rhumbOn')?.addEventListener('change',e=>{ pushUndo(); S.rhumb=e.target.checked; rhumbFor=null; invalidate.sig=null; need.compose=need.compose||true; queueSave(); invalidate(); });
+  bind('gridSize',num,v=>{ S.grid={...S.grid,size:v}; if(DUNG()) need.compose='full'; },true);
+  bind('dunHatch',pct,v=>{ S.dun={...S.dun,hatch:v}; need.compose='full'; },true); $('dunShadow')?.addEventListener('change',e=>{ pushUndo(); S.dun={...S.dun,shadow:e.target.checked}; need.compose='full'; invalidate(); });
+  const pick=(id,attr,fn)=>$(id)?.addEventListener('click',e=>{ const b=e.target.closest('[data-'+attr+']'); if(b){ fn(b.dataset[attr]); renderPanel(); invalidate(); } });
+  pick('roomShape','shape',v=>{ opts.roomShape=v; draft=null; }); pick('corrW','cw',v=>opts.corrW=+v); pick('roomCut','cut',v=>opts.roomCut=v==='1'); pick('roomTex','tex',v=>opts.roomTex=v);
+  $('snapOn')?.addEventListener('change',e=>opts.snap=e.target.checked); $('snapFine')?.addEventListener('change',e=>opts.snapFine=e.target.checked); bind('dwallW',v=>v,v=>opts.lineWidth.dwall=v);
+  $('selTex')?.addEventListener('click',e=>{ const b=e.target.closest('[data-tex]'); if(!b) return; pushUndo(); editSel(o=>({...o,tex:b.dataset.tex})); selDirty(true); renderPanel(); invalidate(); });
   const lyChanged=()=>{ need.land=true; need.compose='full'; sel=null; renderPanel(); invalidate(); queueSave(); };
   $('lyAdd').addEventListener('click',()=>{ pushUndo(); const id='L'+Date.now().toString(36); S.layers=[...S.layers,{id,name:'Layer '+S.layers.length,v:true,lock:false}]; S.active=id; lyChanged(); });
   $('lyList').addEventListener('change',e=>{ const row=e.target.closest('[data-ly]'); if(!row) return; const id=row.dataset.ly, t=e.target;
@@ -2102,15 +2483,15 @@ $('fileIn').onchange=e=>{ const f=e.target.files[0]; if(!f) return; const r=new 
   r.onload=()=>{ let d=null; try{ d=JSON.parse(r.result); }catch(err){} if(!validState(d)){ toast('That file is not a Wayfarer Atlas map.'); return; } addMap(d,'select').then(()=>{ $('note').hidden=true; toast('Opened '+f.name+' as a new map in Maps.'); }); };
   r.readAsText(f); e.target.value=''; };
 const genOpts={land:1,mountains:1,forests:1,rivers:1,towns:1,last:null};
-function syncGen(){ const kind=document.querySelector('input[name=start]:checked').value, on=kind!=='blank'; $('cityBox').hidden=kind!=='city'; $('genSliders').style.display=kind==='city'?'none':'flex'; $('genBox').querySelector('p').hidden=kind==='city'; $('genBox').style.opacity=on?1:.45; $('genBox').querySelectorAll('input,button').forEach(el=>el.disabled=!on); $('genLast').disabled=!on||genOpts.last===null; }
+function syncGen(){ const kind=document.querySelector('input[name=start]:checked').value, on=kind!=='blank'&&kind!=='dungeon'; $('cityBox').hidden=kind!=='city'; $('genSliders').style.display=kind==='city'||kind==='dungeongen'?'none':'flex'; $('dgSliders').style.display=kind==='dungeongen'?'flex':'none'; $('genBox').querySelector('p').hidden=kind==='city'; $('genBox').querySelector('p').textContent=kind==='dungeongen'?'The dungeon':'How much of each'; $('genBox').style.opacity=on?1:.45; $('genBox').querySelectorAll('input,button').forEach(el=>el.disabled=!on); $('genLast').disabled=!on||genOpts.last===null; }
 $('genSliders').innerHTML=[['land','Land','less','more'],['mountains','Mountains','none','many'],['forests','Forests','none','thick'],['rivers','Rivers','none','many'],['towns','Settlements','none','many']].map(([k,n,a,b])=>`<label style="display:grid;grid-template-columns:7em 2.4em 1fr 2.8em;align-items:center;gap:6px"><span>${n}</span><small style="color:var(--muted);text-align:right">${a}</small><input type="range" id="gen_${k}" aria-label="${n}" min="0" max="2" step="0.1" value="1"><small style="color:var(--muted)">${b}</small></label>`).join('');
 for(const k of ['land','mountains','forests','rivers','towns']) $('gen_'+k).addEventListener('input',e=>genOpts[k]=+e.target.value);
 document.querySelectorAll('input[name=start]').forEach(r=>r.addEventListener('change',syncGen)); $('genLast').addEventListener('click',()=>{ if(genOpts.last!==null) $('genSeed').value=genOpts.last; });
 $('newBtn').onclick=()=>{ syncGen(); $('newDlg').showModal(); };
 $('newDlg').addEventListener('close',()=>{ if($('newDlg').returnValue!=='ok') return; const v=document.querySelector('input[name=size]:checked').value.split('x').map(Number);
   const kind=document.querySelector('input[name=start]:checked').value;
-  const sd=parseInt($('genSeed').value,10), made = kind==='blank' ? blankState(v[0],v[1]) : kind==='city' ? generateCity(v[0],v[1],{size:+$('city_size').value,density:+$('city_density').value,walls:$('city_walls').checked,river:$('city_river').checked,coast:$('city_coast').checked,seed:Number.isFinite(sd)?sd:undefined}) : generateMap(v[0],v[1],kind,{...genOpts,seed:Number.isFinite(sd)?sd:undefined}); if(kind==='city'){ opts.stampSet='city'; opts.stamp='house'; opts.lineRough=.08; } if(made.gen) genOpts.last=made.gen.seed;
-  addMap(made, kind==='blank'?'land':'select').then(()=>{ $('mapName').value=S.name; $('note').hidden=true; if(kind!=='blank') toast('Generated '+S.name+' (seed '+genOpts.last+'). It is in Maps with your others.'); }); });
+  const sd=parseInt($('genSeed').value,10), made = kind==='blank' ? blankState(v[0],v[1]) : kind==='dungeon' ? blankDungeon(v[0],v[1]) : kind==='dungeongen' ? generateDungeon(v[0],v[1],{rooms:+$('dg_rooms').value,props:+$('dg_props').value,foes:+$('dg_foes').value,numbers:$('dg_numbers').checked,seed:Number.isFinite(sd)?sd:undefined}) : kind==='city' ? generateCity(v[0],v[1],{size:+$('city_size').value,density:+$('city_density').value,walls:$('city_walls').checked,river:$('city_river').checked,coast:$('city_coast').checked,seed:Number.isFinite(sd)?sd:undefined}) : generateMap(v[0],v[1],kind,{...genOpts,seed:Number.isFinite(sd)?sd:undefined}); if(kind==='city'){ opts.stampSet='city'; opts.stamp='house'; opts.lineRough=.08; } if(made.gen) genOpts.last=made.gen.seed;
+  addMap(made, kind==='blank'?'land':kind==='dungeon'?'room':'select').then(()=>{ $('mapName').value=S.name; $('note').hidden=true; if(kind!=='blank'&&kind!=='dungeon') toast('Generated '+S.name+' (seed '+genOpts.last+'). It is in Maps with your others.'); }); });
 $('mapsBtn').onclick=async()=>{ await saveNow(); renderMaps(); $('mapsDlg').showModal(); };
 $('mapsDlg').addEventListener('close',()=>{ if($('mapsDlg').returnValue==='new'){ syncGen(); $('newDlg').showModal(); } });
 $('mapsList').addEventListener('click',async e=>{ const b=e.target.closest('button'); if(!b) return;
@@ -2129,6 +2510,53 @@ $('mapName').addEventListener('input',e=>{ S.name=e.target.value; queueSave(); }
    Works on a coarse grid of heights. Coasts come from layered noise bent by a second noise (so they wander like real ones),
    mountains follow ridge lines inland, rivers run from the mountains down to the nearest sea or lake, climate goes cold to
    warm from top to bottom and wet to dry by a third noise, and towns go where people would build: river mouths and coasts. */
+/* ============================================================ random dungeons
+   Rooms of several kinds are dropped on the squares with rock left between them, joined by one-square passages (a spanning tree, then a
+   loop or two), doors go where a passage meets a straight wall, and each room is given a use: pillars, books, tombs, beds, stores, an altar. */
+function blankDungeon(w,h){ return {...blankState(w,h),kind:'dungeon',grid:{type:'square',size:60},scale:{per100:8.33,unit:'feet'},name:'Untitled dungeon'}; }
+function generateDungeon(W,H,G={}){ G={rooms:1,props:1,foes:1,numbers:true,...G}; const seed=Number.isFinite(G.seed)?G.seed:rseed(), rnd=mulberry(seed), pick=a=>a[Math.floor(rnd()*a.length)], ri=(a,b)=>a+Math.floor(rnd()*(b-a+1));
+  const C=60, cols=Math.floor(W/C), rows=Math.floor(H/C), st={app:'wayfarer-atlas',...blankDungeon(W,H),gen:{seed}}, rooms=[], want=clamp(Math.round(cols*rows/60*G.rooms),4,28);
+  const fits=(x,y,w,h)=>x>=2&&y>=4&&x+w<=cols-2&&y+h<=rows-2&&rooms.every(r=>x>r.x+r.w+1||x+w<r.x-1||y>r.y+r.h+1||y+h<r.y-1);
+  for(let t=0;t<1200&&rooms.length<want;t++){ const q=rnd(), shape=q<.13?'round':q<.24?'L':q<.33?'cave':'rect'; let w=ri(3,9), h=ri(3,7), arm=null; if(shape==='round') w=h=ri(4,7); if(shape==='cave'){ w=ri(5,8); h=ri(4,7); } if(shape==='L'){ w=ri(4,8); h=ri(3,5); arm=[ri(2,3),ri(2,3)]; }
+    const x=ri(2,cols-w-2), y=ri(4,rows-h-2), hh=h+(arm?arm[1]:0); if(!fits(x,y,w,hh)) continue; rooms.push({x,y,w,h:hh,shape,arm,mainH:h,cx:x+w/2,cy:y+hh/2,tex:rnd()<.62?'flag':rnd()<.55?'plank':'none',props:[]}); }
+  if(rooms.length<2) return blankDungeon(W,H);
+  const cell=q=>(Math.floor(q)+.5)*C, blocked=new Set(), links=[];
+  const link=(a,b)=>{ const ax=cell(a.cx), ay=cell(a.cy), bx=cell(b.cx), by=cell(b.cy), pts=rnd()<.5?[[ax,ay],[bx,ay],[bx,by]]:[[ax,ay],[ax,by],[bx,by]]; st.lands.push({mode:'land',floor:1,sharp:true,brush:true,pts,size:C,rough:0,seed:rseed(),t:st.lands.length,tex:'flag'}); links.push({a,b,pts});
+    for(let i=1;i<pts.length;i++){ const p=pts[i-1], q=pts[i], n=Math.ceil(dist(p,q)/(C/2)); for(let k=0;k<=n;k++) blocked.add(Math.floor((p[0]+(q[0]-p[0])*k/n)/C)+','+Math.floor((p[1]+(q[1]-p[1])*k/n)/C)); } };
+  const inTree=[rooms[0]], rest=rooms.slice(1); while(rest.length){ let best=null; for(const r of rest) for(const t of inTree){ const d=Math.hypot(r.cx-t.cx,r.cy-t.cy); if(!best||d<best.d) best={d,r,t}; } link(best.t,best.r); inTree.push(best.r); rest.splice(rest.indexOf(best.r),1); }
+  for(let k=0;k<Math.round(rooms.length/5);k++){ const a=pick(rooms), b=rooms.slice().sort((p,q)=>Math.hypot(p.cx-a.cx,p.cy-a.cy)-Math.hypot(q.cx-a.cx,q.cy-a.cy))[ri(1,2)]; if(b && !links.some(l=>(l.a===a&&l.b===b)||(l.a===b&&l.b===a))) link(a,b); }
+  rooms.forEach((r,i)=>{ const X=r.x*C, Y=r.y*C, w=r.w*C, h=r.h*C; r.i=i;
+    if(r.shape==='round') st.lands.push({mode:'land',floor:1,pts:ellipsePts([X,Y],[X+w,Y+h]),rough:0,seed:rseed(),t:st.lands.length,tex:r.tex});
+    else if(r.shape==='cave'){ const o=[]; for(let k=0;k<16;k++){ const a=k/16*Math.PI*2, rr=.82+rnd()*.3; o.push([Math.round(X+w/2+Math.cos(a)*w/2*rr),Math.round(Y+h/2+Math.sin(a)*h/2*rr)]); } st.lands.push({mode:'land',floor:1,pts:o,rough:.55,seed:rseed(),t:st.lands.length,tex:'dirt'}); r.tex='dirt'; }
+    else if(r.shape==='L') st.lands.push({mode:'land',floor:1,sharp:true,pts:[[X,Y],[X+w,Y],[X+w,Y+r.mainH*C],[X+r.arm[0]*C,Y+r.mainH*C],[X+r.arm[0]*C,Y+h],[X,Y+h]],rough:0,seed:rseed(),t:st.lands.length,tex:r.tex});
+    else st.lands.push({mode:'land',floor:1,sharp:true,pts:[[X,Y],[X+w,Y],[X+w,Y+h],[X,Y+h]],rough:0,seed:rseed(),t:st.lands.length,tex:r.tex}); });
+  const stamp=(kind,cx,cy,rot=0,k=1)=>{ const key=Math.floor(cx)+','+Math.floor(cy); if(blocked.has(key)) return false; st.stamps.push({kind,x:Math.round(cx*C),y:Math.round(cy*C),size:Math.round((DUN_FOOT[kind]||1)*C*k),rot,v:rnd()}); return true; };
+  for(const l of links) for(const r of [l.a,l.b]){ if(r.shape!=='rect') continue; const X0=r.x*C, X1=(r.x+r.w)*C, Y0=r.y*C, Y1=(r.y+r.h)*C;      // doors where a passage crosses a straight wall
+    for(let i=1;i<l.pts.length;i++){ const p=l.pts[i-1], q=l.pts[i]; const horiz=Math.abs(p[1]-q[1])<1; if(horiz){ if(p[1]>Y0&&p[1]<Y1) for(const xw of [X0,X1]) if(xw>Math.min(p[0],q[0])&&xw<Math.max(p[0],q[0])) door(xw,p[1],90); } else if(p[0]>X0&&p[0]<X1) for(const yw of [Y0,Y1]) if(yw>Math.min(p[1],q[1])&&yw<Math.max(p[1],q[1])) door(p[0],yw,0); } }
+  function door(x,y,rot){ if(st.stamps.some(s=>DOORS.has(s.kind)&&Math.hypot(s.x-x,s.y-y)<4)) return; const t=rnd(), kind=t<.55?'door':t<.68?'dooropen':t<.8?'arch':t<.88?'secretdoor':t<.94?'doubledoor':'portcullis'; st.stamps.push({kind:kind==='doubledoor'?'door':kind,x:Math.round(x),y:Math.round(y),size:C,rot,v:rnd()}); }
+  const themes=['hall','library','crypt','barracks','store','shrine','dining','pit','empty','empty'];      // what each room is for
+  rooms.forEach((r,i)=>r.theme=i===0?'empty':pick(themes));
+  rooms.forEach((r,i)=>{ if(G.props<=0.05) return; const x=r.x, y=r.y, w=r.w, h=r.shape==='L'?r.mainH:r.h, th=r.theme, cx=x+w/2, cy=y+h/2, nz=Math.max(1,Math.round(G.props));
+    if(r.shape==='round'){ stamp('pillar',cx,cy); if(w>=5) for(let k=0;k<4;k++){ const a=k/4*Math.PI*2+.785; stamp('roundpillar',cx+Math.cos(a)*(w/2-1.3),cy+Math.sin(a)*(h/2-1.3)); } if(rnd()<.5) stamp('sigil',cx,cy,0,.8); return; }
+    if(r.shape==='cave'){ for(let k=0;k<ri(2,4);k++) stamp('stalagmite',cx+(rnd()-.5)*w*.6,cy+(rnd()-.5)*h*.6,0,.9); if(rnd()<.5) stamp('pool',cx+(rnd()-.5)*w*.4,cy+(rnd()-.5)*h*.4); if(rnd()<.4) stamp('bones',cx+(rnd()-.5)*w*.5,cy+(rnd()-.5)*h*.5); return; }
+    if(th==='hall' && w>=6 && h>=4){ for(let px=x+1.5;px<x+w-1;px+=2) for(const py of [y+1.5,y+h-1.5]) stamp(rnd()<.8?'pillar':'roundpillar',px,py); }
+    else if(th==='library' && w>=4){ for(let px=x+1.5;px<x+w-1;px+=2) stamp('bookcase',px+.5,y+.5,0,1); stamp('table',cx,cy+.3); stamp('chair',cx-.6,cy+1.2,180*(rnd()<.5)); }
+    else if(th==='crypt' && h>=3){ const n=Math.min(4,Math.floor((w-1)/2)); for(let k=0;k<n;k++) stamp('sarcophagus',x+1.5+k*(w-2)/Math.max(n,1)+.2,cy+.2,0); stamp('altar',cx,y+.9); if(rnd()<.5) stamp('bones',x+w-1.2,y+h-1.2); }
+    else if(th==='barracks' && w>=4){ for(let px=x+1;px<x+w-.5;px+=1.7){ stamp('bed',px+.2,y+1.2,0,.8); if(h>=5) stamp('bed',px+.2,y+h-1.2,0,.8); } stamp('table',cx,cy,0,.8); }
+    else if(th==='store'){ for(let k=0;k<ri(3,6)*nz;k++) stamp(rnd()<.7?'dbarrel':'treasure',x+.6+rnd()*(w-1.2),y+.6+rnd()*(h-1.2),rnd()<.5?0:90); stamp('rubble',x+w-1,y+.8,0,.7); }
+    else if(th==='shrine' && w>=4){ stamp('altar',cx,y+1); stamp('sigil',cx,cy+.6,0,.9); stamp('brazier',x+.8,y+.8); stamp('brazier',x+w-.8,y+.8); stamp('rug',cx,cy+.8,0,.6); }
+    else if(th==='dining' && w>=5){ stamp('table',cx,cy,0,1.4); for(let k=-1;k<=1;k++){ stamp('chair',cx+k*1.1,cy-1.3,180); stamp('chair',cx+k*1.1,cy+1.3,0); } stamp('throne',cx+1.9,cy,90,.9); stamp('fireplace',cx,y+.5); }
+    else if(th==='pit' && w>=4 && h>=4){ stamp('pit',cx,cy,0,1.4); stamp('plankbridge',cx,cy,0,.9); stamp('lever',x+.6,y+.6); }
+    if(rnd()<.18*nz) stamp('web',x+.75,y+.75); if(rnd()<.15*nz) stamp('crack',x+rnd()*w,y+rnd()*h,rnd()<.5?0:90,.9); if(rnd()<.18*nz) stamp('torch',x+.25,y+h*.5,0,.8); });
+  const put=(kind,r)=>{ const hh=r.shape==='L'?r.mainH:r.h, fp=DUN_FOOT[kind]||1; for(let k=0;k<40;k++){ const cx=r.x+.8+rnd()*(r.w-1.6), cy=r.y+.8+rnd()*(hh-1.6); if(blocked.has(Math.floor(cx)+','+Math.floor(cy))) continue; if(r.shape==='round'&&Math.hypot((cx-r.cx)/(r.w/2),(cy-r.cy)/(r.h/2))>.8) continue; if(st.stamps.some(s=>Math.hypot(s.x-cx*C,s.y-cy*C)<(s.size+fp*C)*.42)) continue; st.stamps.push({kind,x:Math.round(cx*C),y:Math.round(cy*C),size:Math.round(fp*C),rot:Math.round(rnd()*360),v:rnd()}); return true; } return false; };
+  const lair={crypt:[['skeleton',3],['zombie',2],['wraith',1]], hall:[['ogre',1],['troll',1],['minotaur',1],['golem',1]], barracks:[['goblin',4],['orc',2]], store:[['giantrat',3]], library:[['wraith',1],['golem',1],['skeleton',2]], shrine:[['fiend',1],['zombie',3]], dining:[['orc',3],['goblin',3]], pit:[['snake',2],['giantrat',2]], empty:[['direwolf',2],['giantrat',2],['zombie',2],['lizardfolk',3]], cave:[['giantspider',2],['owlbear',1],['ooze',1],['scorpion',2],['centipede',2],['snake',1]], round:[['beholder',1],['golem',1],['elemental',1],['ooze',1],['hydra',1]], big:[['drake',1],['hydra',1],['beholder',1]]};
+  if(G.foes>0.05) rooms.forEach((r,i)=>{ if(i===0 || rnd()>.62*Math.min(G.foes,1.6)) return; const hh=r.shape==='L'?r.mainH:r.h, key=r.shape==='cave'?'cave':r.shape==='round'?'round':(r.w>=7&&hh>=6&&rnd()<.25)?'big':r.theme; const opts=(lair[key]||lair.empty).filter(([k])=>(DUN_FOOT[k]||1)<=Math.min(r.w,hh)-.8); if(!opts.length) return; const [kind,n]=pick(opts); for(let k=0;k<ri(1,n);k++) put(kind,r); });
+  { const r=rooms[0]; if(r.shape==='rect'||r.shape==='L') stamp('stairs',r.x+1,r.y+.9); const far=rooms.slice(1).sort((a,b)=>Math.hypot(b.cx-r.cx,b.cy-r.cy)-Math.hypot(a.cx-r.cx,a.cy-r.cy))[0]; if(far&&far.shape==='rect') stamp('stairs',far.x+far.w-1,far.y+far.h-.9,180); }
+  if(G.numbers) rooms.forEach((r,i)=>{ const s=String(i+1), mid=r.shape==='cave'||r.shape==='round', x0=mid?r.cx*C-(s.length-1)*C*.15:(r.x+.5)*C, y0=mid?(r.y+.85)*C:(r.y+.58)*C; [...s].forEach((d,k)=>st.stamps.push({kind:'ch_'+d,x:Math.round(x0+k*C*.3),y:Math.round(y0),size:Math.round(.55*C),rot:0,v:.3,var:0})); });      // each digit is a sticker of its own, so the numbers can be moved, changed or deleted one by one
+  const pre=['The Sunken','The Drowned','The Ashen','The Hollow','The Forgotten','The Gilded','The Black','Under','The Weeping'], post=['Crypt','Vault','Catacombs','Warrens','Cellars','Undercroft','Deeps','Barrows','Halls'];
+  st.name=pick(pre)+' '+pick(post); { const [mc,mx]=mkCanvas(1,1); let sz=50; while(sz>22 && labelMetrics(mx,{text:st.name,size:sz,style:'title'}).width>W*.5) sz-=2; st.labels.push({text:st.name,x:Math.round(W/2),y:Math.round(C*1.5),size:sz,rot:0,style:'title'},{text:'the lower levels, one square to five feet',x:Math.round(W/2),y:Math.round(C*2.3),size:20,rot:0,style:'note'}); }
+  st.stamps.push({kind:'scalebar',x:W-C*4.2,y:H-C*1.3,size:200,rot:0,v:.5});
+  return st; }
 function generateMap(W,H,kind,G={}){ G={land:1,mountains:1,forests:1,rivers:1,towns:1,...G};      // G: how much of each there should be (1 = the usual amount), and optionally the seed to repeat a map
   const seed=Number.isFinite(G.seed)?G.seed:rseed(), rnd=mulberry(seed), cs=20, nx=Math.floor(W/cs)+1, ny=Math.floor(H/cs)+1, N=nx*ny, at=(i,j)=>j*nx+i, pos=k=>[(k%nx)*cs, Math.floor(k/nx)*cs];
   const vn=(x,y,s)=>{ const xi=Math.floor(x), yi=Math.floor(y), fx=x-xi, fy=y-yi, u=fx*fx*(3-2*fx), v=fy*fy*(3-2*fy), a=hash(xi,yi,s), b=hash(xi+1,yi,s), c=hash(xi,yi+1,s), d=hash(xi+1,yi+1,s); return a+(b-a)*u+(c-a)*v+(a-b-c+d)*u*v; };
@@ -2287,7 +2715,7 @@ async function start(){
   else { let old=null; try{ old=JSON.parse(localStorage.getItem(STORE_KEY)); }catch(e){}                 // first run: carry over the single map earlier versions kept, or show the example
     curId=newId(); if(validState(old)){ loadState(old); setTool('land'); } else { loadState(exampleMap()); $('note').hidden=false; setTool('select'); } saveDirty=true; setTimeout(saveNow,600); }
   new ResizeObserver(()=>{ const first=!start.sized; resize(); if(first){ start.sized=true; fitView(); } }).observe(stage);
-  if(document.fonts && document.fonts.ready) Promise.all([document.fonts.load('30px "IM Fell English"'),document.fonts.load('italic 30px "IM Fell English"'),document.fonts.load('30px "IM Fell English SC"'),document.fonts.load('italic 30px "IM Fell Double Pica"'),document.fonts.load('30px "IM Fell French Canon SC"'),document.fonts.load('30px "UnifrakturMaguntia"')]).catch(()=>{}).then(invalidate);
+  if(document.fonts && document.fonts.ready) Promise.all([document.fonts.load('30px "IM Fell English"'),document.fonts.load('italic 30px "IM Fell English"'),document.fonts.load('30px "IM Fell English SC"'),document.fonts.load('italic 30px "IM Fell Double Pica"'),document.fonts.load('30px "IM Fell French Canon SC"'),document.fonts.load('30px "UnifrakturMaguntia"')]).catch(()=>{}).then(()=>{ sprites.clear(); invalidate(); });
   window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change',invalidate);
 }
 start();
