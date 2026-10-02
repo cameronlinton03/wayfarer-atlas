@@ -30,6 +30,7 @@ Open `wayfarer-atlas.html` in a browser. That is the whole app. Maps are stored 
 - Cliffs: `rebuildCliffs()` (plateaus h>0, pits h<0, taper, facets, cast shadows).
 - Lines: `LINES` kinds river, road, border, realm, street, wall, fence. Streets are drawn in two passes so junctions merge (`drawStreets`).
 - Generators: `generateMap(W,H,kind,G)` (island/continent/archipelago) and `generateCity(W,H,G)`; `housesAlong()` lines buildings along streets.
+- Mountains in `generateMap`: ridge cells are joined into lines and only the longest few become ranges (`range`, count by map kind and `G.mountains`), peaks are spaced and thinned, small mountains are capped (~34 x `G.mountains`), then 2-4 `highpeak` stamps (4 variants, size 150-200, `KIND_SIZE`) replace the small ones at the thickest part of a range. `SOLO_KINDS` are placed one at a time even in a scattering group. Default maps carry roughly a quarter of the small mountains they once did.
 - Library: `store`, `lib`, `saveNow()`, `openMap()`, `addMap()`.
 - Tools are listed in `TOOLS`; the side panel is built by `renderPanel()`.
 

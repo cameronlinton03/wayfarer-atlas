@@ -275,7 +275,7 @@ const STAMP_GROUPS = {         // scatter:true = dragging lays down many, with a
   Landmarks:  {kinds:['ruins','temple','monastery','lighthouse','windmill','farm','mine','cave','camp','stones','pyramid','obelisk','graveyard','bridge','docks','port'], size:55},
   Trees:      {kinds:['deciduous','conifer','grove','pines','autumn','blossom','jungle','palm','willow','snag'], size:40, scatter:true},
   Plants:     {kinds:['bush','cactus','mushroom','reeds','tufts','flowers','stump'], size:32, scatter:true},
-  Mountains:  {kinds:['mountain','snowpeak','volcano','mesa','crag','boulders'], size:80, scatter:true},
+  Mountains:  {kinds:['highpeak','mountain','snowpeak','volcano','mesa','crag','boulders'], size:80, scatter:true},
   Hills:      {kinds:['hill','dunes'], size:68, scatter:true},
   Sea:        {kinds:['waves','breaker','whirlpool','reef','iceberg','ship','sailboat','wreck','serpent','tentacles','whale','dolphin','shark'], size:58, scatter:true},
   Effects:    {kinds:['breath','bolt','blaze','cloud','smoke'], size:50},
@@ -299,7 +299,9 @@ const STAMP_GROUPS = {         // scatter:true = dragging lays down many, with a
   Waterfront: {kinds:['pier','boat','barge','crane'], size:44},      // map furniture: one of each is usual
   Creatures:  {kinds:['dragon','griffin','giant','spider','unicorn','stag','horse','wolf','bear','mammoth','camel','sheep','eagle','birds','bats'], size:50},
 };
-const VARIANTS = {...Object.fromEntries(GLYPH_KINDS.map(k=>[k,2])), bones:2, pool:2, fieldplot:8, orchard:3, vineyard:3, house:4, stall:3, treetop:3, compass:3, cartouche:3, dragon:4, autumn:4, blossom:4, jungle:2, waves:3, breaker:2, deciduous:4, conifer:4, grove:4, pines:4, mountain:12, snowpeak:12, hill:8};   // how many shapes each stamp has
+const KIND_SIZE={highpeak:170}, SOLO_KINDS=new Set(['highpeak']);      // kinds with a size of their own, and kinds that are placed one at a time even in a group that scatters
+const scatterOf=kind=>!!STAMP_GROUPS[groupOf(kind)].scatter && !SOLO_KINDS.has(kind);
+const VARIANTS = {highpeak:4, ...Object.fromEntries(GLYPH_KINDS.map(k=>[k,2])), bones:2, pool:2, fieldplot:8, orchard:3, vineyard:3, house:4, stall:3, treetop:3, compass:3, cartouche:3, dragon:4, autumn:4, blossom:4, jungle:2, waves:3, breaker:2, deciduous:4, conifer:4, grove:4, pines:4, mountain:12, snowpeak:12, hill:8};   // how many shapes each stamp has
 const STONES=['stone','slate','rock'], SANDS=['sand','beach','redsand'], GRASSES=['grass','meadow','forest','steppe','marsh'];
 const swatch = k => TERRAIN[k];
 const TINTS = {};      // stamps are ink only, so none of them takes a colour
@@ -1110,6 +1112,11 @@ const SKETCH_DRAW = {
       ()=>{ const Y=H(1,13,28,18,14*q,{seed:6,sharp:s,from:f}); H(10,16,11,11,5.5,{seed:23,sharp:0}); T(Y,-13,4.8,4); },
       ()=>{ H(-1,10,22,15,18*q,{seed:7,sharp:s+.12,from:f}); H(14,13,12,12,9,{seed:8,sharp:s}); H(-12,15,15,12,7,{seed:9,sharp:0}); } ][n%4](); },
   snowpeak(c,n){ SKETCH_DRAW.mountain(c,n,0,0,{from:.42,sharp:.4,hk:1.45}); },
+  highpeak(c,n){ const H=(cx,by,wl,wr,h,op)=>engHump(c,cx,by,wl,wr,h,op), T=()=>{}, s=n%4;      // the highest summit of a range: tall, snow-capped, with shoulders and wooded foothills; drawn large (see KIND_SIZE)
+    if(s===0){ H(0,15,25,22,35,{seed:31,sharp:.34,from:.56}); H(-19,16,15,13,19,{seed:32,sharp:.2,from:.7}); H(18,16,15,15,22,{seed:33,sharp:.25,from:.66}); const Y=H(-8,18,18,14,9,{seed:34,sharp:0}); H(10,18,16,12,8,{seed:35,sharp:0}); T(Y,-12,4.6,3); T(Y,-4,4,5); T(Y,2,4.4,7); }
+    else if(s===1){ H(-10,15,18,13,31,{seed:36,sharp:.46,from:.5}); H(10,15,14,18,27,{seed:37,sharp:.4,from:.56}); H(-27,16,10,9,14,{seed:38,sharp:.2,from:.75}); const Y=H(0,18,26,22,10,{seed:39,sharp:0}); T(Y,-14,4.6,11); T(Y,-6,4,12); T(Y,13,4.4,13); }
+    else if(s===2){ H(0,15,15,14,39,{seed:40,sharp:.64,from:.4}); H(-13,16,10,9,20,{seed:41,sharp:.3,from:.7}); H(13,16,10,9,18,{seed:42,sharp:.3,from:.72}); const Y=H(0,18,25,23,10,{seed:43,sharp:0}); T(Y,-15,4.4,21); T(Y,-8,4,22); T(Y,8,4.2,23); T(Y,15,4.6,24); }
+    else { H(2,15,16,17,33,{seed:44,sharp:.52,from:.46}); H(-17,15,17,12,26,{seed:45,sharp:.4,from:.55}); H(22,16,12,10,21,{seed:46,sharp:.3,from:.6}); const Y=H(-3,18,26,20,9,{seed:47,sharp:0}); T(Y,-16,4.6,31); T(Y,-9,4,32); T(Y,9,4.2,33); } },
   hill(c,n){ const r=Math.floor(n/4), J=mulberry(n*71+3), j=()=>r?.8+J()*.42:1, sh=()=>r?(J()-.5)*7:0, o=seed=>({seed:seed+r*100,sharp:.05,sp:1.2,rough:.45});
     const H=(cx,by,wl,wr,h,seed)=>engHump(c,cx+sh(),by,wl*j(),wr*j(),h*j(),o(seed)), T=(Y,x,sz,seed)=>{ if(r && J()<.4) return; x+=sh(); engTree(c,x,Y(x)+.6,sz,{con:1,seed:seed+r}); };
     [ ()=>{ const Y=H(2,14,20,15,10,11); T(Y,-9,6,5); },
@@ -1839,7 +1846,7 @@ function draw(){
   if(act && (act.type==='shape'||act.type==='line'||act.type==='fill') && act.pts.length>1){ ctx.beginPath(); act.pts.forEach((p,i)=>i?ctx.lineTo(p[0],p[1]):ctx.moveTo(p[0],p[1]));
     if(act.type==='shape'||act.type==='fill'){ ctx.closePath(); ctx.fillStyle = act.type==='fill'?'rgba(31,111,122,.14)':act.mode==='sea'?'rgba(120,170,180,.45)':'rgba(234,223,191,.6)'; ctx.fill(); }
     ctx.strokeStyle=MAP.ink; ctx.lineWidth=2*px; ctx.setLineDash([6*px,5*px]); ctx.stroke(); ctx.setLineDash([]); }
-  const ring = opts.tool==='reshape' ? (opts.reshape==='cut' ? cutR()*2 : 44*px) : opts.tool==='paint' ? opts.brush : landBrushOn() ? opts.landBrush : opts.tool==='cliff' && opts.cliffMode==='brush' ? opts.cliffBrush : opts.tool==='stamp' && opts.stampMode!=='fill' && STAMP_GROUPS[groupOf(opts.stamp)].scatter && opts.scatter>20 ? opts.scatter : 0;
+  const ring = opts.tool==='reshape' ? (opts.reshape==='cut' ? cutR()*2 : 44*px) : opts.tool==='paint' ? opts.brush : landBrushOn() ? opts.landBrush : opts.tool==='cliff' && opts.cliffMode==='brush' ? opts.cliffBrush : opts.tool==='stamp' && opts.stampMode!=='fill' && scatterOf(opts.stamp) && opts.scatter>20 ? opts.scatter : 0;
   if(ring && hover){ ctx.beginPath(); ctx.arc(hover[0],hover[1],ring/2,0,7); ctx.strokeStyle='rgba(20,30,30,.8)'; ctx.lineWidth=1.5*px; ctx.stroke(); }
   drawMeasure(ctx,px);
   if(DUNG()){ const cell=cellSz(), tool=opts.tool, dtool=tool==='room'||tool==='corridor'||tool==='dwall';
@@ -2165,8 +2172,8 @@ cv.addEventListener('pointerdown',e=>{
   else if(LINES[t]){ act={type:'line',kind:t,pts:[]}; addPoint(act,p,0); }
   else if(t==='paint'){ const water=opts.paintLayer==='water', stroke={type:water?opts.water:opts.terrain,size:opts.brush,hard:opts.hard,op:opts.bop,pts:[]}; if(water) stroke.w=true; act={type:'paint',pts:stroke.pts,stroke}; addPoint(act,p,0); need.compose='fast'; }
   else if(t==='measure'){ measured=null; act={type:'measure',pts:[p]}; }
-  else if(t==='stamp' && opts.stampMode==='fill' && STAMP_GROUPS[groupOf(opts.stamp)].scatter){ act={type:'fill',pts:[p]}; }
-  else if(t==='stamp'){ pushUndo(); placeStamp(p,false); if(STAMP_GROUPS[groupOf(opts.stamp)].scatter) act={type:'scatter',last:p,pushed:true}; }
+  else if(t==='stamp' && opts.stampMode==='fill' && scatterOf(opts.stamp)){ act={type:'fill',pts:[p]}; }
+  else if(t==='stamp'){ pushUndo(); placeStamp(p,false); if(scatterOf(opts.stamp)) act={type:'scatter',last:p,pushed:true}; }
   else if(t==='label'){ pushUndo(); const l=withLy({text:'Name',x:Math.round(p[0]),y:Math.round(p[1]),size:opts.labelSize,rot:0,style:opts.labelStyle}); S.labels=[...S.labels,l]; sel={type:'label',obj:l}; setTool('select'); renderPanel(); setTimeout(()=>editLabel(true),40); }
   else if(t==='reshape'){ if(opts.reshape==='cut'){ pushUndo(); act={type:'cut',pushed:true,before:S.lines}; cutLines(p); } else act=startPull(p); }
   else if(t==='select'){ const h=hitTest(p), inSel = h && selItems().some(it=>it.obj===h.obj);
@@ -2369,7 +2376,7 @@ function renderPanel(){
     <div class="chips"><button class="chip" data-terr="erase" aria-pressed="${cur==='erase'}"><i style="background:${water?MAP.water:MAP.land}"></i>Eraser</button></div>${slider('brush','Brush',16,400,2,opts.brush,num)}${slider('hard','Hardness',0,1,.01,opts.hard,pct)}<div class="ends"><span>soft edge</span><span>hard edge</span></div>${slider('bop','Opacity',.05,1,.01,opts.bop,pct)}
     <p>${water?'Water paint goes on the sea and lakes. Land always sits on top of it.':'Ground paint goes onto the land. Add trees and mountains from Stamps.'}</p></section>`; }
   if(LINES[t] && t!=='dwall') h+=`<section><h2>${LINES[t].name}</h2>${slider('lineRough','Wander',0,1,.01,opts.lineRough,pct)}<div class="ends"><span>straight</span><span>winding</span></div>${slider('lineWidth','Width',1,60,.5,opts.lineWidth[t],v=>v)}${t==='fence'?`<p class="grp">Kind</p><div class="chips" id="fenceStyle">${[['hedge','Hedge'],['fence','Fence'],['wall','Field wall'],['palisade','Palisade']].map(([k,n])=>`<button class="chip" data-fstyle="${k}" aria-pressed="${(opts.fenceStyle)===k}">${n}</button>`).join('')}</div>`:''}${t==='street'?`<p class="grp">Kind</p><div class="chips" id="streetKind">${[[5,'Lane'],[8,'Street'],[12,'Avenue'],[46,'Square']].map(([w,n])=>`<button class="chip" data-sw="${w}" aria-pressed="${opts.lineWidth.street===w}">${n}</button>`).join('')}</div><p>For a square, pick Square and make a very short stroke. Then use the Stamp tool, City, Houses and “Fills an area” to line the streets with buildings.</p>`:''}${t==='realm'?`<p class="grp">Marked by</p><div class="chips three" id="realmFill">${[['band','Fringe'],['hatch','Hatching'],['dots','Stipple']].map(([k,n])=>`<button class="chip" data-rfill="${k}" aria-pressed="${(opts.realmFill)===k}">${n}</button>`).join('')}</div><p>Draw right round the territory; the loop closes itself. Anything over the sea is left out.</p>`:''}</section>`;
-  if(t==='stamp'){ const g=groupOf(opts.stamp), sc=STAMP_GROUPS[g].scatter, set=STAMP_SETS[opts.stampSet];
+  if(t==='stamp'){ const g=groupOf(opts.stamp), sc=scatterOf(opts.stamp), set=STAMP_SETS[opts.stampSet];
     h+=`<section id="stampKinds"><h2>Stamps</h2><div class="chips three" id="stampSets">${Object.entries(STAMP_SETS).map(([k,v])=>`<button class="chip" data-set="${k}" aria-pressed="${k===opts.stampSet}">${v.name}</button>`).join('')}</div>
     ${set.groups.length ? set.groups.map(n=>`<p class="grp">${n}</p>${stampGrid('sg_'+n,STAMP_GROUPS[n].kinds,opts.stamp)}`).join('') : `<p>${set.empty}</p>`}</section>`;
     if(set.groups.length) h+=`<section>${lookControls(opts.stamp,opts.stampVar,opts.stampTint[opts.stamp]||(TINTS[opts.stamp]||[])[0],true)}${slider('stampSize','Size',14,400,1,opts.stampSizes[g],num)}${slider('stampRot','Rotation',-180,180,1,opts.stampRot,deg)}<p class="grp">Mirror</p><div class="chips three" id="flipPick">${[['off','Off'],['on','On'],['shuffle','Random']].map(([k,n])=>`<button class="chip" data-flipmode="${k}" aria-pressed="${opts.stampFlip===k}">${n}</button>`).join('')}</div>${sc?`<p class="grp">Dragging</p><div class="chips" id="stampMode"><button class="chip" data-smode="place" aria-pressed="${opts.stampMode!=='fill'}">Lays a trail</button><button class="chip" data-smode="fill" aria-pressed="${opts.stampMode==='fill'}">Fills an area</button></div>`+(opts.stampMode==='fill'?slider('fillDensity','Density',.4,2,.05,opts.fillDensity,pct)+(STAMP_GROUPS[g].align?'<p>Draw a loop round a district. Buildings line every street inside it; past the middle of the slider they also fill the middles of the blocks.</p>':'<p>Draw a loop round the area. It is filled with this stamp, on land only (sea stamps on water only).</p>'):slider('scatter','Scatter',0,400,2,opts.scatter,num)+'<p>Drag to lay down many. Scatter sets how wide they spread.</p>'):''}</section>`; }
@@ -2404,7 +2411,7 @@ function renderPanel(){
   $('landModes')?.addEventListener('click',e=>{ const b=e.target.closest('[data-mode]'); if(b){ opts.landMode=b.dataset.mode; setTool(opts.tool); } }); bind('stampRot',deg,v=>opts.stampRot=v); bind('labelSize',num,v=>opts.labelSize=v);
   $('labelStyle')?.addEventListener('change',e=>opts.labelStyle=e.target.value);
   $('terrChips')?.addEventListener('click',e=>{ const l=e.target.closest('[data-layer]'), b=e.target.closest('[data-terr]'); if(l) opts.paintLayer=l.dataset.layer; else if(b) opts[opts.paintLayer==='water'?'water':'terrain']=b.dataset.terr; else return; renderPanel(); });
-  $('stampKinds')?.addEventListener('click',e=>{ const b=e.target.closest('[data-kind]'); if(b){ opts.stamp=b.dataset.kind; if(DUNG() && DUN_FOOT[opts.stamp]) opts.stampSizes[groupOf(opts.stamp)]=dungSize(opts.stamp); renderPanel(); } });
+  $('stampKinds')?.addEventListener('click',e=>{ const b=e.target.closest('[data-kind]'); if(b){ const was=opts.stamp; opts.stamp=b.dataset.kind; const gg=groupOf(opts.stamp); if(DUNG() && DUN_FOOT[opts.stamp]) opts.stampSizes[gg]=dungSize(opts.stamp); else if(KIND_SIZE[opts.stamp]) opts.stampSizes[gg]=KIND_SIZE[opts.stamp]; else if(KIND_SIZE[was] && groupOf(was)===gg) opts.stampSizes[gg]=STAMP_GROUPS[gg].size; renderPanel(); } });
   $('detailPick')?.addEventListener('click',e=>{ const b=e.target.closest('[data-detail]'); if(b){ toast('Redrawing…'); setTimeout(()=>{ setDetail(+b.dataset.detail); renderPanel(); },50); } });
   $('gridType').addEventListener('change',e=>{ pushUndo(); S.grid={...S.grid,type:e.target.value}; if(DUNG()) need.compose='full'; invalidate(); });
   $('scaleN')?.addEventListener('change',e=>{ const v=+e.target.value; if(v>0){ pushUndo(); S.scale={...S.scale,per100:v}; sprites.clear(); queueSave(); renderPanel(); invalidate(); } });
@@ -2579,8 +2586,8 @@ function generateMap(W,H,kind,G={}){ G={land:1,mountains:1,forests:1,rivers:1,to
   const isLand=k=>elev[k]>0;
   const spread=start=>{ const d=new Int32Array(N).fill(-1), q=[]; for(let k=0;k<N;k++) if(start(k)){ d[k]=0; q.push(k); } for(let h=0;h<q.length;h++) for(const m of nb4(q[h])) if(d[m]<0){ d[m]=d[q[h]]+1; q.push(m); } return d; };
   const cd=spread(k=>!isLand(k)), wd=spread(isLand);              // steps to the nearest water / nearest land
-  const mT=G.mountains<=0?9:.87-(G.mountains-1)*.08, fM=.52-(G.forests-1)*.12;
-  const mtn=k=>isLand(k) && cd[k]>=3 && ridge[k]>mT && elev[k]>.05;
+  const mT=G.mountains<=0?9:.93-(G.mountains-1)*.08, fM=.52-(G.forests-1)*.12;
+  const mtn=k=>isLand(k) && cd[k]>=(kind==='archipelago'?2:3) && ridge[k]>mT && elev[k]>.05;
   const biome=k=>{ if(!isLand(k)) return null; const t=temp[k], m=moist[k];
     if(mtn(k) || (ridge[k]>mT-.03 && cd[k]>=3 && elev[k]>.05)) return t<.3 ? 'snow' : 'stone';
     if(t<.17) return 'snow'; if(t<.3) return m>.5 ? 'steppe' : 'rock';
@@ -2651,9 +2658,19 @@ function generateMap(W,H,kind,G={}){ G={land:1,mountains:1,forests:1,rivers:1,to
         st.lines.push({kind:'road',pts:resample(path.filter((m,i)=>i%2===0||i===path.length-1).map(pos),10,false),rough:.3,width:2.5,seed:(rnd()*1e9)|0}); } } }
 
   /* mountains along the ridges, hills on their flanks, forests where it is wet enough */
-  const peaks=[]; for(let j=2;j<ny-2;j+=2) for(let i=2;i<nx-2;i+=2){ const k=[at(i,j),at(i+1,j),at(i,j+1),at(i+1,j+1)].find(mtn); if(k===undefined) continue;
-    const x=i*cs+(rnd()-.5)*22+10, y=j*cs+(rnd()-.5)*18+14; if(!clear(x,y,46) || rnd()<.36) continue; const t=temp[k];      // gaps in the ranges, so they read as separate peaks and not one dark mass
+  const mtn2=k=>isLand(k) && cd[k]>=(kind==='archipelago'?2:3) && ridge[k]>mT-.085 && elev[k]>.05, range=new Set(); { const seen=new Uint8Array(N), comps=[];      // join the ridge cells into lines, and keep only the longest few: those are the mountain ranges, and nothing is scattered outside them
+    for(let k0=0;k0<N;k0++){ if(seen[k0]||!mtn2(k0)) continue; const list=[k0]; seen[k0]=1; for(let q=0;q<list.length;q++) for(const m of nb8(list[q])) if(!seen[m]&&mtn2(m)){ seen[m]=1; list.push(m); } comps.push(list); }
+    comps.sort((a,b)=>b.length-a.length); const nR=Math.max(1,Math.round((kind==='continent'?4:3)*clamp(G.mountains,.5,1.6))), big=comps.length?comps[0].length:0; comps.slice(0,nR).forEach((l,i)=>{ if(!i||l.length>=Math.max(6,big*.2)) l.forEach(k=>range.add(k)); }); }
+  const peaks=[]; for(let j=2;j<ny-2;j+=2) for(let i=2;i<nx-2;i+=2){ const k=[at(i,j),at(i+1,j),at(i,j+1),at(i+1,j+1)].find(c=>range.has(c)); if(k===undefined) continue;
+    const x=i*cs+(rnd()-.5)*22+10, y=j*cs+(rnd()-.5)*18+14; if(!clear(x,y,60) || rnd()<.42) continue; const t=temp[k];      // gaps in the ranges, so they read as separate peaks and not one dark mass
     st.stamps.push({kind:t<.42||ridge[k]>.95?'snowpeak':'mountain',x,y,size:Math.round(52+rnd()*26),rot:0,v:rnd(),var:Math.floor(rnd()*VARIANTS.mountain),tint:t<.3?'slate':(t>.68&&moist[k]<.38)?'rock':'stone',flip:rnd()<.5}); peaks.push([x,y]); }
+  { const cap=Math.round(34*clamp(G.mountains,.4,2)), ids=st.stamps.map((s,i)=>s.kind==='mountain'||s.kind==='snowpeak'?i:-1).filter(i=>i>=0);      // never more than about this many; a few big ranges, not a rash
+    if(ids.length>cap){ ids.sort(()=>rnd()-.5); const gone=new Set(ids.slice(cap)); st.stamps=st.stamps.filter((s,i)=>!gone.has(i)); peaks.length=0; for(const s of st.stamps) if(s.kind==='mountain'||s.kind==='snowpeak') peaks.push([s.x,s.y]); } }
+  if(G.mountains>0){ const want=Math.max(1,Math.round((kind==='continent'?4:3)*clamp(G.mountains,.5,1.3))), ms=st.stamps.filter(s=>s.kind==='mountain'||s.kind==='snowpeak');      // the highest peak of each range: a few much larger mountains, on the thickest part of a range
+    const score=s=>ms.reduce((a,o)=>a+(Math.hypot(o.x-s.x,o.y-s.y)<170?1:0),0)+ridge[at(clamp(Math.round(s.x/cs),0,nx-1),clamp(Math.round(s.y/cs),0,ny-1))]*3, done=[]; let vi=Math.floor(rnd()*4);
+    for(const s of ms.slice().sort((a,b)=>score(b)-score(a))){ if(done.length>=want) break; const sz=Math.round(150+rnd()*50), land=dx=>isLand(at(clamp(Math.round((s.x+dx)/cs),0,nx-1),clamp(Math.round(s.y/cs),0,ny-1))); if(s.x<150||s.y<140||s.x>W-150||s.y>H-110 || !land(-sz*.42) || !land(sz*.42) || !land(0) || done.some(d=>Math.hypot(d.x-s.x,d.y-s.y)<300)) continue; if(st.stamps.some(o=>o.kind!=='mountain'&&o.kind!=='snowpeak'&&Math.hypot(o.x-s.x,o.y-s.y)<110)) continue;
+      st.stamps=st.stamps.filter(o=>!((o.kind==='mountain'||o.kind==='snowpeak')&&Math.hypot(o.x-s.x,o.y-s.y)<100)); st.stamps.push({kind:'highpeak',x:s.x,y:s.y+8,size:sz,rot:0,v:rnd(),var:(vi++)%4,flip:rnd()<.5}); done.push(s); }
+    peaks.length=0; for(const s of st.stamps) if(s.kind==='mountain'||s.kind==='snowpeak'||s.kind==='highpeak') peaks.push([s.x,s.y]); }
   for(let j=2;j<ny-2;j+=3) for(let i=2;i<nx-2;i+=3){ const k=at(i,j), b=biome(k); if(!isLand(k) || mtn(k) || cd[k]<2 || ridge[k]<.74 || ridge[k]>.86 || rnd()<.4 || !GRASSES.includes(b) || riverCell[k]) continue;
     const x=i*cs+(rnd()-.5)*24, y=j*cs+(rnd()-.5)*24; if(clear(x,y,40)) st.stamps.push({kind:'hill',x,y,size:Math.round(40+rnd()*18),rot:0,v:rnd(),var:Math.floor(rnd()*VARIANTS.hill),tint:b,flip:rnd()<.5}); }
   for(let j=2;j<ny-2;j+=3) for(let i=2;i<nx-2;i+=3){ const k=at(i,j), b=biome(k); if(!isLand(k) || mtn(k) || riverCell[k] || rnd()<.45) continue; const x=i*cs+(rnd()-.5)*30, y=j*cs+(rnd()-.5)*30; if(!clear(x,y,40) || bil(x,y)<=.02) continue;   // deserts, marshes and warm coasts get their own plants
