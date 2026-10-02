@@ -103,14 +103,14 @@ const swatch = k => TERRAIN[k];
 const TINTS = {};      // stamps are ink only, so none of them takes a colour
 const groupOf = kind => Object.keys(STAMP_GROUPS).find(g=>STAMP_GROUPS[g].kinds.includes(kind)) || 'Settlements';
 const LABEL_STYLES = {      // lettering in the manner of engraved maps: roman for places, spaced capitals for regions, italic for water and notes, blackletter for a title
-  title:  {name:'Title',        font:'"IM Fell French Canon SC", "IM Fell English SC", Georgia, serif', italic:false, caps:true,  spacing:0.14},
+  title:  {name:'Title',        font:'"IM Fell French Canon SC", "IM Fell English SC", Georgia, serif', italic:false, caps:true,  spacing:0.14, fx:{plate:true,outline:false}},
   black:  {name:'Blackletter',  font:'"UnifrakturMaguntia", "IM Fell English", Georgia, serif',          italic:false, caps:false, spacing:0.02},
   region: {name:'Region',       font:'"IM Fell English SC", Georgia, serif',                             italic:false, caps:true,  spacing:0.42},
   place:  {name:'Place',        font:'"IM Fell English", Georgia, serif',                                italic:false, caps:false, spacing:0.02},
   town:   {name:'Small capitals',font:'"IM Fell English SC", Georgia, serif',                            italic:false, caps:false, spacing:0.08},
   water:  {name:'Water',        font:'"IM Fell English", Georgia, serif',                                italic:true,  caps:false, spacing:0.1},
   range:  {name:'Range or forest',font:'"IM Fell Double Pica", "IM Fell English", Georgia, serif',       italic:true,  caps:false, spacing:0.3},
-  note:   {name:'Note',         font:'"IM Fell Double Pica", "IM Fell English", Georgia, serif',         italic:true,  caps:false, spacing:0.01},
+  note:   {name:'Note',         font:'"IM Fell Double Pica", "IM Fell English", Georgia, serif',         italic:true,  caps:false, spacing:0.01, fx:{shadow:true}},
 };
 const INK = '#1f1c19';
 const SK = () => true, PAPER = () => '#efe4c8';      // the whole map is ink on parchment: SK marks the engraved drawing path, PAPER is the sheet colour
@@ -1776,11 +1776,22 @@ function labelMetrics(c,l){ const st=LABEL_STYLES[l.style]||LABEL_STYLES.place; 
   const lines=String(l.text).split('\n').map(t=>{ const text=[...(st.caps?t.toUpperCase():t)], ws=text.map(ch=>c.measureText(ch).width); return {text, ws, width:ws.reduce((a,b)=>a+b,0)+gap*Math.max(0,ws.length-1)}; });
   const width=Math.max(1,...lines.map(q=>q.width)), th=(l.bend||0)*2.6, r=Math.abs(th)>.02?width/th:0, sag=r?r*(1-Math.cos(th/2)):0, chord=r?Math.abs(2*r*Math.sin(th/2)):width;
   return {lines, gap, lh, width:chord, full:width, r, sag, hh:lines.length*lh/2+Math.abs(sag)/2+l.size*.14, st}; }
-function drawLabel(c,l){ const m=labelMetrics(c,l), n=m.lines.length; c.save(); c.translate(l.x,l.y); c.rotate(l.rot*Math.PI/180); c.textBaseline='middle'; c.textAlign='center'; c.lineJoin='round'; const tr=c.getTransform(), k=Math.hypot(tr.a,tr.b);
-  for(const pass of [0,1]) m.lines.forEach((q,j)=>{ const off=(j-(n-1)/2)*m.lh; let s=-q.width/2;      // pass 0 lays a paper halo with a soft edge, so a name reads over hatching, a road or a river; pass 1 inks the letters
-    q.text.forEach((ch,i)=>{ const w=q.ws[i], mid=s+w/2; s+=w+m.gap; c.save();
-      if(m.r){ const f=mid/m.r, R=m.r-off; c.translate(R*Math.sin(f),m.r-R*Math.cos(f)-m.sag/2); c.rotate(f); } else c.translate(mid,off);
-      if(pass===0){ c.strokeStyle=PAPER(); c.shadowColor=PAPER(); c.shadowBlur=l.size*.55*k; c.lineWidth=Math.max(3,l.size*.2); c.strokeText(ch,0,0); c.strokeText(ch,0,0); } else { c.fillStyle=INK; c.fillText(ch,0,0); } c.restore(); }); });
+/* Label effects: outline (the soft paper halo, on by default), shadow, and a plate behind the lettering. A label keeps only the effects it overrides in l.effects; the rest are the defaults, so an old map needs no
+   change. Choosing a style in the panel applies that style's preset (LABEL_STYLES[..].fx: Title gets a plate, Note a shadow). */
+const LABEL_FX={outline:true,shadow:false,plate:false}, labelFx=l=>({...LABEL_FX,...l.effects}), stylePreset=style=>{ const f=(LABEL_STYLES[style]||{}).fx; return f?{...f}:undefined; };
+function drawLabel(c,l){ const m=labelMetrics(c,l), n=m.lines.length, fx=labelFx(l); c.save(); c.translate(l.x,l.y); c.rotate(l.rot*Math.PI/180); c.textBaseline='middle'; c.textAlign='center'; c.lineJoin='round'; const tr=c.getTransform(), k=Math.hypot(tr.a,tr.b);
+  if(fx.plate){ const pad=l.size*.25, x0=-m.width/2-pad, y0=-m.hh-pad, w=m.width+2*pad, h=2*m.hh+2*pad, r=Math.min(h/2,l.size*.3);      // a plate of paper behind the lettering, with a hairline edge
+    c.save(); c.beginPath(); c.moveTo(x0+r,y0); c.lineTo(x0+w-r,y0); c.arcTo(x0+w,y0,x0+w,y0+r,r); c.lineTo(x0+w,y0+h-r); c.arcTo(x0+w,y0+h,x0+w-r,y0+h,r); c.lineTo(x0+r,y0+h); c.arcTo(x0,y0+h,x0,y0+h-r,r); c.lineTo(x0,y0+r); c.arcTo(x0,y0,x0+r,y0,r); c.closePath();
+    c.globalAlpha*=.85; c.fillStyle=PAPER(); c.fill(); c.globalAlpha*=.5; c.strokeStyle=INK; c.lineWidth=.7; c.stroke(); c.restore(); }
+  for(const pass of [0,1,2]){ if((pass===0 && !fx.outline) || (pass===1 && !fx.shadow)) continue;      // 0 lays a paper halo with a soft edge, so a name reads over hatching, a road or a river; 1 a shadow down and to the right; 2 inks the letters
+    c.save(); if(pass===1) c.translate(l.size*.06,l.size*.06);
+    m.lines.forEach((q,j)=>{ const off=(j-(n-1)/2)*m.lh; let s=-q.width/2;
+      q.text.forEach((ch,i)=>{ const w=q.ws[i], mid=s+w/2; s+=w+m.gap; c.save();
+        if(m.r){ const f=mid/m.r, R=m.r-off; c.translate(R*Math.sin(f),m.r-R*Math.cos(f)-m.sag/2); c.rotate(f); } else c.translate(mid,off);
+        if(pass===0){ c.strokeStyle=PAPER(); c.shadowColor=PAPER(); c.shadowBlur=l.size*.55*k; c.lineWidth=Math.max(3,l.size*.2); c.strokeText(ch,0,0); c.strokeText(ch,0,0); }
+        else if(pass===1){ c.fillStyle='rgba(30,20,10,.38)'; c.fillText(ch,0,0); }
+        else { c.fillStyle=INK; c.fillText(ch,0,0); } c.restore(); }); });
+    c.restore(); }
   c.restore(); }
 let gridCache={key:'',path:null};
 function gridPath(){ const g=S.grid, key=[g.type,g.size,S.w,S.h].join(); if(gridCache.key===key) return gridCache.path;
@@ -2201,7 +2212,7 @@ cv.addEventListener('pointerdown',e=>{
   else if(t==='measure'){ measured=null; act={type:'measure',pts:[p]}; }
   else if(t==='stamp' && opts.stampMode==='fill' && scatterOf(opts.stamp)){ act={type:'fill',pts:[p]}; }
   else if(t==='stamp'){ pushUndo(); placeStamp(p,false); if(scatterOf(opts.stamp)) act={type:'scatter',last:p,pushed:true}; }
-  else if(t==='label'){ pushUndo(); const l=withLy({text:'Name',x:Math.round(p[0]),y:Math.round(p[1]),size:opts.labelSize,rot:0,style:opts.labelStyle}); S.labels=[...S.labels,l]; sel={type:'label',obj:l}; setTool('select'); renderPanel(); setTimeout(()=>editLabel(true),40); }
+  else if(t==='label'){ pushUndo(); const l=withLy({text:'Name',x:Math.round(p[0]),y:Math.round(p[1]),size:opts.labelSize,rot:0,style:opts.labelStyle,...(stylePreset(opts.labelStyle)?{effects:stylePreset(opts.labelStyle)}:{})}); S.labels=[...S.labels,l]; sel={type:'label',obj:l}; setTool('select'); renderPanel(); setTimeout(()=>editLabel(true),40); }
   else if(t==='reshape'){ if(opts.reshape==='cut'){ pushUndo(); act={type:'cut',pushed:true,before:S.lines}; cutLines(p); } else act=startPull(p); }
   else if(t==='select'){ const h=hitTest(p), inSel = h && selItems().some(it=>it.obj===h.obj), hl=e.altKey ? hitTest(p,true) : null;
     if(hl && hl.obj.locked){ sel=hl; renderPanel(); act={type:'noop'}; }      // Alt-click picks a locked object, so it can be unlocked
@@ -2422,6 +2433,7 @@ function renderPanel(){
         <p>${o.z?`Level ${o.z>0?'+':''}${o.z}.`:'Auto.'} On auto, stamps lower on the map sit in front.</p></section>`;
       if(sel.type==='label') h+=`<section><h2>Label</h2><label class="row wide" for="selText">Text<textarea id="selText" rows="2">${o.text.replace(/&/g,'&amp;').replace(/</g,'&lt;')}</textarea></label>
         <label class="row wide" for="selStyle">Style<select id="selStyle">${Object.entries(LABEL_STYLES).map(([k,s])=>`<option value="${k}"${k===o.style?' selected':''}>${s.name}</option>`).join('')}</select></label>
+        <p class="grp">Effects</p><div class="chips three" id="selFx">${[['outline','Outline'],['shadow','Shadow'],['plate','Plate']].map(([k,n])=>`<button class="chip" data-fx="${k}" aria-pressed="${labelFx(o)[k]}">${n}</button>`).join('')}</div>
         ${slider('selSize','Size',10,160,1,o.size,num)}${slider('selRot','Rotation',-180,180,1,o.rot,deg)}${slider('selSpace','Spacing',0,1.5,.01,o.spacing ?? (LABEL_STYLES[o.style]||LABEL_STYLES.place).spacing,pct)}${slider('selBend','Curve',-1,1,.01,o.bend||0,pct)}<div class="ends"><span>dips</span><span>arches</span></div><p>Double-click a label to retype it on the map. A new line in the text makes a second line.</p></section>`;
       h+=`<div class="btnrow"><button class="btn" id="selDup">Duplicate</button><button class="btn" id="selLock">Lock</button><button class="btn danger" id="selDel">Delete</button></div>`; }
   }
@@ -2527,7 +2539,8 @@ function renderPanel(){
     bind('selRough',pct,v=>{ set({rough:v}); landDirty(); },true); bind('selWidth',v=>v,v=>{ set({width:v}); landDirty(); },true);
     bind('selH',num,v=>{ set({h:v}); landDirty(); },true); bind('selTaper',pct,v=>{ set({taper:v}); landDirty(); },true); bind('selDir',deg,v=>{ set({dir:v}); landDirty(); },true); bind('selBrush',num,v=>{ editSel(o=>o.brush?{...o,size:v}:o); landDirty(); },true);
     bind('selSize',num,v=>set({size:v}),true); bind('selOp',v=>Math.round(v)+'%',v=>set({op:Math.round(v)}),true); bind('selRot',deg,v=>set({rot:v}),true); bind('selSpace',pct,v=>set({spacing:v}),true); bind('selBend',pct,v=>set({bend:Math.abs(v)<.03?0:v}),true); bind('selText',v=>v,v=>set({text:v}),true);
-    $('selStyle')?.addEventListener('change',e=>{ pushUndo(); set({style:e.target.value,spacing:undefined}); renderPanel(); invalidate(); });
+    $('selStyle')?.addEventListener('change',e=>{ pushUndo(); set({style:e.target.value,spacing:undefined,effects:stylePreset(e.target.value)}); renderPanel(); invalidate(); });
+    $('selFx')?.addEventListener('click',e=>{ const b=e.target.closest('[data-fx]'); if(!b || sel.type!=='label') return; const k=b.dataset.fx; pushUndo(); set({effects:{...sel.obj.effects,[k]:!labelFx(sel.obj)[k]}}); renderPanel(); invalidate(); queueSave(); });
     $('selSeed')?.addEventListener('click',()=>{ pushUndo(); editSel(o=>({...o,seed:rseed()})); selDirty(true); invalidate(); });
     $('selKinds')?.addEventListener('click',e=>{ const b=e.target.closest('[data-kind]'); if(b){ pushUndo(); set({kind:b.dataset.kind}); renderPanel(); invalidate(); } });
     $('selDel')?.addEventListener('click',deleteSel);
