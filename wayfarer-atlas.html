@@ -242,6 +242,18 @@ const TERRAIN = {            // ground paints: g = group in the panel, tex = whi
   forest: {name:'Forest floor', g:'Grass', color:'#819f61', tex:'forest'},
   steppe: {name:'Dry grass',    g:'Grass', color:'#c3c084', tex:'steppe'},
   marsh:  {name:'Marsh',        g:'Grass', color:'#93a98b', tex:'marsh'},
+  oats:   {name:'Oat grass',    g:'Grasses', color:'#b3c47e', tex:'oats'},
+  feather:{name:'Feather grass',g:'Grasses', color:'#bcc98a', tex:'feather'},
+  pampas: {name:'Pampas',       g:'Grasses', color:'#c4c68c', tex:'pampas'},
+  tussock:{name:'Tussock',      g:'Grasses', color:'#a9bb78', tex:'tussock'},
+  daisies:{name:'Daisies',      g:'Flowers', color:'#c3cf92', tex:'daisies'},
+  poppies:{name:'Poppies',      g:'Flowers', color:'#cdc08e', tex:'poppies'},
+  lupins: {name:'Lupins',       g:'Flowers', color:'#b9c394', tex:'lupins'},
+  bluebells:{name:'Bluebells',  g:'Flowers', color:'#b1c394', tex:'bluebells'},
+  parsley:{name:'Cow parsley',  g:'Flowers', color:'#c5cea0', tex:'parsley'},
+  thistles:{name:'Thistles',    g:'Flowers', color:'#b9bd96', tex:'thistles'},
+  tulips: {name:'Tulips',       g:'Flowers', color:'#cdc590', tex:'tulips'},
+  wildmix:{name:'Wildflowers',  g:'Flowers', color:'#c1c88a', tex:'wildmix'},
   stone:  {name:'Stone',        g:'Stone', color:'#b6b0a6', tex:'stone'},
   slate:  {name:'Dark stone',   g:'Stone', color:'#8f8a84', tex:'stone'},
   rock:   {name:'Barrens',      g:'Stone', color:'#b9ab95', tex:'barrens'},
@@ -283,7 +295,7 @@ const STAMP_GROUPS = {         // scatter:true = dragging lays down many, with a
   Settlements:{kinds:['city','town','village','hamlet','castle','fort','outpost','tower','inn'], size:58},
   Landmarks:  {kinds:['ruins','temple','monastery','lighthouse','windmill','farm','mine','cave','camp','stones','pyramid','obelisk','graveyard','bridge','docks','port'], size:55},
   Trees:      {kinds:['deciduous','conifer','grove','pines','autumn','blossom','jungle','palm','willow','snag'], size:40, scatter:true},
-  Plants:     {kinds:['wildflowers','wildgrass','shrubs','thicket','saplings','ferns','bush','tufts','flowers','reeds','cactus','mushroom','stump'], size:32, scatter:true},
+  Plants:     {kinds:['bush','reeds','cactus','mushroom','stump'], size:32, scatter:true},      // flowers, grasses, shrubs and saplings are ground paint now (see TERRAIN and the woodland edge); their stamp art stays so old maps still draw
   Mountains:  {kinds:['highpeak','mountain','snowpeak','volcano','mesa','crag','boulders'], size:80, scatter:true},
   Hills:      {kinds:['hill','dunes'], size:68, scatter:true},
   Sea:        {kinds:['waves','breaker','whirlpool','reef','iceberg','ship','sailboat','wreck','serpent','tentacles','whale','dolphin','shark'], size:58, scatter:true},
@@ -445,7 +457,7 @@ function blankState(w,h){ return {w,h,kind:'world',dun:{...DUN_DEF},fpaint:[],na
 const layers = { terrain:{name:'Ground & water paint',v:true}, cliffs:{name:'Cliffs',v:true}, lines:{name:'Rivers, roads, borders',v:true,lock:false}, stamps:{name:'Stamps',v:true,lock:false}, labels:{name:'Labels',v:true,lock:false} };
 const opts = { tool:'land', reshape:'pull', reach:160, cliffMode:'outline', cliffBrush:120, cliffRough:.4, cliffH:26, cliffPrimary:'up', paintLayer:'land', water:'deep', landPrimary:'land', hard:.6, bop:1, landMode:'outline', landBrush:140, landRough:0.55, terrain:'grass', brush:110, scatter:60,
   stampSizes:Object.fromEntries(Object.entries(STAMP_GROUPS).map(([g,v])=>[g,v.size])), lineRough:0.35, lineWidth:{river:4,road:2.5,border:2.5,realm:2.5,street:8,wall:7,fence:3,dwall:5}, fenceStyle:'hedge', realmFill:'band',
-  wallKind:'town', roadMode:false, plantKind:'flowers', plantVar:'mix', plantDensity:1, cliffTaper:0, cliffDir:-90, plantOpacity:60, stampOpacity:100, scatterDensity:1, scatterGap:.5, sizeVar:.18, floorMode:'paint', floorTex:'flag', floorBrush:90, settingsOpen:false, roomShape:'rect', roomCut:false, roomTex:'flag', corrW:1, snap:true, snapFine:false, caveRough:.55, partW:5, stamp:'town', stampRot:0, stampSet:'world', stampFlip:'shuffle', stampMode:'place', fillDensity:1, stampVar:'shuffle', stampTint:{}, labelStyle:'place', labelSize:30 };
+  wallKind:'town', roadMode:false, cliffTaper:0, cliffDir:-90, stampOpacity:100, scatterDensity:1, scatterGap:.5, sizeVar:.18, floorMode:'paint', floorTex:'flag', floorBrush:90, settingsOpen:false, roomShape:'rect', roomCut:false, roomTex:'flag', corrW:1, snap:true, snapFine:false, caveRough:.55, partW:5, stamp:'town', stampRot:0, stampSet:'world', stampFlip:'shuffle', stampMode:'place', fillDensity:1, stampVar:'shuffle', stampTint:{}, labelStyle:'place', labelSize:30 };
 let sel = null;                        // {type:'land'|'line'|'stamp'|'label', obj}
 let undoStack=[], redoStack=[], editing=false;
 /* Layers: rivers, roads, borders, realms, stamps and labels each sit on one layer (S.layers, bottom first). A layer can be hidden, locked,
@@ -514,6 +526,7 @@ function loadState(d){ d=migrate(d); S={w:d.w,h:d.h,kind:d.kind==='dungeon'?'dun
 let landMask,lm, landLayer,lc, base,bc, tmpC,tc, invC,iv, innerC,ic, coastC,cc, ringC,rc, halfC,hc, terrainC,tx, waterC,wx, sbC,sb, clipC,cl, wSynced=[], pat={}, coastDirty=true;
 let synced={lands:null,paints:null}; const tcache=[];
 let cliffSolidC,csx, cleanC,cnx, cleanFor=null;
+let ecoC,ecx, ecoFor=null;
 let dgF,dgFx, dgT,dgTx, dgS,dgSx;
 let cliffC,cf, landVer=0, cliffBuilt={cliffs:null,landVer:-1};
 const tone=(hex,f)=>{ const n=parseInt(hex.slice(1),16); return '#'+[n>>16&255,n>>8&255,n&255].map(v=>Math.round(f>0?v+(255-v)*f:v*(1+f)).toString(16).padStart(2,'0')).join(''); };
@@ -527,6 +540,18 @@ const INK_TILES = {
   forest(t){ t.wash(.23,'122,162,110'); t.grid(10,.9,(a,b)=>{ if(a<.75){ t.dot(.8+b*.4,.6); t.x.translate(2.3,1); t.dot(.55,.5); t.x.translate(-3.8,1.3); t.dot(.5,.5); } }); t.grid(5,.9,(a)=>{ if(a<.45) t.tuft(3,.55); }); },
   steppe(t){ t.wash(.26,'218,194,112'); t.grid(8,.9,(a,b)=>{ if(a<.68){ t.line(.6,.7,()=>{ t.x.moveTo(-3-b*2,0); t.x.lineTo(3+b*2,0); }); if(a<.22){ t.x.translate(0,-.4); t.tuft(2.6,.55); } } }); },
   marsh(t){ t.wash(.21,'126,174,158'); t.grid(6,.7,(a,b)=>{ t.line(.65,.7,()=>{ for(let k=0;k<3;k++){ const w=7-k*2.2; t.x.moveTo(-w,k*2.2); t.x.lineTo(w,k*2.2); } }); t.x.translate((b-.5)*4,-.6); t.tuft(4.6,.8); }); },
+  oats(t){ t.wash(.2,'166,190,116'); t.grid(8,.9,(a,b)=>{ if(a<.55){ t.line(.7,.6,()=>{ t.x.moveTo(0,0); t.x.quadraticCurveTo(-.4,-3.6,-1.8,-5.6); }); t.dot(.5,.7); t.x.translate(-1.9,-4.9); t.dot(.45,.65); t.x.translate(.9,1.4); t.dot(.45,.65); } else if(a<.8) t.tuft(2.6,.5); }); },      // oats: a drooping ear of grains
+  feather(t){ t.wash(.19,'176,196,128'); t.grid(8,.9,(a,b)=>{ if(a<.55){ t.line(.6,.55,()=>{ t.x.moveTo(0,0); t.x.quadraticCurveTo(-1,-5,-3.4,-5.4); for(let k=0;k<4;k++){ const px=-1.2-k*.55, py=-4.4-k*.3; t.x.moveTo(px,py); t.x.lineTo(px-.5,py+1.4); } }); } else if(a<.78) t.tuft(2.6,.5); }); },      // feather grass: an arching stem with fine bristles
+  pampas(t){ t.wash(.2,'184,194,128'); t.grid(7,.9,(a,b)=>{ if(a<.5){ t.line(.65,.55,()=>{ t.x.moveTo(0,0); t.x.quadraticCurveTo(.2,-3.4,1.4,-5.2); for(let k=-4;k<=4;k++){ t.x.moveTo(1.2,-3.6); t.x.lineTo(1.2+k*.6+.5,-7+Math.abs(k)*.35); } }); } else if(a<.75) t.tuft(3,.5); }); },      // pampas: a leaning stem and a broad plume
+  tussock(t){ t.wash(.22,'156,180,110'); t.grid(8,.9,(a,b)=>{ if(a<.62){ t.line(.7,.65,()=>{ for(let k=-2;k<=2;k++){ t.x.moveTo(k*.5,0); t.x.quadraticCurveTo(k*.9,-2.2,k*1.5,-3.6-(2-Math.abs(k))*.5); } }); t.x.translate(2.4,.8); t.dot(.4,.5); } }); },      // tussock: a fan of blades from one root
+  daisies(t){ t.wash(.2,'190,204,132'); t.grid(8,.9,(a,b)=>{ if(a<.5){ t.line(.7,.5,()=>{ for(let k=0;k<7;k++){ const q=k/7*6.283+b*3; t.x.moveTo(Math.cos(q)*1,Math.sin(q)*1); t.x.lineTo(Math.cos(q)*2.3,Math.sin(q)*2.3); } }); t.dot(.6,.8); } else if(a<.78) t.tuft(2.6,.5); }); },
+  poppies(t){ t.wash(.21,'200,184,128'); t.grid(8,.9,(a,b)=>{ if(a<.46){ t.line(.7,.55,()=>{ t.x.arc(0,-1.6,1.6,0,6.283); }); t.x.save(); t.x.translate(0,-1.6); t.dot(.7,.85); t.x.restore(); t.line(.5,.45,()=>{ t.x.moveTo(.2,.2); t.x.lineTo(1.9,-.7); }); } else if(a<.76) t.tuft(2.6,.5); }); },
+  lupins(t){ t.wash(.2,'176,186,138'); t.grid(8,.9,(a,b)=>{ if(a<.5){ for(let k=0;k<4;k++){ t.x.save(); t.x.translate((k%2?.65:-.65),-.4-k*1.25); t.dot(.6-k*.06,.85); t.x.restore(); } t.line(.5,.45,()=>{ t.x.moveTo(0,.6); t.x.lineTo(1.8,1.4); }); } else if(a<.78) t.tuft(2.6,.5); }); },
+  bluebells(t){ t.wash(.2,'170,186,138'); t.grid(8,.9,(a,b)=>{ if(a<.5){ t.line(.6,.5,()=>{ t.x.moveTo(0,0); t.x.quadraticCurveTo(-.4,-4.4,2.6,-4.8); }); for(let k=0;k<3;k++){ t.x.save(); t.x.translate(.5+k*.95,-4.6+k*.5); t.line(.7,.5,()=>{ t.x.moveTo(-.55,0); t.x.lineTo(-.9,1.8); t.x.lineTo(.9,1.8); t.x.lineTo(.55,0); }); t.x.restore(); } } else if(a<.78) t.tuft(2.6,.5); }); },
+  parsley(t){ t.wash(.19,'200,206,148'); t.grid(8,.9,(a,b)=>{ if(a<.5){ for(let k=0;k<6;k++){ const q=k/6*6.283+b*2; t.x.save(); t.x.translate(Math.cos(q)*1.7,-1.6+Math.sin(q)*1.7); t.dot(.42,.8); t.x.restore(); } t.x.save(); t.x.translate(0,-1.6); t.dot(.4,.7); t.x.restore(); t.line(.5,.45,()=>{ t.x.moveTo(.4,.6); t.x.lineTo(1.6,1.6); }); } else if(a<.78) t.tuft(2.6,.5); }); },      // lacy heads: a ring of tiny florets
+  thistles(t){ t.wash(.2,'184,184,142'); t.grid(8,.9,(a,b)=>{ if(a<.48){ t.line(.7,.5,()=>{ for(let k=0;k<5;k++){ const q=-1+k*.5; t.x.moveTo(0,-1.2); t.x.lineTo(Math.sin(q)*2.2,-1.2-Math.cos(q)*2.4); } t.x.moveTo(-1.3,-1); t.x.quadraticCurveTo(0,.9,1.3,-1); }); t.dot(.45,.7); t.line(.5,.45,()=>{ t.x.moveTo(.2,.6); t.x.lineTo(1.2,1.8); }); } else if(a<.76) t.tuft(2.6,.5); }); },
+  tulips(t){ t.wash(.2,'200,190,134'); t.grid(8,.9,(a,b)=>{ if(a<.48){ t.line(.6,.5,()=>{ t.x.moveTo(0,0); t.x.lineTo(0,-3.4); }); t.line(.75,.55,()=>{ t.x.moveTo(-1.3,-3.4); t.x.lineTo(-1.5,-5.6); t.x.lineTo(-.5,-4.6); t.x.lineTo(0,-5.9); t.x.lineTo(.5,-4.6); t.x.lineTo(1.5,-5.6); t.x.lineTo(1.3,-3.4); t.x.closePath(); }); } else if(a<.76) t.tuft(2.6,.5); }); },
+  wildmix(t){ t.wash(.2,'194,198,132'); t.grid(8,.9,(a,b,c)=>{ if(a<.52){ if(c<.34){ t.line(.7,.5,()=>{ for(let k=0;k<7;k++){ const q=k/7*6.283+b*3; t.x.moveTo(Math.cos(q)*1,Math.sin(q)*1); t.x.lineTo(Math.cos(q)*2.3,Math.sin(q)*2.3); } }); t.dot(.6,.8); } else if(c<.67){ t.line(.7,.55,()=>{ t.x.moveTo(-2,.4); t.x.quadraticCurveTo(0,-3.6,2,.4); t.x.quadraticCurveTo(0,1.6,-2,.4); }); t.dot(.55,.8); } else { t.line(.6,.5,()=>{ t.x.moveTo(0,0); t.x.lineTo(0,-5.2); }); for(let k=0;k<4;k++){ t.x.save(); t.x.translate((k%2?.7:-.7),-1.4-k*1.1); t.dot(.6-k*.05,.8); t.x.restore(); } } } else if(a<.8) t.tuft(2.6,.5); }); },
   stone(t){ t.wash(.24,'162,168,182'); t.grid(7,.9,(a,b)=>{ const n=2+Math.floor(b*2.99); t.line(.6,.7,()=>{ for(let k=0;k<n;k++){ const L=2.6+((k*7+a*10)%3)*.9; t.x.moveTo(k*1.9-n,-L*.5+k*.5); t.x.lineTo(k*1.9-n-L*.42,L*.5+k*.5); } }); if(a<.4){ t.x.translate(3.4,2.2); t.dot(.55,.5); } }); },
   barrens(t){ t.wash(.23,'206,160,120'); t.grid(8,1,(a,b,c)=>{ if(a<.55){ t.x.rotate(b*3); t.line(.62,.6,()=>t.x.ellipse(0,0,1.6+c*1.6,1+c*.8,0,0,7)); } else t.dot(.6,.5); }); },
   beach(t){ t.wash(.23,'240,218,146'); t.grid(16,1,(a)=>t.dot(.5+a*.22,.42)); },
@@ -595,7 +620,7 @@ function initBuffers(){
   [coastC,cc]=mkCanvas(W*R/2,H*R/2); [ringC,rc]=mkCanvas(W*R/2,H*R/2); [halfC,hc]=mkCanvas(W*R/2,H*R/2);
   [waterC,wx]=full();                           // water paint strokes; sits on the sea, under the coast and the land
   [tintC,tnx]=half();      // every colour wash, land and sea, as one layer laid over the finished drawing (see buildTint)
-  [cliffSolidC,csx]=full(); [cleanC,cnx]=full(); cleanFor=null;      // where cliff faces and edges are; and the ground marks with the cut ones taken out
+  [cliffSolidC,csx]=full(); [cleanC,cnx]=full(); cleanFor=null; [ecoC,ecx]=full(); ecoFor=null;      // the woodland edge (see rebuildEco)      // where cliff faces and edges are; and the ground marks with the cut ones taken out
   [cliffC,cf]=full(); cliffBuilt={cliffs:null,landVer:-1};   // cliff faces, drawn over the land
   { const mk=()=>{ const a=mkCanvas(W*WASH_SCALE,H*WASH_SCALE); a[1].setTransform(WASH_SCALE,0,0,WASH_SCALE,0,0); return a; }; [washLand,wtx]=mk(); [washSea,wwx]=mk(); [washTmp,wtt]=mk(); }
   [terrainC,tx]=full();                         // every ground paint stroke, already textured, in the order it was painted
@@ -729,6 +754,52 @@ function cleanInk(){      // a tuft, pebble or crack that a coast, river bank or
       const comp=[i]; seen[i]=1; for(let q=0;q<comp.length && comp.length<=cap;q++){ const k=comp[q], kx=k%w; if(kx<g || kx>w-1-g || k<w*g || k>=w*(h-g)) continue; for(const o of nb){ const n=k+o; if(!seen[n] && d[n*4+3]>10){ seen[n]=1; comp.push(n); } } }
       if(comp.length<=cap){ for(const k of comp) d[k*4+3]=0; cut++; } }
     if(cut) cnx.putImageData(im,0,0); cleanFor={p:S.paints,l:S.lands,c:S.cliffs,v:landVer,cv:cleanC}; return true; }catch(e){ cleanFor=null; return false; } }
+/* ---- The woodland edge. Where open ground (meadow, a grass, a flower field) meets forest, shrubs and saplings straggle out from the trees, thick at the wood and thinning
+   to nothing. They are not stamps: they are marks on the ground, worked out from the ground paint itself and laid on their own layer (ecoC) just over the terrain, so they
+   follow the paint wherever it is drawn, rubbed out or undone. Each is placed whole, and only where all of its footprint is on land clear of coast, river bank and cliff, so
+   no edge ever cuts one in half. Positions come from a hash of the lattice cell, so editing one place never reshuffles the rest. ---- */
+const ECO_CELL=4, ECO_REACH=76, ECO_LATTICE=17, ECO_OPEN=new Set(['meadow','grass','steppe']);
+const isOpenGround=t=>ECO_OPEN.has(t) || (!!TERRAIN[t] && (TERRAIN[t].g==='Grasses' || TERRAIN[t].g==='Flowers'));
+const ecoHash=(i,j,k)=>{ let h=Math.imul(i,374761393)+Math.imul(j,668265263)+Math.imul(k,1442695041); h=Math.imul(h^(h>>>13),1274126177); h^=h>>>16; return (h>>>0)/4294967296; };
+function ecoLump(c,lx,ly,rx,ry,rn,hatch){      // a scalloped mass of foliage, in front of what was drawn before it, hatched on the right
+  const m=9, P=[]; for(let i=0;i<m;i++){ const a=i/m*Math.PI*2+rn()*.25, b=1+.12*Math.sin(i*2.9+rn()*2); P.push([lx+Math.cos(a)*rx*b,ly+Math.sin(a)*ry*b]); }
+  c.beginPath(); c.moveTo((P[0][0]+P[m-1][0])/2,(P[0][1]+P[m-1][1])/2); for(let i=0;i<m;i++){ const q=P[(i+1)%m], mid=[(P[i][0]+q[0])/2,(P[i][1]+q[1])/2]; c.quadraticCurveTo(P[i][0]+(P[i][0]-lx)*.14,P[i][1]+(P[i][1]-ly)*.14,mid[0],mid[1]); } c.closePath();
+  c.fillStyle=PAPER(); c.fill(); c.strokeStyle=INK; c.lineWidth=.55; c.lineJoin='round'; c.stroke();
+  if(hatch){ c.lineWidth=.27; c.beginPath(); for(let k=0;k<5;k++){ const f=.28+.15*k; c.moveTo(lx+Math.cos(-.75)*rx*f,ly+Math.sin(-.75)*ry*f); c.ellipse(lx,ly,rx*f,ry*f,0,-.75,1.25); } c.stroke(); } }
+function ecoShrub(c,x,y,s,rn){ const q=()=>.88+rn()*.28;      // a low bush: lobes piled up unevenly, so it reads as a clump and not a row of circles
+  ecoLump(c,x-2.7*s,y-1.8*s,2.4*s*q(),2.1*s*q(),rn,true); if(rn()<.8) ecoLump(c,x+2.5*s,y-1.6*s,2.2*s*q(),2*s*q(),rn,true); ecoLump(c,x-.1*s+(rn()-.5)*s,y-2.9*s,2.9*s*q(),2.6*s*q(),rn,true);
+  c.strokeStyle=INK; c.lineWidth=.35; c.lineCap='round'; c.beginPath(); c.moveTo(x-5.2*s,y+.4); c.lineTo(x-2.2*s,y+.5); c.moveTo(x+.6*s,y+.45); c.lineTo(x+5.4*s,y+.35); c.stroke(); }
+function ecoSapling(c,x,y,s,rn){ c.strokeStyle=INK; c.lineCap='round'; c.lineJoin='round';
+  if(rn()<.6){ c.lineWidth=.8; c.beginPath(); c.moveTo(x,y); c.lineTo(x+.2*s,y-2*s); c.stroke(); ecoLump(c,x-.2*s,y-4.9*s,3.2*s,3*s,rn,true); ecoLump(c,x+1.5*s,y-6.1*s,2.4*s,2.3*s,rn,true); }      // a young broadleaf: a short trunk and a lumpy crown
+  else { c.lineWidth=.7; c.beginPath(); c.moveTo(x,y); c.lineTo(x,y-2*s); c.stroke();      // a young conifer: three tiers
+    for(let t=0;t<3;t++){ const w=(3.6-t*.95)*s, y0=y-1.6*s-t*2.3*s, y1=y0-3.1*s; c.beginPath(); c.moveTo(x-w,y0); c.lineTo(x-w*.45,y0-.8*s); c.lineTo(x,y1); c.lineTo(x+w*.45,y0-.8*s); c.lineTo(x+w,y0); c.closePath(); c.fillStyle=PAPER(); c.fill(); c.lineWidth=.55; c.stroke();
+      c.lineWidth=.27; c.beginPath(); for(let k=1;k<=3;k++){ const f=k/4; c.moveTo(x+w*.1*f,y1+(y0-y1)*(.35+.1*k)); c.lineTo(x+w*(.35+.45*f),y0-.1); } c.stroke(); } }
+  c.lineWidth=.35; c.beginPath(); c.moveTo(x-2*s,y+.45); c.lineTo(x+2.6*s,y+.4); c.stroke(); }
+function rebuildEco(){
+  const W=S.w, H=S.h, C=ECO_CELL, gw=Math.ceil(W/C), gh=Math.ceil(H/C), o=ecoC.getContext('2d');
+  ecoFor={p:S.paints,l:S.lands,c:S.cliffs,v:landVer,cv:ecoC}; o.save(); o.setTransform(1,0,0,1,0,0); o.clearRect(0,0,ecoC.width,ecoC.height); o.restore();
+  const ps=S.paints.filter(q=>!q.w); if(!ps.some(q=>q.type==='forest') || !ps.some(q=>isOpenGround(q.type))) return;      // no wood, or no open ground to meet it
+  try{
+    const [fc,fx]=mkCanvas(gw,gh), [gc,gx]=mkCanvas(gw,gh);      // forest, and open ground, as the top paint at each cell
+    for(const q of ps.slice().sort((a,b)=>(a.t||0)-(b.t||0))){ const forest=q.type==='forest', open=isOpenGround(q.type), w=Math.max(1,q.size*(1-(1-(q.hard ?? .85))*.25)/C);
+      for(const [cx,on] of [[fx,forest],[gx,open]]){ cx.save(); cx.lineCap=cx.lineJoin='round'; cx.lineWidth=w; cx.globalAlpha=q.op ?? 1; cx.fillStyle=cx.strokeStyle='#000'; cx.globalCompositeOperation=on?'source-over':'destination-out';      // a paint replaces what was under it: any ground clears the other kind, an eraser clears both
+        if(q.pts.length===1){ cx.beginPath(); cx.arc(q.pts[0][0]/C,q.pts[0][1]/C,w/2,0,7); cx.fill(); } else { cx.beginPath(); q.pts.forEach((r,i)=>i?cx.lineTo(r[0]/C,r[1]/C):cx.moveTo(r[0]/C,r[1]/C)); cx.stroke(); } cx.restore(); } }
+    const rd=cn=>cn.getContext('2d').getImageData(0,0,gw,gh).data, fd=rd(fc), gd=rd(gc);
+    const lw=landMask.width, lh=landMask.height, LD=lm.getImageData(0,0,lw,lh).data, CD=csx.getImageData(0,0,lw,lh).data;      // the land, and the cliff faces, at full size
+    const ok=(x,y)=>{ const i=Math.round(x*R), j=Math.round(y*R); if(i<0||j<0||i>=lw||j>=lh) return false; const k=(j*lw+i)*4+3; return LD[k]>150 && CD[k]<40; };
+    const dist=new Float32Array(gw*gh), BIG=1e9; for(let k=0;k<gw*gh;k++) dist[k]=(fd[k*4+3]>110 && ok((k%gw+.5)*C,(Math.floor(k/gw)+.5)*C))?0:BIG;
+    for(let y=0;y<gh;y++) for(let x=0;x<gw;x++){ const k=y*gw+x; let d=dist[k]; if(x>0) d=Math.min(d,dist[k-1]+1); if(y>0){ d=Math.min(d,dist[k-gw]+1); if(x>0) d=Math.min(d,dist[k-gw-1]+1.414); if(x<gw-1) d=Math.min(d,dist[k-gw+1]+1.414); } dist[k]=d; }
+    for(let y=gh-1;y>=0;y--) for(let x=gw-1;x>=0;x--){ const k=y*gw+x; let d=dist[k]; if(x<gw-1) d=Math.min(d,dist[k+1]+1); if(y<gh-1){ d=Math.min(d,dist[k+gw]+1); if(x<gw-1) d=Math.min(d,dist[k+gw+1]+1.414); if(x>0) d=Math.min(d,dist[k+gw-1]+1.414); } dist[k]=d; }
+    const marks=[], L=ECO_LATTICE;
+    for(let j=0;j*L<H;j++) for(let i=0;i*L<W;i++){ const x=(i+.15+.7*ecoHash(i,j,1))*L, y=(j+.15+.7*ecoHash(i,j,2))*L, ci=Math.min(gw-1,Math.floor(x/C)), cj=Math.min(gh-1,Math.floor(y/C)), k=cj*gw+ci;
+      if(gd[k*4+3]<=110 || fd[k*4+3]>110) continue; const d=dist[k]*C; if(d>=ECO_REACH) continue;
+      const u=d/ECO_REACH; if(ecoHash(i,j,3)>.8*Math.pow(1-u,1.4)+.05) continue;
+      const sap=ecoHash(i,j,4)<clamp(1.15-1.6*u,0,.8), s2=(.85+.35*ecoHash(i,j,5))*(1-.25*u), hw=(sap?4.3:6.3)*s2+2, ht=(sap?9.6:6.4)*s2+2;
+      let clear=true; for(const fx of [-1,-.5,0,.5,1]) for(const fy of [0,.5,1]) if(!ok(x+fx*hw,y-fy*ht)) clear=false; if(!clear || !ok(x-hw*.6,y+2.5) || !ok(x+hw*.6,y+2.5)) continue;      // the whole footprint, and a margin, on clear land
+      marks.push([x,y,sap,s2,Math.floor(ecoHash(i,j,6)*1e6)]); }
+    marks.sort((a,b)=>a[1]-b[1]); if(marks.length>8000) marks.length=8000;
+    o.save(); o.setTransform(R,0,0,R,0,0); o.globalAlpha=.92; for(const m of marks){ const rn=mulberry(m[4]); (m[2]?ecoSapling:ecoShrub)(o,m[0],m[1],m[3],rn); } o.restore();
+  }catch(e){ ecoFor=null; console.error('woodland edge',e); } }
 function rebuildLand(fresh){ landVer++;
   lm.globalCompositeOperation='source-over'; lm.clearRect(0,0,S.w,S.h); lm.fillStyle='#000';
   for(const l of S.lands){ lm.globalCompositeOperation = l.mode==='sea' ? 'destination-out' : 'source-over'; lm.fill(landPath(l)); const b=built.get(l);
@@ -837,6 +908,7 @@ function compose(full){
   lc.globalAlpha=1; lc.globalCompositeOperation='source-over'; if(SK()){ lc.fillStyle=pat.paper||PAPER(); lc.fillRect(0,0,W,H); lc.drawImage(ageC,0,0,W,H); } lc.fillStyle=pat.land; lc.fillRect(0,0,W,H);
   const inkOK=cleanFor && cleanFor.p===S.paints && cleanFor.l===S.lands && cleanFor.c===S.cliffs && cleanFor.v===landVer && cleanFor.cv===cleanC;
   if(layers.terrain.v) drawLayer(lc,(inkOK || (full && !live && cleanInk())) ? cleanC : terrainC,live && !live.w ? live : null);
+  if(layers.terrain.v){ if(full && !(ecoFor && ecoFor.p===S.paints && ecoFor.l===S.lands && ecoFor.c===S.cliffs && ecoFor.v===landVer && ecoFor.cv===ecoC)) rebuildEco(); lc.drawImage(ecoC,0,0,W,H); }      // the woodland edge, over the ground
   lc.globalCompositeOperation='destination-in'; lc.drawImage(landMask,0,0,W,H);
   if(!coastDirty){ lc.globalCompositeOperation='source-atop'; lc.drawImage(innerC,0,0,W,H); }
   lc.globalCompositeOperation='source-over';
@@ -1894,8 +1966,6 @@ function sprite(s,px,lazy){ const k=stampLook(s), g=['Trees','Plants'].includes(
   sp=cn; sprites.set(key,sp); spriteArea+=side*side; spriteBudgetMs-=performance.now()-t0;
   while(spriteArea>SPRITE_PIXELS && sprites.size>1){ const [k0,v0]=sprites.entries().next().value; sprites.delete(k0); spriteArea-=v0.width*v0.height; }
   return sp; }
-const PLANT_FACTOR={wildflowers:.26,wildgrass:.26,ferns:.3,shrubs:.32,saplings:.32,thicket:.34}, PLANT_BASE={wildflowers:[34,12],wildgrass:[32,12],ferns:[28,8],shrubs:[30,10],saplings:[32,10],thicket:[34,12]}, PLANT_KINDS=new Set(Object.keys(PLANT_FACTOR));      // how big each is drawn (a fraction of its listed size), and its listed size
-const PLANT_MIX={flowers:[['wildflowers',.85],['wildgrass',.15]], grass:[['wildgrass',1]], shrubs:[['shrubs',.78],['saplings',.14],['wildflowers',.08]], edge:[['thicket',.36],['saplings',.3],['ferns',.2],['shrubs',.14]], ferns:[['ferns',1]]}, PLANT_VARS={flowers:8,grass:4,shrubs:5,edge:0,ferns:3};
 const STAMP_ALPHA={};      // (opacity is now each stamp's own setting, s.op, 0-100; nothing is drawn at a fixed opacity)      // ground cover is drawn in a lighter, greyer ink than the trees and hills, so that a drift sits back on the page
 function drawStamp(c,s,k){ c.save(); if(s.op!==undefined && s.op<100) c.globalAlpha*=clamp(s.op,0,100)/100; c.translate(s.x,s.y); c.rotate(s.rot*Math.PI/180);   // a mirrored stamp has its own picture (see paintStamp), so nothing is flipped here
   const px=k?s.size*k:0;
@@ -2303,7 +2373,7 @@ cv.addEventListener('pointerdown',e=>{
   const p=toWorld(e), t=etool();
   if(e.button===1 || t==='pan' || spaceDown){ act={type:'pan',sx:e.clientX,sy:e.clientY,vx:view.x,vy:view.y}; return; }
   if(DUNG() && (t==='corridor'||t==='dwall'||(t==='room'&&opts.roomShape==='poly'))){ if(e.button===2){ if(draft){ draft.pts.pop(); if(!draft.pts.length) draft=null; invalidate(); } return; } draftClick(p,opts.roomCut&&t!=='dwall'); return; }
-  if(e.button===2 && t!=='land' && t!=='cliff' && t!=='room' && t!=='plant' && t!=='floor') return;
+  if(e.button===2 && t!=='land' && t!=='cliff' && t!=='room' && t!=='floor') return;
   const lmode = (e.button===2)!==(opts.landPrimary==='sea') ? 'sea' : 'land';   // right button does the opposite of the left
   if(t==='cliff'){ const cm = (e.button===2)!==(opts.cliffPrimary==='down') ? 'down' : 'up';
     if(opts.cliffMode==='brush'){ pushUndo(); const c={mode:cm,brush:true,pts:[],size:opts.cliffBrush,rough:opts.cliffRough,seed:rseed(),h:opts.cliffH,taper:opts.cliffTaper,dir:opts.cliffDir}; act={type:'cbrush',pts:c.pts,cliff:c,pushed:true}; addPoint(act,p,0); S.cliffs=[...S.cliffs,c]; need.compose='fast'; }
@@ -2315,7 +2385,6 @@ cv.addEventListener('pointerdown',e=>{
   else if(t==='floor'){ const erase=e.button===2||opts.floorMode==='erase';
     if(opts.floorMode==='fill' && !erase){ const hit=[...S.lands].reverse().find(l=>inLand(l,p)); if(hit && hit.mode!=='sea'){ pushUndo(); S.lands=S.lands.map(l=>l===hit?{...l,tex:opts.floorTex}:l); need.compose='full'; invalidate(); } else toast('Click inside a room.'); }
     else { pushUndo(); const st={tex:erase?'erase':opts.floorTex,size:Math.round(opts.floorBrush),seed:rseed(),pts:[]}; act={type:'fpaint',stroke:st,pushed:true,pts:st.pts}; addPoint(act,p,0); S.fpaint=[...S.fpaint,st]; need.compose='fast'; } }
-  else if(t==='plant'){ pushUndo(); act={type:'plant',last:p,pushed:true,rub:e.button===2||opts.plantKind==='erase',vv:opts.plantVar==='mix'?-1:+opts.plantVar,sv:Math.floor(Math.random()*8)}; plantDab(p,act); }
   else if(t==='paint'){ const water=opts.paintLayer==='water', stroke={type:water?opts.water:opts.terrain,size:opts.brush,hard:opts.hard,op:opts.bop,pts:[]}; if(water) stroke.w=true; act={type:'paint',pts:stroke.pts,stroke}; addPoint(act,p,0); need.compose='fast'; }
   else if(t==='measure'){ measured=null; act={type:'measure',pts:[p]}; }
   else if(t==='stamp' && opts.stampMode==='fill' && scatterOf(opts.stamp)){ act={type:'fill',pts:[p]}; }
@@ -2357,25 +2426,12 @@ cv.addEventListener('pointermove',e=>{
     else { const step=Math.max(4,base*.35/Math.max(.3,opts.scatterDensity)); if(dist(act.last,p)>=step){ act.last=p; scatterDab(p,base); } } }
   else if(act.type==='paint'){ if(addPoint(act,p,4)) need.compose='fast'; }
   else if(act.type==='fpaint'){ if(addPoint(act,p,Math.max(4,opts.floorBrush*.12))){ need.compose='fast'; } }
-  else if(act.type==='plant'){ if(dist(act.last,p)>=Math.max(6,opts.brush*.3)){ act.last=p; plantDab(p,act); } }
   else if(act.type==='move' && sel){ const dx=p[0]-act.last[0], dy=p[1]-act.last[1]; if(!act.moved){ if(Math.hypot(dx,dy)<3/view.k) return; pushUndo(); act.moved=true; act.riders=ridersOn(selLands()); }
     act.last=p; editSel(o=>o.pts?{...o,pts:o.pts.map(q=>[q[0]+dx,q[1]+dy])}:{...o,x:o.x+dx,y:o.y+dy});
     act.riders=act.riders.map(([k,objs])=>{ const m=new Map(objs.map(q=>[q,q.pts?{...q,pts:q.pts.map(v=>[v[0]+dx,v[1]+dy])}:{...q,x:q.x+dx,y:q.y+dy}])); S[k]=S[k].map(q=>m.get(q)||q); return [k,[...m.values()]]; });   // a landmass carries what is on it
     selDirty(false); }
   invalidate();
 });
-/* Painting plants: a dab scatters a few plants of the chosen kind inside the brush, on land, clear of what is already there; one stroke keeps to one flower shape unless Mixed is chosen.
-   Right button, or the Rub out chip, takes plants away instead. */
-function plantDab(p,a){ const R=opts.brush/2;
-  if(a.rub){ const keep=S.stamps.filter(s=>!(PLANT_KINDS.has(s.kind) && Math.hypot(s.x-p[0],s.y-p[1])<R)); if(keep.length!==S.stamps.length){ S.stamps=keep; invalidate(); } return; }
-  const mix=PLANT_MIX[opts.plantKind]||PLANT_MIX.flowers, n=Math.max(1,Math.round(R*R*Math.PI/130*opts.plantDensity*.2)), near=S.stamps.filter(s=>Math.abs(s.x-p[0])<R+40 && Math.abs(s.y-p[1])<R+40), add=[];
-  const MS=S.stamps.filter(s=>MTN_BODY[s.kind]);
-  for(let k=0;k<n;k++){ const ang=Math.random()*6.283, r=R*Math.sqrt(Math.random()), x=p[0]+Math.cos(ang)*r, y=p[1]+Math.sin(ang)*r; if(!isLandAt([x,y]) || inMountain(MS,x,y)) continue;
-    let q=Math.random(), kind=mix[mix.length-1][0]; for(const [kk,w] of mix){ if(q<w){ kind=kk; break; } q-=w; }
-    const sz=Math.max(8,Math.round((PLANT_BASE[kind][0]+Math.random()*PLANT_BASE[kind][1])*PLANT_FACTOR[kind])); if(near.some(s=>Math.hypot(s.x-x,s.y-y)<sz*.55+(s.size||0)*.25) || add.some(s=>Math.hypot(s.x-x,s.y-y)<sz*.55)) continue;
-    const nv=VARIANTS[kind]||1, vv=a.vv>=0 && (opts.plantKind==='flowers'?kind==='wildflowers':true) ? a.vv%nv : Math.random()<.85 ? a.sv%nv : Math.floor(Math.random()*nv);
-    add.push(withLy({kind,x:Math.round(x),y:Math.round(y),size:sz,rot:0,v:Math.random(),var:vv,flip:Math.random()<.5,op:Math.round(opts.plantOpacity)})); }
-  if(add.length){ S.stamps=[...S.stamps,...add]; invalidate(); } }
 /* Scatter: each step of the drag tries a few places within the spread, and a place is used only if it is at least `gap` x the stamp's size from every stamp of the same kind already there, so they
    lie evenly instead of in lumps and pile-ups. Density sets how many tries per step, Gap how far apart they stay, Spread how wide the brush is, Size variation how much they differ in size. */
 function scatterDab(p,base){ const R=opts.scatter/2, tries=Math.max(1,Math.round(opts.scatterDensity*2.2)), minD=base*opts.scatterGap*.9;
@@ -2401,7 +2457,6 @@ function endPointer(e){
     else if(a.pts.length>=4 && Math.max(...xs)-Math.min(...xs)>14 && Math.max(...ys)-Math.min(...ys)>14){ pushUndo();
       S.lands=[...S.lands,{mode:a.mode,pts:resample(a.pts,10,true),rough:a.cave?opts.caveRough:opts.landRough,seed:rseed(),t:++S.tick,...(a.cave?{floor:1,tex:opts.roomTex==='flag'?'dirt':opts.roomTex}:{})}]; need.land=true; need.compose='full'; } }
   else if(a.type==='line'){ if(a.pts.length>=3){ pushUndo(); S.lines=[...S.lines,withLy({kind:a.kind,pts:resample(a.pts,10,a.kind==='realm'),rough:opts.lineRough,width:opts.lineWidth[a.kind],seed:rseed(),...(a.kind==='realm'?{fill:opts.realmFill}:{}),...(a.kind==='fence'?{style:opts.fenceStyle}:{})})]; if(a.kind==='river'){ need.land=true; need.compose='full'; } } }
-  else if(a.type==='plant'){ queueSave(); }
   else if(a.type==='fpaint'){ need.compose='full'; queueSave(); }
   else if(a.type==='paint'){ pushUndo(); S.paints=[...S.paints,{...a.stroke,t:++S.tick}]; need.compose='full'; }
   else if(a.type==='lbrush'){ need.land=true; need.compose='full'; }
@@ -2462,7 +2517,7 @@ const TOOLS = [      // m: 'w' world maps only, 'd' dungeons only, 'x' not offer
   {id:'pan', name:'Pan', key:'h', hint:'Drag to move around. Scroll or pinch to zoom. Middle-click or Space does the same from any tool.'},
   {id:'measure', name:'Measure', key:'g', hint:'Drag along a route to read its length. Nothing is added to the map.'},
   {g:'Shape', id:'land', m:'w', name:'Land', key:'l', hint:'Left-drag a loop to raise land. Right-drag a loop to carve sea or a lake.'},
-  {id:'paint', m:'w', name:'Terrain', key:'t', hint:'Paint ground, water, cliffs or plants. Pick which at the top of the panel.'},
+  {id:'paint', m:'w', name:'Terrain', key:'t', hint:'Paint ground (meadows, grasses, flowers, forest, stone, sand), water or cliffs. Pick which at the top of the panel.'},
   {g:'Dungeon', id:'room', m:'d', name:'Room', key:'o', hint:'Drag to draw a room. Choose Rectangle, Ellipse, Polygon or Cave below. Right-drag cuts a hole out of the floor.'},
   {id:'corridor', m:'d', name:'Corridor', key:'i', hint:'Click along the passage, double-click or press Enter to finish. The width is in squares.'},
   {id:'dwall', m:'d', name:'Inner wall', key:'p', hint:'Draw an inner wall across a room. Click along it, double-click or press Enter to finish.'},
@@ -2476,9 +2531,8 @@ const TOOLS = [      // m: 'w' world maps only, 'd' dungeons only, 'x' not offer
   {id:'cliff', m:'x', name:'Cliffs', key:'', hint:'Left-drag raises the land into a plateau with cliffs. Right-drag lowers it again.'},
   {id:'road', m:'x', name:'Road', key:'', hint:'Draw a road between places.'},
   {id:'fence', m:'x', name:'Fence', key:'', hint:'Draw a hedge, fence, field wall or palisade, for plots and outworks.'},
-  {id:'plant', m:'x', name:'Plants', key:'', hint:'Drag to paint wildflowers, grass or scrub onto the land.'},
 ];
-const etool = () => opts.tool==='paint' && opts.paintLayer==='cliff' ? 'cliff' : opts.tool==='paint' && opts.paintLayer==='plant' ? 'plant' : opts.tool==='wall' && opts.wallKind!=='town' ? 'fence' : opts.tool==='street' && opts.roadMode ? 'road' : opts.tool;      // some tools do several jobs: the one being done right now
+const etool = () => opts.tool==='paint' && opts.paintLayer==='cliff' ? 'cliff' : opts.tool==='wall' && opts.wallKind!=='town' ? 'fence' : opts.tool==='street' && opts.roadMode ? 'road' : opts.tool;      // some tools do several jobs: the one being done right now
 
 let railBound=false;
 function buildRail(){ const mode=S.kind==='dungeon'?'d':'w'; let pend=null, h='';      // world tools and dungeon tools are offered by map kind; a hidden tool hands its heading to the next one shown
@@ -2514,7 +2568,7 @@ function dungToolPanel(t){ const chips=(id,items,cur,attr)=>`<div class="chips" 
 function dungSelPanel(o){ return `<section><h2>${o.mode==='sea'?'Hole in the floor':o.brush?'Corridor':o.sharp?'Room':'Cave or round room'}</h2>${o.mode==='sea'?'':`<p class="grp">Floor</p><div class="chips" id="selTex">${FLOORS.map(([k,n])=>`<button class="chip" data-tex="${k}" aria-pressed="${(o.tex||'none')===k}">${n}</button>`).join('')}</div>`}${o.brush?slider('selBrush','Width',20,600,2,o.size,num):''}${!o.sharp?slider('selRough','Edge',0,1,.01,o.rough,pct)+'<div class="ends"><span>smooth</span><span>rough</span></div>':''}</section>`; }
 function renderPanel(){
   const t=etool();
-  const TERR_MODES=[['land','Ground'],['water','Water'],['cliff','Cliffs'],['plant','Plants']], modeChips=()=>`<div class="chips" id="paintLayer">${TERR_MODES.map(([k,n])=>`<button class="chip" data-layer="${k}" aria-pressed="${opts.paintLayer===k}">${n}</button>`).join('')}</div>`;      // Terrain does four jobs, picked here
+  const TERR_MODES=[['land','Ground'],['water','Water'],['cliff','Cliffs']], modeChips=()=>`<div class="chips" id="paintLayer">${TERR_MODES.map(([k,n])=>`<button class="chip" data-layer="${k}" aria-pressed="${opts.paintLayer===k}">${n}</button>`).join('')}</div>`;      // Terrain does four jobs, picked here
   const wallKindChips=()=>`<p class="grp">Kind</p><div class="chips" id="wallKind">${[['town','Town wall'],['hedge','Hedge'],['fence','Fence'],['wall','Field wall'],['palisade','Palisade']].map(([k,n])=>`<button class="chip" data-wk="${k}" aria-pressed="${opts.wallKind===k}">${n}</button>`).join('')}</div>`; let h = PHONE ? '<button class="btn" id="drawerX">Close settings</button>' : '';
   if(t==='select'){
     if(!sel) h+=`<section><h2>Select</h2><p>${DUNG()?'Click a room, corridor, wall, stamp or label to change it. Drag to move it.':'Click a landmass, river, road, settlement or label to change it.'}</p></section>`;
@@ -2550,8 +2604,6 @@ function renderPanel(){
     ${groups.map(g=>`<p class="grp">${g}</p><div class="chips">${Object.entries(INKS).filter(([k,v])=>v.g===g).map(([k,v])=>`<button class="chip" data-terr="${k}" aria-pressed="${k===cur||DEF[cur]?.tex===v.tex}">${v.name}</button>`).join('')}</div>`).join('')}
     <div class="chips"><button class="chip" data-terr="erase" aria-pressed="${cur==='erase'}"><i style="background:${water?MAP.water:MAP.land}"></i>Eraser</button></div>${slider('brush','Brush',16,400,2,opts.brush,num)}${slider('hard','Hardness',0,1,.01,opts.hard,pct)}<div class="ends"><span>soft edge</span><span>hard edge</span></div>${slider('bop','Opacity',.05,1,.01,opts.bop,pct)}
     <p>${water?'Water paint goes on the sea and lakes. Land always sits on top of it.':'Ground paint goes onto the land.'}</p></section>`; }
-  if(t==='plant'){ const PK=[['flowers','Wildflowers'],['grass','Wild grass'],['shrubs','Shrubs'],['edge','Woodland edge'],['ferns','Ferns'],['erase','Rub out']], nv=PLANT_VARS[opts.plantKind]||0;
-    h+=`<section id="terrChips"><h2>Terrain</h2>${modeChips()}<p class="grp">Paint</p><div class="chips" id="plantKinds">${PK.map(([k,n])=>`<button class="chip" data-plant="${k}" aria-pressed="${opts.plantKind===k}">${n}</button>`).join('')}</div>${nv>1?`<label class="row wide" for="plantVar">Shape<select id="plantVar"><option value="mix"${opts.plantVar==='mix'?' selected':''}>Mixed</option>${Array.from({length:nv},(_,i)=>`<option value="${i}"${String(opts.plantVar)===String(i)?' selected':''}>${i+1}</option>`).join('')}</select></label>`:''}${slider('brush','Brush',16,400,2,opts.brush,num)}${slider('plantDensity','Density',.3,2,.05,opts.plantDensity,pct)}${slider('plantOpacity','Opacity',0,100,1,opts.plantOpacity,v=>Math.round(v)+'%')}<p>Drag over the land to paint plants on in clumps. Right-drag rubs them out.</p></section>`; }
   if(LINES[t] && t!=='dwall') h+=`<section><h2>${t==='wall'||t==='fence'?'Walls &amp; fences':t==='street'||t==='road'?'Streets &amp; roads':LINES[t].name}</h2>${slider('lineRough','Wander',0,1,.01,opts.lineRough,pct)}<div class="ends"><span>straight</span><span>winding</span></div>${slider('lineWidth','Width',1,60,.5,opts.lineWidth[t],v=>v)}${t==='wall'||t==='fence'?wallKindChips():''}${t==='street'||t==='road'?`<p class="grp">Kind</p><div class="chips" id="streetKind">${[[5,'Lane'],[8,'Street'],[12,'Avenue'],[46,'Square']].map(([w,n])=>`<button class="chip" data-sw="${w}" aria-pressed="${!opts.roadMode && opts.lineWidth.street===w}">${n}</button>`).join('')}<button class="chip" data-road="1" aria-pressed="${opts.roadMode}">Country road</button></div><p>${opts.roadMode?'A dashed road between places.':'Streets are drawn solid and join at crossings. For a square, pick Square and make a very short stroke, then fill it with buildings from Stamps, City.'}</p>`:''}${t==='realm'?`<p class="grp">Marked by</p><div class="chips three" id="realmFill">${[['band','Fringe'],['hatch','Hatching'],['dots','Stipple']].map(([k,n])=>`<button class="chip" data-rfill="${k}" aria-pressed="${(opts.realmFill)===k}">${n}</button>`).join('')}</div><p>Draw right round the territory; the loop closes itself. Anything over the sea is left out.</p>`:''}</section>`;
   if(t==='stamp'){ const g=groupOf(opts.stamp), sc=scatterOf(opts.stamp), set=STAMP_SETS[opts.stampSet];
     if(set.groups.length){ const nv=VARIANTS[opts.stamp]||1;
@@ -2587,8 +2639,7 @@ function renderPanel(){
   bind('reach',num,v=>opts.reach=v); $('reshapeModes')?.addEventListener('click',e=>{ const b=e.target.closest('[data-rmode]'); if(b){ opts.reshape=b.dataset.rmode; renderPanel(); } });
   bind('hard',pct,v=>opts.hard=v); bind('bop',pct,v=>opts.bop=v);
   $('landPrimary')?.addEventListener('click',e=>{ const b=e.target.closest('[data-prim]'); if(b){ opts.landPrimary=b.dataset.prim; renderPanel(); } });
-  bind('cliffTaper',pct,v=>opts.cliffTaper=v); bind('cliffDir',deg,v=>opts.cliffDir=v); bind('plantDensity',pct,v=>opts.plantDensity=v);
-  $('plantKinds')?.addEventListener('click',e=>{ const b=e.target.closest('[data-plant]'); if(b){ opts.plantKind=b.dataset.plant; opts.plantVar='mix'; renderPanel(); } }); $('plantVar')?.addEventListener('change',e=>opts.plantVar=e.target.value);
+  bind('cliffTaper',pct,v=>opts.cliffTaper=v); bind('cliffDir',deg,v=>opts.cliffDir=v);
   $('wallKind')?.addEventListener('click',e=>{ const b=e.target.closest('[data-wk]'); if(b){ opts.wallKind=b.dataset.wk; if(opts.wallKind!=='town') opts.fenceStyle=opts.wallKind; renderPanel(); } });
   bind('cliffBrush',num,v=>opts.cliffBrush=v); bind('cliffH',num,v=>opts.cliffH=v); bind('cliffRough',pct,v=>opts.cliffRough=v);
   $('cliffModes')?.addEventListener('click',e=>{ const b=e.target.closest('[data-cmode]'); if(b){ opts.cliffMode=b.dataset.cmode; renderPanel(); } });
@@ -2610,7 +2661,7 @@ function renderPanel(){
   bind('gridSize',num,v=>{ S.grid={...S.grid,size:v}; if(DUNG()) need.compose='full'; },true);
   bind('dunHatch',pct,v=>{ S.dun={...S.dun,hatch:v}; need.compose='full'; },true); $('dunShadow')?.addEventListener('change',e=>{ pushUndo(); S.dun={...S.dun,shadow:e.target.checked}; need.compose='full'; invalidate(); });
   const pick=(id,attr,fn)=>$(id)?.addEventListener('click',e=>{ const b=e.target.closest('[data-'+attr+']'); if(b){ fn(b.dataset[attr]); renderPanel(); invalidate(); } });
-  bind('plantOpacity',v=>Math.round(v)+'%',v=>opts.plantOpacity=v); bind('stampOpacity',v=>Math.round(v)+'%',v=>{ opts.stampOpacity=v; pendPreview(); }); bind('scatterDensity',pct,v=>opts.scatterDensity=v); bind('scatterGap',pct,v=>opts.scatterGap=v); bind('sizeVar',pct,v=>opts.sizeVar=v);
+  bind('stampOpacity',v=>Math.round(v)+'%',v=>{ opts.stampOpacity=v; pendPreview(); }); bind('scatterDensity',pct,v=>opts.scatterDensity=v); bind('scatterGap',pct,v=>opts.scatterGap=v); bind('sizeVar',pct,v=>opts.sizeVar=v);
   bind('floorBrush',num,v=>opts.floorBrush=v); pick('floorTex','ftex',v=>opts.floorTex=v); pick('floorMode','fmode',v=>opts.floorMode=v);
   pick('roomShape','shape',v=>{ opts.roomShape=v; draft=null; }); pick('corrW','cw',v=>opts.corrW=+v); pick('roomCut','cut',v=>opts.roomCut=v==='1'); pick('roomTex','tex',v=>opts.roomTex=v);
   $('snapOn')?.addEventListener('change',e=>opts.snap=e.target.checked); $('snapFine')?.addEventListener('change',e=>opts.snapFine=e.target.checked); bind('dwallW',v=>v,v=>opts.lineWidth.dwall=v);
@@ -2787,6 +2838,12 @@ function generateMap(W,H,kind,G={}){ G={land:1,mountains:1,forests:1,rivers:1,to
     if(t>.7 && m<.36) return m<.24 ? 'redsand' : 'sand'; if(t>.56 && m<.44) return 'steppe';
     if(m>.68 && cd[k]<=4 && t>.36) return 'marsh';
     return (G.forests>0 && m>fM) ? 'forest' : m>.44 ? 'grass' : 'meadow'; };
+  const FLOWER_GROUNDS=['daisies','poppies','lupins','bluebells','parsley','thistles','tulips','wildmix'], GRASS_GROUNDS=['oats','feather','pampas','tussock'];
+  const groundAt=k=>{ const b=biome(k); if(b!=='grass' && b!=='meadow' && b!=='steppe') return b;      // open ground is split into drifts: of one flower, of one tall grass, or plain meadow between them (the woodland edge is not decided here: it appears wherever open ground meets forest, see rebuildEco)
+    const [x,y]=pos(k), v=fbm(x*.0058,y*.0058,seed+835,2), f=fbm(x*.0040,y*.0040,seed+811,3), g=fbm(x*.0034,y*.0034,seed+823,3);
+    if(b!=='steppe' && f>.545) return FLOWER_GROUNDS[Math.floor(v*8*1.15)%8];
+    if(g>.535 || (b==='steppe' && g>.46)) return GRASS_GROUNDS[Math.floor(v*4*1.15)%4];
+    return b; };
 
   /* coastlines: trace the shoreline through the grid (marching squares), keeping land on one side */
   const E=(i,j)=>elev[at(i,j)], ept=(i1,j1,i2,j2)=>{ const a=E(i1,j1), b=E(i2,j2), t=a/(a-b); return [(i1+(i2-i1)*t)*cs,(j1+(j2-j1)*t)*cs]; };
@@ -2810,7 +2867,7 @@ function generateMap(W,H,kind,G={}){ G={land:1,mountains:1,forests:1,rivers:1,to
 
   /* ground paint: runs of the same biome along every other grid row become soft brush strokes */
   for(let j=1;j<ny-1;j+=2){ let run=null; const flush=()=>{ if(run) st.paints.push({type:run.b,size:112,hard:.12,op:1,pts:run.x0===run.x1?[[run.x0,j*cs]]:[[run.x0,j*cs],[run.x1,j*cs]]}); run=null; };
-    for(let i=1;i<nx-1;i+=2){ const b=biome(at(i,j)); if(run && run.b===b) run.x1=i*cs; else { flush(); if(b) run={b,x0:i*cs,x1:i*cs}; } } flush(); }
+    for(let i=1;i<nx-1;i+=2){ const b=groundAt(at(i,j)); if(run && run.b===b) run.x1=i*cs; else { flush(); if(b) run={b,x0:i*cs,x1:i*cs}; } } flush(); }
 
   /* water paint: shallows along the coast, deeper tone further out, floes in the cold, a storm patch or two, murk off the marshes */
   { const seaKind=k=>{ if(isLand(k)) return null; const d=wd[k], [x,y]=pos(k), t=temp[k]; if(t<.24 && d<=9) return 'icy'; if(d<=4 && nb8(k).some(m=>nb8(m).some(q=>biome(q)==='marsh'))) return 'murk';
@@ -2878,35 +2935,6 @@ function generateMap(W,H,kind,G={}){ G={land:1,mountains:1,forests:1,rivers:1,to
     for(let n=rnd()<.55?2:1;n>0;n--){ const x=i*cs+(rnd()-.5)*18, y=j*cs+(rnd()-.5)*18; if(!clear(x,y,34)) continue; const t=temp[k]+(rnd()-.5)*.12;
       st.stamps.push({kind:t<.47?'conifer':'deciduous',x:Math.round(x),y:Math.round(y),size:Math.round(26+rnd()*9),rot:0,v:rnd(),var:Math.floor(rnd()*4)}); trees++; } }
 
-  /* the open ground: carpets of wildflowers, stretches of wild grass, and, where the plain meets the wood, scrub, thickets and saplings thickening towards the trees.
-     Every cell of a drift is filled (many small plants to a cell), drifts too small to read as one are dropped, and between drifts there is bare ground, so there are no thin patches. */
-  { const fd=spread(k=>biome(k)==='forest'), openB=b=>b==='grass'||b==='meadow'||b==='steppe', nz=(x,y,sc,s,o=3)=>fbm(x*sc,y*sc,seed+s,o);
-    const SZ=14, occ=new Map(), cellOf=(x,y)=>Math.floor(x/SZ)+','+Math.floor(y/SZ), reach=s=>s.kind==='highpeak'?s.size*.4:s.kind==='mountain'||s.kind==='snowpeak'?s.size*.34:s.kind==='hill'?s.size*.28:s.size*.3;      // every stamp so far, by where it stands, so a new plant keeps clear of trees, hills and mountains
-    const note=s=>{ const key=cellOf(s.x,s.y); (occ.get(key)||occ.set(key,[]).get(key)).push([s.x,s.y,reach(s)]); };
-    for(const s of st.stamps) note(s);
-    const MS=st.stamps.filter(s=>MTN_BODY[s.kind]);
-    const free=(x,y,r)=>{ if(inMountain(MS,x,y)) return false; const cx=Math.floor(x/SZ), cy=Math.floor(y/SZ); for(let b=-2;b<=2;b++) for(let a=-2;a<=2;a++){ const L=occ.get((cx+a)+','+(cy+b)); if(L) for(const q of L) if(Math.hypot(q[0]-x,q[1]-y)<r+q[2]) return false; } return clear(x,y,r+8); };
-    const SIZE=PLANT_FACTOR;      // each is drawn at a fraction of the size listed below: they are small things beside a tree
-    const put=(kind,x,y,size,v)=>{ const s={kind,x:Math.round(x),y:Math.round(y),size:Math.max(8,Math.round(size*SIZE[kind])),rot:0,v:rnd(),var:v,flip:rnd()<.5,op:60}; st.stamps.push(s); note(s); };
-    const cls=new Uint8Array(N), FT=.545, sm=(a,b,x)=>{ const q=clamp((x-a)/(b-a),0,1); return q*q*(3-2*q); };      // 1 flower drift, 2 wild grass, 3 edge of the wood
-    for(let j=1;j<ny-1;j++) for(let i=1;i<nx-1;i++){ const k=at(i,j), b=biome(k); if(!isLand(k)||riverCell[k]||cd[k]<1||!openB(b)) continue; const x=i*cs, y=j*cs, d=fd[k];
-      if(G.forests>0 && d>=1 && d<=5 && b!=='steppe') cls[k]=3; else if(nz(x,y,.0040,811)>FT && b!=='steppe') cls[k]=1; else if(nz(x,y,.0034,823)>.535 || (b==='steppe' && nz(x,y,.0034,823)>.46)) cls[k]=2; }
-    { const seen=new Uint8Array(N); for(let k0=0;k0<N;k0++){ if(seen[k0]||cls[k0]===0||cls[k0]===3) continue; const c0=cls[k0], list=[k0]; seen[k0]=1; for(let q=0;q<list.length;q++) for(const m of nb8(list[q])) if(!seen[m]&&cls[m]===c0){ seen[m]=1; list.push(m); } if(list.length<18) list.forEach(k=>cls[k]=0); } }      // a drift of a handful of cells is just a thin patch: drop it
-    /* the plants grow in clumps: each clump is mostly one kind (a drift is mostly one flower, with some grass among it), dense at the middle and thinning to its fringe,
-       with bare ground between clumps; and a clump only grows where the drift it belongs to does */
-    const STEP=34, kindAt=(x,y)=>cls[at(clamp(Math.round(x/cs),0,nx-1),clamp(Math.round(y/cs),0,ny-1))];
-    for(let gy=0;gy*STEP<H;gy++) for(let gx=0;gx*STEP<W;gx++){ const cx=(gx+.1+rnd()*.8)*STEP, cy=(gy+.1+rnd()*.8)*STEP, c0=kindAt(cx,cy); if(!c0 || bil(cx,cy)<=.02) continue;
-      const v=nz(cx,cy,.0058,835,2), pickv=m=>(Math.floor(v*m*1.15)+(rnd()<.2?1+Math.floor(rnd()*2):0))%m, k=at(clamp(Math.round(cx/cs),0,nx-1),clamp(Math.round(cy/cs),0,ny-1)), d=fd[k];
-      const lay=(kind,r,n,sz,vv,fringe=0)=>{ for(let q=0;q<n;q++){ const far=rnd()<fringe, a=rnd()*6.283, rr=(far?r*(1.1+rnd()*.7):r*Math.pow(rnd(),1.25)), x=cx+Math.cos(a)*rr, y=cy+Math.sin(a)*rr*.85;
-          if(kindAt(x,y)!==c0 || bil(x,y)<=.02 || !free(x,y,1)) continue; put(kind,x,y,sz+rnd()*10,typeof vv==='function'?vv():vv); } };
-      if(c0===3){ if(rnd()>[0,.95,.85,.6,.45,.3][clamp(d,0,5)]) continue; const r0=rnd();      // the wood's edge: thickets and saplings at the trees, shrub groups beyond them
-        if(d<=2){ const R=14+rnd()*8; lay('thicket',R*.5,2+Math.floor(rnd()*3),34,()=>Math.floor(rnd()*4)); lay('saplings',R,4+Math.floor(rnd()*4),32,()=>Math.floor(rnd()*3)); lay('ferns',R,2+Math.floor(rnd()*3),28,()=>Math.floor(rnd()*3)); lay('shrubs',R*1.2,2+Math.floor(rnd()*3),28,()=>Math.floor(rnd()*5),.3); }
-        else if(d<=4){ const R=12+rnd()*8, s5=Math.floor(rnd()*5); lay('shrubs',R,3+Math.floor(rnd()*5),30,()=>rnd()<.75?s5:Math.floor(rnd()*5),.2); if(rnd()<.5) lay('saplings',R*1.1,1+Math.floor(rnd()*3),30,()=>Math.floor(rnd()*3)); if(rnd()<.35) lay('wildflowers',R,3+Math.floor(rnd()*4),34,()=>pickv(8)); }
-        else lay('shrubs',9,1+Math.floor(rnd()*2),28,()=>Math.floor(rnd()*5)); continue; }
-      if(nz(cx,cy,.011,845,2)<.4 || rnd()<.12) continue;      // gaps between clumps
-      const R=13+rnd()*14, n=Math.round(R*R/15), same=pickv(c0===1?8:4);
-      if(c0===1){ lay('wildflowers',R,n,34,()=>rnd()<.88?same:pickv(8),.18); lay('wildgrass',R*1.15,Math.round(n*.22),32,()=>pickv(4),.25); }      // a clump of one flower, grass about its feet
-      else { lay('wildgrass',R,n,32,()=>rnd()<.88?same:pickv(4),.2); if(rnd()<.3) lay('wildflowers',R*.5,3+Math.floor(rnd()*4),34,()=>pickv(8)); } } }
 
   /* names on the map */
   const big=pick(syl[0])+pick(['a','e','i','o','ae','ia'])+pick(['ria','ron','neth','land','mar','ven','dor','this']);
