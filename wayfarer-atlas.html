@@ -898,6 +898,9 @@ function rebuildCoast(){
   cc.globalCompositeOperation='source-over';
   ic.globalCompositeOperation='source-over'; ic.clearRect(0,0,S.w,S.h); if(!SK()){ ic.save(); ic.shadowColor=MAP.landEdge; ic.shadowBlur=13*R; ic.drawImage(invC,0,0,S.w,S.h); ic.restore(); }
   ic.globalCompositeOperation='destination-out'; ic.drawImage(invC,0,0,S.w,S.h); ic.globalCompositeOperation='source-over';
+  if(layers.lines.v){ const rivers=S.lines.filter(l=>l.kind==='river' && lyVisible(l));      // no shore lining or shading inside a river: where a thin river meets the sea the band stops at its mouth (same visibility rule as rebuildLand, which carves them)
+    if(rivers.length){ cc.save(); cc.setTransform(R/2,0,0,R/2,0,0); cc.globalCompositeOperation='destination-out'; cc.fillStyle='#000'; for(const l of rivers) cc.fill(riverPath(l,false)); cc.restore();
+      ic.save(); ic.globalCompositeOperation='destination-out'; ic.fillStyle='#000'; for(const l of rivers) ic.fill(riverPath(l,false)); ic.restore(); } }
   coastDirty=false;
 }
 function compose(full){
