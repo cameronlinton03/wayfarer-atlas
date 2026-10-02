@@ -75,6 +75,11 @@ button{cursor:pointer}
 .stamps button{background:var(--vellum);border:1px solid var(--line);border-radius:4px;padding:2px 0 3px;display:flex;flex-direction:column;align-items:center;font-size:11.5px;color:#3a2a1c}
 .stamps button[aria-pressed="true"]{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent)}
 .stamps canvas{width:44px;height:44px}
+.hist{display:flex;flex-direction:column;gap:3px;margin-top:6px;max-height:300px;overflow:auto}
+.hist .chip{text-align:left;font-size:13px;padding:3px 8px}
+.hist .chip.now{border-color:var(--accent);font-weight:600}
+.hist .chip.later{opacity:.55;font-style:italic}
+.hist small{opacity:.6;padding:2px 4px}
 .stamps button{position:relative}
 .stamps .star{position:absolute;top:0;right:2px;font-size:14px;line-height:1.25;color:#8a7a62;opacity:.5;cursor:pointer;padding:0 2px;user-select:none}
 .stamps .star:hover,.stamps .star.on{opacity:1;color:var(--accent)}
@@ -461,7 +466,7 @@ function blankState(w,h){ return {w,h,kind:'world',dun:{...DUN_DEF},fpaint:[],na
 const layers = { terrain:{name:'Ground & water paint',v:true}, cliffs:{name:'Cliffs',v:true}, lines:{name:'Rivers, roads, borders',v:true,lock:false}, stamps:{name:'Stamps',v:true,lock:false}, labels:{name:'Labels',v:true,lock:false} };
 const opts = { tool:'land', reshape:'pull', reach:160, cliffMode:'outline', cliffBrush:120, cliffRough:.4, cliffH:26, cliffPrimary:'up', paintLayer:'land', water:'deep', landPrimary:'land', hard:.6, bop:1, landMode:'outline', landBrush:140, landRough:0.55, terrain:'grass', brush:110, scatter:60,
   stampSizes:Object.fromEntries(Object.entries(STAMP_GROUPS).map(([g,v])=>[g,v.size])), lineRough:0.35, lineWidth:{river:4,road:2.5,border:2.5,realm:2.5,street:8,wall:7,fence:3,dwall:5}, fenceStyle:'hedge', realmFill:'band',
-  wallKind:'town', roadMode:false, rotSnap:false, cliffTaper:0, cliffDir:-90, stampOpacity:100, scatterDensity:1, scatterGap:.5, sizeVar:.18, floorMode:'paint', floorTex:'flag', floorBrush:90, settingsOpen:false, roomShape:'rect', roomCut:false, roomTex:'flag', corrW:1, snap:true, snapFine:false, caveRough:.55, partW:5, stamp:'town', stampRot:0, stampSet:'world', stampFlip:'shuffle', stampMode:'place', fillDensity:1, stampVar:'shuffle', stampTint:{}, labelStyle:'place', labelSize:30 };
+  wallKind:'town', roadMode:false, rotSnap:false, cliffTaper:0, cliffDir:-90, stampOpacity:100, scatterDensity:1, scatterGap:.5, sizeVar:.18, floorMode:'paint', floorTex:'flag', floorBrush:90, settingsOpen:false, historyOpen:false, roomShape:'rect', roomCut:false, roomTex:'flag', corrW:1, snap:true, snapFine:false, caveRough:.55, partW:5, stamp:'town', stampRot:0, stampSet:'world', stampFlip:'shuffle', stampMode:'place', fillDensity:1, stampVar:'shuffle', stampTint:{}, labelStyle:'place', labelSize:30 };
 let sel = null;                        // {type:'land'|'line'|'stamp'|'label', obj}
 let undoStack=[], redoStack=[], editing=false;
 /* Layers: rivers, roads, borders, realms, stamps and labels each sit on one layer (S.layers, bottom first). A layer can be hidden, locked,
@@ -470,11 +475,22 @@ const lyOf = o => o.ly || 'base', layerOf = o => S.layers.find(L=>L.id===lyOf(o)
 const lyVisible = o => layerOf(o).v!==false, lyPickable = o => { const L=layerOf(o); return L.v!==false && !L.lock; };
 const withLy = o => (S.active && S.active!=='base' && S.layers.some(L=>L.id===S.active)) ? {...o,ly:S.active} : o;
 const snap = () => ({w:S.w,h:S.h,kind:S.kind,dun:S.dun,fpaint:S.fpaint,name:S.name,cliffs:S.cliffs,lands:S.lands,paints:S.paints,lines:S.lines,stamps:S.stamps,labels:S.labels,grid:{...S.grid},tick:S.tick,theme:S.theme,frame:S.frame,rhumb:S.rhumb,scale:{...S.scale},layers:S.layers,active:S.active});   // lists are never changed in place, so sharing them is safe
-function pushUndo(){ undoStack.push(snap()); if(undoStack.length>60) undoStack.shift(); redoStack=[]; syncButtons(); queueSave(); }
+/* History. undoStack is the past and redoStack the future, each entry {state, label}: the state is the picture as it was before the action named by the label (for the future, as it was after it), so the label
+   travels with the action as it is undone and redone. pushUndo is called just before a change, so its default label comes from the tool and the selection; the call sites that know better pass one. */
+const UNDO_TOOL={land:'Draw land',cliff:'Draw cliff',river:'Draw river',street:'Draw street',road:'Draw road',wall:'Draw wall',fence:'Draw fence',realm:'Draw realm',label:'Add label',room:'Draw room',corridor:'Draw corridor',dwall:'Draw inner wall',floor:'Paint floor',reshape:'Reshape'};
+function undoLabel(){ const t=etool(); if(t==='select') return sel ? 'Change '+(sel.type==='multi' ? selItems().length+' things' : ({land:'landmass',cliff:'cliff',line:'line',stamp:'stamp',label:'label'})[sel.type]||'selection') : 'Change map';
+  if(t==='paint') return opts.paintLayer==='water' ? 'Paint water' : 'Paint '+(TERRAIN[opts.terrain] ? TERRAIN[opts.terrain].name.toLowerCase() : 'ground'); if(t==='stamp') return 'Place '+kindLabel(opts.stamp); return UNDO_TOOL[t]||'Edit'; }
+function pushUndo(label){ undoStack.push({state:snap(),label:label||undoLabel()}); if(undoStack.length>60) undoStack.shift(); redoStack=[]; syncButtons(); queueSave(); }
 function restore(s){ S={...s,theme:S.theme}; sel=null; rebuildAll(); renderPanel(); syncButtons(); queueSave(); }
-function undo(){ if(!undoStack.length) return; redoStack.push(snap()); restore(undoStack.pop()); }
-function redo(){ if(!redoStack.length) return; undoStack.push(snap()); restore(redoStack.pop()); }
-function syncButtons(){ $('undoBtn').disabled=$('fUndo').disabled=!undoStack.length; $('redoBtn').disabled=$('fRedo').disabled=!redoStack.length; }
+function undo(){ if(!undoStack.length) return; const e=undoStack.pop(); redoStack.push({state:snap(),label:e.label}); restore(e.state); }
+function redo(){ if(!redoStack.length) return; const e=redoStack.pop(); undoStack.push({state:snap(),label:e.label}); restore(e.state); }
+function goTo(i){ const n=undoStack.length; i=Math.max(0,Math.min(n+redoStack.length,i)); if(i===n) return;      // jump to the picture after the i-th action (0 = as it began), redrawing once however far it is
+  if(i<n){ const back=undoStack.splice(i); let after=snap(); for(let k=back.length-1;k>=0;k--){ redoStack.push({state:after,label:back[k].label}); after=back[k].state; } restore(after); }
+  else { let prev=snap(), last=null; for(let m=n;m<i;m++){ const r=redoStack.pop(); undoStack.push({state:prev,label:r.label}); prev=r.state; last=r.state; } restore(last); } }
+function histHTML(){ const past=undoStack.map(e=>e.label), future=redoStack.slice().reverse().map(e=>e.label), pos=undoStack.length, rows=['Start',...past,...future];
+  const lo=Math.max(0,pos-19), hi=Math.min(rows.length,pos+11), esc=t=>String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;');      // the last 20 actions, where you are now, and the next few that could be redone
+  return `<div class="hist">${lo>0?'<small>… '+lo+' earlier</small>':''}${rows.slice(lo,hi).map((t,k)=>{ const i=lo+k; return `<button class="chip${i===pos?' now':''}${i>pos?' later':''}" data-hist="${i}" aria-current="${i===pos}">${i===pos?'● ':''}${esc(t)}</button>`; }).join('')}${hi<rows.length?'<small>… '+(rows.length-hi)+' more</small>':''}</div>`; }
+function syncButtons(){ $('undoBtn').disabled=$('fUndo').disabled=!undoStack.length; $('redoBtn').disabled=$('fRedo').disabled=!redoStack.length; const hl=$('histList'); if(hl && opts.historyOpen) hl.innerHTML=histHTML(); }
 function beginEdit(){ if(!editing){ pushUndo(); editing=true; } }
 function replaceObj(key, oldO, newO){ S[key]=S[key].map(o=>o===oldO?newO:o); if(sel && sel.obj===oldO) sel.obj=newO; return newO; }
 const keyOf = t => ({land:'lands',cliff:'cliffs',line:'lines',stamp:'stamps',label:'labels'})[t];
@@ -2372,8 +2388,8 @@ function selBox(){ const its=selItems(); if(!its.length) return null; const bs=i
 const makeSel=its=>!its.length ? null : its.length===1 ? (its[0].type==='land' ? {...its[0],group:landGroup(its[0].obj)} : its[0]) : {type:'multi',items:its};      // a list of things as the selection: one thing is selected as itself
 const anyLocked=()=>selItems().some(it=>it.obj.locked);
 /* Locking: an object with locked:true is skipped by clicking, box selection, reshaping and rubbing out, so it can be worked around. Alt-click picks a locked object, which can then only be unlocked. */
-function lockSel(){ if(!sel) return; const lock=!selItems().every(it=>it.obj.locked); pushUndo(); editSel(o=>{ const n={...o}; if(lock) n.locked=true; else delete n.locked; return n; }); renderPanel(); invalidate(); queueSave(); }
-function unlockAll(){ let n=0; const un=o=>{ if(!o.locked) return o; n++; const c={...o}; delete c.locked; return c; }; pushUndo(); for(const k of ['lands','cliffs','lines','stamps','labels']) S[k]=S[k].map(un); sel=null; need.land=true; need.compose='full'; renderPanel(); invalidate(); queueSave(); toast('Unlocked '+n+(n===1?' object.':' objects.')); }
+function lockSel(){ if(!sel) return; const lock=!selItems().every(it=>it.obj.locked); pushUndo(lock?'Lock':'Unlock'); editSel(o=>{ const n={...o}; if(lock) n.locked=true; else delete n.locked; return n; }); renderPanel(); invalidate(); queueSave(); }
+function unlockAll(){ let n=0; const un=o=>{ if(!o.locked) return o; n++; const c={...o}; delete c.locked; return c; }; pushUndo('Unlock all'); for(const k of ['lands','cliffs','lines','stamps','labels']) S[k]=S[k].map(un); sel=null; need.land=true; need.compose='full'; renderPanel(); invalidate(); queueSave(); toast('Unlocked '+n+(n===1?' object.':' objects.')); }
 const lockedCount=()=>['lands','cliffs','lines','stamps','labels'].reduce((a,k)=>a+S[k].filter(o=>o.locked).length,0);
 function moveItems(items,dx,dy){ const sh=o=>o.pts?{...o,pts:o.pts.map(q=>[q[0]+dx,q[1]+dy])}:{...o,x:o.x+dx,y:o.y+dy}, m=new Map(items.map(it=>[it.obj,sh(it.obj)]));      // shift these by the same amount; a landmass takes what is on it
   for(const [,objs] of ridersOn(items.filter(it=>it.type==='land').map(it=>it.obj))) for(const q of objs) m.set(q,sh(q));
@@ -2383,7 +2399,7 @@ function alignSel(mode){ const its=selItems(); if(its.length<2 || anyLocked()) r
     moves=its.map((_,i)=>{ const d=lo+(hi-lo)*order.indexOf(i)/(n-1)-ctr[i]; return a===0?[d,0]:[0,d]; }); }
   else moves=boxes.map(b=>({L:[U[0]-b[0],0], C:[(U[0]+U[2])/2-(b[0]+b[2])/2,0], R:[U[2]-b[2],0], T:[0,U[1]-b[1]], M:[0,(U[1]+U[3])/2-(b[1]+b[3])/2], B:[0,U[3]-b[3]]}[mode]));
   if(moves.every(v=>Math.abs(v[0])<.05 && Math.abs(v[1])<.05)) return;
-  pushUndo(); const remap=new Map(); its.forEach((it,i)=>{ if(Math.abs(moves[i][0])>=.05 || Math.abs(moves[i][1])>=.05) for(const [o,nw] of moveItems([it],moves[i][0],moves[i][1])) remap.set(o,nw); });
+  pushUndo(mode==='H'||mode==='V'?'Space evenly':'Align'); const remap=new Map(); its.forEach((it,i)=>{ if(Math.abs(moves[i][0])>=.05 || Math.abs(moves[i][1])>=.05) for(const [o,nw] of moveItems([it],moves[i][0],moves[i][1])) remap.set(o,nw); });
   remapSel(remap); selDirty(true); need.compose='full'; invalidate(); queueSave(); }
 function selHandles(){ const b=selBox(); if(!b || anyLocked()) return null; const pad=10/view.k, x1=b[0]-pad, y1=b[1]-pad, x2=b[2]+pad, y2=b[3]+pad;
   return {c:[(x1+x2)/2,(y1+y2)/2], corners:[[x1,y1],[x2,y1],[x2,y2],[x1,y2]], rot:[(x1+x2)/2,y1-28/view.k]}; }
@@ -2392,7 +2408,7 @@ function xfGrab(p){            // did the press land on a scale or rotate grip?
   const hs=sel && selHandles(); if(!hs) return false; const tol=13/view.k, mode = hs.corners.some(q=>dist(p,q)<tol) ? 'scale' : dist(p,hs.rot)<tol ? 'rot' : null; if(!mode) return false;
   const entries=selItems().map(it=>({key:keyOf(it.type),orig:it.obj,cur:it.obj})); ridersOn(selLands()).forEach(([key,objs])=>objs.forEach(o=>entries.push({key,orig:o,cur:o})));   // a landmass takes what is on it along
   act={type:'xf',mode,c:hs.c,p0:p,entries,moved:false}; return true; }
-function xfApply(p){ const a=act, c=a.c; if(!a.moved){ pushUndo(); a.moved=true; }
+function xfApply(p){ const a=act, c=a.c; if(!a.moved){ pushUndo(a.mode==='rot'?'Turn':'Scale'); a.moved=true; }
   const f = a.mode==='scale' ? clamp(dist(p,c)/(dist(a.p0,c)||1),.05,20) : 1; let ang = a.mode==='rot' ? Math.atan2(p[1]-c[1],p[0]-c[0])-Math.atan2(a.p0[1]-c[1],a.p0[0]-c[0]) : 0;
   if(a.mode==='rot' && (opts.rotSnap || a.shift)){ const one=selItems().length===1 && typeof a.entries[0].orig.rot==='number' ? a.entries[0].orig.rot : 0;      // Snap (or Shift held): one object lands on a multiple of 15, several turn by a multiple of 15
     ang=(Math.round((one+ang*180/Math.PI)/15)*15-one)*Math.PI/180; }
@@ -2402,7 +2418,7 @@ function xfApply(p){ const a=act, c=a.c; if(!a.moved){ pushUndo(); a.moved=true;
     const q=P([o.x,o.y]); return {...o,x:q[0],y:q[1],size:Math.max(4,o.size*f),rot:turn(o.rot)}; };
   const m=new Map(); a.entries.forEach(en=>{ const n=tf(en.orig); m.set(en.cur,n); en.cur=n; });
   for(const k of ['lands','cliffs','paints','lines','stamps','labels']) S[k]=S[k].map(o=>m.get(o)||o); remapSel(m); selDirty(false); }
-function nudgeSel(dx,dy){ if(anyLocked()) return; pushUndo(); const sh=o=>o.pts?{...o,pts:o.pts.map(q=>[q[0]+dx,q[1]+dy])}:{...o,x:o.x+dx,y:o.y+dy}, riders=ridersOn(selLands());
+function nudgeSel(dx,dy){ if(anyLocked()) return; pushUndo('Nudge'); const sh=o=>o.pts?{...o,pts:o.pts.map(q=>[q[0]+dx,q[1]+dy])}:{...o,x:o.x+dx,y:o.y+dy}, riders=ridersOn(selLands());
   editSel(sh); riders.forEach(([k,objs])=>{ const m=new Map(objs.map(q=>[q,sh(q)])); S[k]=S[k].map(q=>m.get(q)||q); }); selDirty(true); invalidate(); queueSave(); }
 function hitTest(p,withLocked){
   if(layers.labels.v && !layers.labels.lock) for(let i=S.labels.length-1;i>=0;i--){ const l=S.labels[i]; if(!lyPickable(l) || (l.locked && !withLocked)) continue; const m=labelMetrics(hitX,l), a=-l.rot*Math.PI/180, dx=p[0]-l.x, dy=p[1]-l.y;
@@ -2420,7 +2436,7 @@ cv.addEventListener('contextmenu',e=>e.preventDefault());                      /
 cv.addEventListener('pointerdown',e=>{
   document.body.classList.remove('drawer-open','menu-open');
   cv.setPointerCapture(e.pointerId); pointers.set(e.pointerId,[e.clientX,e.clientY]);
-  if(pointers.size===2){ if(act && act.pushed){ const s=undoStack.pop(); if(s){ S=s; rebuildLand(true); need.compose='full'; syncButtons(); } } act=null; need.compose='full';
+  if(pointers.size===2){ if(act && act.pushed){ const e0=undoStack.pop(); if(e0){ S=e0.state; rebuildLand(true); need.compose='full'; syncButtons(); } } act=null; need.compose='full';
     const [a,b]=[...pointers.values()]; pinch={d:dist(a,b),cx:(a[0]+b[0])/2,cy:(a[1]+b[1])/2}; invalidate(); return; }
   const p=toWorld(e), t=etool();
   if(e.button===1 || t==='pan' || spaceDown){ act={type:'pan',sx:e.clientX,sy:e.clientY,vx:view.x,vy:view.y}; return; }
@@ -2481,7 +2497,7 @@ cv.addEventListener('pointermove',e=>{
     else { const step=Math.max(4,base*.35/Math.max(.3,opts.scatterDensity)); if(dist(act.last,p)>=step){ act.last=p; scatterDab(p,base); } } }
   else if(act.type==='paint'){ if(addPoint(act,p,4)) need.compose='fast'; }
   else if(act.type==='fpaint'){ if(addPoint(act,p,Math.max(4,opts.floorBrush*.12))){ need.compose='fast'; } }
-  else if(act.type==='move' && sel){ const dx=p[0]-act.last[0], dy=p[1]-act.last[1]; if(!act.moved){ if(Math.hypot(dx,dy)<3/view.k) return; pushUndo(); act.moved=true; act.riders=ridersOn(selLands()); }
+  else if(act.type==='move' && sel){ const dx=p[0]-act.last[0], dy=p[1]-act.last[1]; if(!act.moved){ if(Math.hypot(dx,dy)<3/view.k) return; pushUndo('Move '+(selItems().length>1?selItems().length+' things':({land:'landmass',cliff:'cliff',line:'line',stamp:'stamp',label:'label'})[sel.type]||'selection')); act.moved=true; act.riders=ridersOn(selLands()); }
     act.last=p; editSel(o=>o.pts?{...o,pts:o.pts.map(q=>[q[0]+dx,q[1]+dy])}:{...o,x:o.x+dx,y:o.y+dy});
     act.riders=act.riders.map(([k,objs])=>{ const m=new Map(objs.map(q=>[q,q.pts?{...q,pts:q.pts.map(v=>[v[0]+dx,v[1]+dy])}:{...q,x:q.x+dx,y:q.y+dy}])); S[k]=S[k].map(q=>m.get(q)||q); return [k,[...m.values()]]; });   // a landmass carries what is on it
     selDirty(false); }
@@ -2559,7 +2575,7 @@ window.addEventListener('keydown',e=>{
   else if(!mod){ const mode=S.kind==='dungeon'?'d':'w', kk=e.key.toLowerCase(); if(kk==='c' && mode==='w'){ opts.paintLayer='cliff'; setTool('paint'); } else { const t=TOOLS.find(t=>t.key && t.key===kk && (!t.m || t.m===mode)); if(t) setTool(t.id); } }
 });
 window.addEventListener('keyup',e=>{ if(e.key===' ') spaceDown=false; });
-function deleteSel(){ if(!sel) return; const its=selItems().filter(it=>!it.obj.locked); if(!its.length) return; pushUndo(); const gone=new Set([...its.map(it=>it.obj),...ridersOn(its.filter(it=>it.type==='land').map(it=>it.obj)).flatMap(r=>r[1]).filter(o=>!o.locked)]); selDirty(true);
+function deleteSel(){ if(!sel) return; const its=selItems().filter(it=>!it.obj.locked); if(!its.length) return; pushUndo('Delete'); const gone=new Set([...its.map(it=>it.obj),...ridersOn(its.filter(it=>it.type==='land').map(it=>it.obj)).flatMap(r=>r[1]).filter(o=>!o.locked)]); selDirty(true);
   for(const k of ['lands','cliffs','paints','lines','stamps','labels']) S[k]=S[k].filter(o=>!gone.has(o)); sel=null; renderPanel(); invalidate(); }
 
 /* ============================================================ tools + inspector */
@@ -2702,8 +2718,9 @@ function renderPanel(){
   h+=`<hr><section><h2>Layers</h2><div id="lyList">${S.layers.slice().reverse().map(L=>`<div class="lyrow${L.id===S.active?' on':''}" data-ly="${L.id}"><input type="radio" name="lyActive" ${L.id===S.active?'checked':''} aria-label="Draw on ${L.name.replace(/"/g,'')}"><input type="text" class="lyname" value="${L.name.replace(/"/g,'&quot;')}" aria-label="Layer name"><label title="Show"><input type="checkbox" data-lyv ${L.v!==false?'checked':''}>show</label><label title="Lock"><input type="checkbox" data-lyl ${L.lock?'checked':''}>lock</label><span class="lybtns"><button type="button" data-lyup title="Move up" aria-label="Move up">&#9650;</button><button type="button" data-lydn title="Move down" aria-label="Move down">&#9660;</button>${L.id==='base'?'':'<button type="button" data-lydel title="Delete layer" aria-label="Delete layer">&#215;</button>'}</span></div>`).join('')}</div>
     <div class="btnrow"><button class="btn" id="lyAdd">Add layer</button></div><p>New rivers, roads, stamps and labels go on the chosen layer. Hidden layers are left out of the exported picture.</p></section>`;
   const setVis=`<section><h2>Show by kind</h2>${Object.entries(layers).map(([k,l])=>`<div class="layer"><span>${l.name}</span><label><input type="checkbox" id="lv_${k}" ${l.v?'checked':''}>show</label>${'lock' in l?`<label><input type="checkbox" id="ll_${k}" ${l.lock?'checked':''}>lock</label>`:'<span></span>'}</div>`).join('')}</section>`;
+  h+=`<hr><details id="history" class="settings"${opts.historyOpen?' open':''}><summary>History</summary><div id="histList">${histHTML()}</div></details>`;
   h+=`<hr><details id="mapSettings" class="settings"${opts.settingsOpen?' open':''}><summary>Map settings</summary>${setDetail}<hr>${setRot}<hr>${setGrid}<hr>${setVis}</details>`;
-  $('side').innerHTML=h; $('mapSettings')?.addEventListener('toggle',e=>opts.settingsOpen=e.target.open); stampThumbs(); $('drawerX')?.addEventListener('click',()=>document.body.classList.remove('drawer-open')); $('gridType').value=S.grid.type; $('frameType').value=S.frame;
+  $('side').innerHTML=h; $('mapSettings')?.addEventListener('toggle',e=>opts.settingsOpen=e.target.open); $('history')?.addEventListener('toggle',e=>{ opts.historyOpen=e.target.open; if(opts.historyOpen) $('histList').innerHTML=histHTML(); }); $('histList')?.addEventListener('click',e=>{ const b=e.target.closest('[data-hist]'); if(b) goTo(+b.dataset.hist); }); stampThumbs(); $('drawerX')?.addEventListener('click',()=>document.body.classList.remove('drawer-open')); $('gridType').value=S.grid.type; $('frameType').value=S.frame;
 
   bind('landRough',pct,v=>opts.landRough=v); bind('brush',num,v=>opts.brush=v); bind('lineRough',pct,v=>opts.lineRough=v); bind('lineWidth',v=>v,v=>opts.lineWidth[t]=v);
   bind('stampSize',num,v=>opts.stampSizes[groupOf(opts.stamp)]=v); bind('scatter',num,v=>opts.scatter=v); bind('fillDensity',pct,v=>opts.fillDensity=v); $('stampMode')?.addEventListener('click',e=>{ const b=e.target.closest('[data-smode]'); if(b){ opts.stampMode=b.dataset.smode; renderPanel(); invalidate(); } }); bind('landBrush',num,v=>opts.landBrush=v);
@@ -2748,7 +2765,7 @@ function renderPanel(){
   $('rotSnap')?.addEventListener('change',e=>opts.rotSnap=e.target.checked); $('snapOn')?.addEventListener('change',e=>opts.snap=e.target.checked); $('snapFine')?.addEventListener('change',e=>opts.snapFine=e.target.checked); bind('dwallW',v=>v,v=>opts.lineWidth.dwall=v);
   $('selTex')?.addEventListener('click',e=>{ const b=e.target.closest('[data-tex]'); if(!b) return; pushUndo(); editSel(o=>({...o,tex:b.dataset.tex})); selDirty(true); renderPanel(); invalidate(); });
   const lyChanged=()=>{ need.land=true; need.compose='full'; sel=null; renderPanel(); invalidate(); queueSave(); };
-  $('lyAdd').addEventListener('click',()=>{ pushUndo(); const id='L'+Date.now().toString(36); S.layers=[...S.layers,{id,name:'Layer '+S.layers.length,v:true,lock:false}]; S.active=id; lyChanged(); });
+  $('lyAdd').addEventListener('click',()=>{ pushUndo('Add layer'); const id='L'+Date.now().toString(36); S.layers=[...S.layers,{id,name:'Layer '+S.layers.length,v:true,lock:false}]; S.active=id; lyChanged(); });
   $('lyList').addEventListener('change',e=>{ const row=e.target.closest('[data-ly]'); if(!row) return; const id=row.dataset.ly, t=e.target;
     if(t.name==='lyActive'){ S.active=id; renderPanel(); queueSave(); return; } pushUndo();
     if(t.classList.contains('lyname')){ S.layers=S.layers.map(L=>L.id===id?{...L,name:t.value.trim()||'Layer'}:L); queueSave(); return; }
@@ -2758,10 +2775,10 @@ function renderPanel(){
     else if('lydn' in b.dataset){ if(i>0){ pushUndo(); sw(i,i-1); lyChanged(); } }
     else if('lydel' in b.dataset){ pushUndo(); const strip=o=>lyOf(o)===id?(({ly,...r})=>r)(o):o; S.lines=S.lines.map(strip); S.stamps=S.stamps.map(strip); S.labels=S.labels.map(strip); S.layers=S.layers.filter(L=>L.id!==id); if(S.active===id) S.active='base'; toast('Layer removed. Its contents moved to '+S.layers.find(L=>L.id==='base').name+'.'); lyChanged(); } });
   $('unlockAll')?.addEventListener('click',unlockAll); $('selLock')?.addEventListener('click',lockSel); $('alignRow')?.addEventListener('click',e=>{ const b=e.target.closest('[data-align]'); if(b) alignSel(b.dataset.align); }); $('distRow')?.addEventListener('click',e=>{ const b=e.target.closest('[data-align]'); if(b) alignSel(b.dataset.align); });
-  $('selLayer')?.addEventListener('change',e=>{ if(!sel) return; pushUndo(); const id=e.target.value; editSel(o=>('lands' in o || o.mode) ? o : id==='base' ? (({ly,...r})=>r)(o) : {...o,ly:id}); need.land=true; need.compose='full'; renderPanel(); invalidate(); queueSave(); });
+  $('selLayer')?.addEventListener('change',e=>{ if(!sel) return; pushUndo('Move to layer'); const id=e.target.value; editSel(o=>('lands' in o || o.mode) ? o : id==='base' ? (({ly,...r})=>r)(o) : {...o,ly:id}); need.land=true; need.compose='full'; renderPanel(); invalidate(); queueSave(); });
   for(const k in layers){ $('lv_'+k).addEventListener('change',e=>{ layers[k].v=e.target.checked; if(k==='terrain') need.compose='full'; if(k==='cliffs'){ cliffBuilt.cliffs=null; need.compose='full'; } if(k==='lines'){ need.land=true; need.compose='full'; } invalidate(); }); $('ll_'+k)?.addEventListener('change',e=>{ layers[k].lock=e.target.checked; }); }
   if(sel){ const key=keyOf(sel.type), set=patch=>editSel(o=>({...o,...patch}));
-    document.querySelectorAll('[data-flip]').forEach(b=>b.addEventListener('click',()=>{ pushUndo(); editSel(o=>('kind' in o && 'x' in o) ? {...o,flip:!o.flip} : o); invalidate(); }));
+    document.querySelectorAll('[data-flip]').forEach(b=>b.addEventListener('click',()=>{ pushUndo('Mirror'); editSel(o=>('kind' in o && 'x' in o) ? {...o,flip:!o.flip} : o); invalidate(); }));
     document.querySelectorAll('[data-z]').forEach(b=>b.addEventListener('click',()=>{ const zs=S.stamps.map(o=>o.z||0), hi=Math.max(...zs)+1, lo=Math.min(...zs)-1, how=b.dataset.z; pushUndo();
       editSel(o=>('kind' in o && 'x' in o) ? {...o,z: how==='front'?hi : how==='back'?lo : how==='up'?(o.z||0)+1 : how==='down'?(o.z||0)-1 : 0} : o); renderPanel(); invalidate(); }));
     const landDirty=()=>selDirty(false);
@@ -2773,7 +2790,7 @@ function renderPanel(){
     $('selSeed')?.addEventListener('click',()=>{ pushUndo(); editSel(o=>({...o,seed:rseed()})); selDirty(true); invalidate(); });
     $('selKinds')?.addEventListener('click',e=>{ const b=e.target.closest('[data-kind]'); if(b){ pushUndo(); set({kind:b.dataset.kind}); renderPanel(); invalidate(); } });
     $('selDel')?.addEventListener('click',deleteSel);
-    $('selDup')?.addEventListener('click',()=>{ pushUndo(); const clone=o=>{ const c=o.pts?{...o,pts:o.pts.map(q=>[q[0]+40,q[1]+40])}:{...o,x:o.x+40,y:o.y+40}; delete c.locked; return c; };
+    $('selDup')?.addEventListener('click',()=>{ pushUndo('Duplicate'); const clone=o=>{ const c=o.pts?{...o,pts:o.pts.map(q=>[q[0]+40,q[1]+40])}:{...o,x:o.x+40,y:o.y+40}; delete c.locked; return c; };
       const riders=ridersOn(selLands()), items=selItems().map(it=>({type:it.type,obj:it.type==='land'?{...clone(it.obj),t:++S.tick}:clone(it.obj)}));
       items.forEach(it=>{ const k=keyOf(it.type); S[k]=[...S[k],it.obj]; }); riders.forEach(([k,objs])=>{ S[k]=[...S[k],...objs.map(q=>(k==='lands'||k==='paints')?{...clone(q),t:++S.tick}:clone(q))]; });
       sel = sel.type==='land' ? {type:'land',obj:items[0].obj,group:items.map(it=>it.obj)} : items.length>1 ? {type:'multi',items} : items[0];
