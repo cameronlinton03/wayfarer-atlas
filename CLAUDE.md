@@ -1,6 +1,6 @@
 # Wayfarer Atlas
 
-A free, self-owned fantasy map maker in the style of 16th–17th century engraved maps (ink on parchment, light hand-tinted washes). One self-contained HTML file, no build step, no dependencies beyond Google Fonts. Owner: Cameron (D&D DM). Desktop is the main target; phone is a rough-outlining mode only.
+A free, self-owned fantasy map maker in the style of 16th–17th century engraved maps (ink on parchment, light hand-tinted washes). One self-contained HTML file, no build step, no dependencies beyond Google Fonts. Owner: Cameron (D&D DM). Desktop is the main target; phone is a rough-outlining mode only. A map is either a world/region/city map or a dungeon sheet (`S.kind`), in the manner of Dungeon Scrawl.
 
 ## Running it
 
@@ -24,6 +24,8 @@ Open `wayfarer-atlas.html` in a browser. That is the whole app. Maps are stored 
 - Hand-placed hatching in building stamps (`engHouse`, `engTower`, `cRoof`, cottage) divides its spacing by `ENG_K` so bigger stamps get more strokes; keep doing this for any new hatch loop. `engFurrow` lays ploughed rows across a field polygon.
 - Fields: `fieldplot` (8 variants), `orchard` and `vineyard` (3 each) are listed in `VARIANTS`; the city generator mixes them in the outskirts.
 - Roads: `drawRoads` / `roadNet` cut roads at crossings and at ends that land within 12 units of another road, fit the dashes per piece so every arm starts with a dash at the junction, and add a small blot. Drawing only; the saved lines are untouched.
+- Dungeons (`S.kind==='dungeon'`, `S.dun={hatch,shadow}`): floors are ordinary `S.lands` entries flagged `floor:1` (`sharp:true` = straight-walled room that keeps its corners, see `sharpPoly`; `sharp+brush` = flat-ended corridor ribbon, see `sharpCorridor`; `mode:'sea'` digs a hole; `tex` = flag/plank/dirt/none). Inner walls are lines of kind `dwall`. `compose()` hands over to `composeDungeon(full)`: floor mask in `dgF`, a distance field over the rock (`distField`) drives the hatching (`dgHatch`, thick at the wall, thinning out), the wall is the floor silhouette nudged round in ink, textures go in `dgT` (`dgTexture`), then the grid (clipped to floors) and a band of vertical shading down the LEFT inside of each wall. `full` is false while dragging, which skips the wide hatching and textures. Tools `room`, `corridor`, `dwall` are tagged `m:'d'` in `TOOLS` (world-only tools `m:'w'`); `buildRail()` filters by map kind. Polygon rooms, corridors and walls are click-by-click drafts (`draft`, `draftClick`, `draftEnd`); `gsnap` snaps to the grid (a one-square corridor runs down the middle of its squares, see `corrOff`).
+- Dungeon stamps: set `dungeon`, groups Doors / Stairs & pits / Furnishings / Hazards & features, art at the end of `SKETCH_DRAW` (`dBox`, `dRing`, `dPost`). `DUN_FOOT` gives each kind's footprint in grid squares (default size = footprint x cell). `dungSnap` puts doors on the middle of a square's edge and turns them to cross the passage (it looks at the floor either side), and everything else on half-squares. `generateDungeon()` makes example dungeons (rooms, spanning-tree corridors, doors, themed rooms, numbered labels).
 - Cliffs: `rebuildCliffs()` (plateaus h>0, pits h<0, taper, facets, cast shadows).
 - Lines: `LINES` kinds river, road, border, realm, street, wall, fence. Streets are drawn in two passes so junctions merge (`drawStreets`).
 - Generators: `generateMap(W,H,kind,G)` (island/continent/archipelago) and `generateCity(W,H,G)`; `housesAlong()` lines buildings along streets.
@@ -38,6 +40,8 @@ Open `wayfarer-atlas.html` in a browser. That is the whole app. Maps are stored 
 
 ## Known gaps
 
-- Dungeon stamp set is empty; battle maps are undecided.
+- Battle maps are undecided. Dungeons have no lighting or per-room colour, no stairs linking levels, and no way to rotate a room; round and cave rooms get no doors in the generator.
+- A full dungeon compose is ~0.5 s on a software-rendered browser (hatching and textures dominate); dragging uses a cheaper compose.
+- The `bones` and `pool` dungeon stamps are the roughest art.
 - City district names are not placed to avoid streets.
 - Brush hardness no longer affects washes (they are always soft).

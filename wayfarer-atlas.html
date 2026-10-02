@@ -196,12 +196,15 @@ body.phone .note{top:8px;left:8px;transform:none;max-width:calc(100% - 200px);fo
     <label><input type="radio" name="start" value="continent" id="st2"> A generated continent</label>
     <label><input type="radio" name="start" value="archipelago" id="st3"> A generated archipelago</label>
     <label><input type="radio" name="start" value="city" id="st4"> A generated city</label>
+    <label><input type="radio" name="start" value="dungeon" id="st5"> A blank dungeon sheet</label>
+    <label><input type="radio" name="start" value="dungeongen" id="st6"> A generated dungeon</label>
     <div id="cityBox" hidden><p style="margin:6px 0 0;font-weight:700">The city</p>
       <label style="display:grid;grid-template-columns:7em 2.4em 1fr 2.8em;align-items:center;gap:6px"><span>Size</span><small style="color:var(--muted);text-align:right">town</small><input type="range" id="city_size" min="0" max="2" step="0.1" value="1" aria-label="Size"><small style="color:var(--muted)">great</small></label>
       <label style="display:grid;grid-template-columns:7em 2.4em 1fr 2.8em;align-items:center;gap:6px"><span>Buildings</span><small style="color:var(--muted);text-align:right">loose</small><input type="range" id="city_density" min="0" max="2" step="0.1" value="1" aria-label="Buildings"><small style="color:var(--muted)">packed</small></label>
       <label><input type="checkbox" id="city_walls" checked> Walls and gates</label><label><input type="checkbox" id="city_river" checked> A river through it</label><label><input type="checkbox" id="city_coast"> On the coast, with a harbour</label></div>
     <div id="genBox"><p style="margin:6px 0 0;font-weight:700">How much of each</p>
       <div id="genSliders" style="display:flex;flex-direction:column;gap:5px"></div>
+      <div id="dgSliders" style="display:none;flex-direction:column;gap:5px"><label style="display:grid;grid-template-columns:7em 2.4em 1fr 2.8em;align-items:center;gap:6px"><span>Rooms</span><small style="color:var(--muted);text-align:right">few</small><input type="range" id="dg_rooms" min=".4" max="2" step="0.1" value="1" aria-label="Rooms"><small style="color:var(--muted)">many</small></label><label style="display:grid;grid-template-columns:7em 2.4em 1fr 2.8em;align-items:center;gap:6px"><span>Furnishings</span><small style="color:var(--muted);text-align:right">bare</small><input type="range" id="dg_props" min="0" max="2" step="0.1" value="1" aria-label="Furnishings"><small style="color:var(--muted)">full</small></label></div>
       <label style="align-items:center;margin-top:6px">Seed <input type="text" id="genSeed" inputmode="numeric" placeholder="random" style="width:9em;font:inherit;padding:2px 6px"> <button type="button" class="btn" id="genLast" style="padding:2px 8px">Use last</button></label>
       <p style="margin:0;color:var(--muted);font-size:13px">The same seed and settings always give the same map. Leave the seed empty for a new one each time.</p></div>
     <div class="btnrow" style="justify-content:flex-end">
@@ -257,13 +260,14 @@ const LINES = {
   border:{name:'Border', width:2.5, dash:[14,5,3,5]},
   street:{name:'Street', width:8,   dash:null},      // drawn in two passes so crossings merge (see drawStreets)
   wall:  {name:'Wall',   width:7,   dash:null},      // a town wall with its towers (see drawWalls)
+  dwall: {name:'Inner wall', width:5, dash:null},      // dungeon: a thick ink wall across a room (see drawLine)
   fence: {name:'Fence or hedge', width:3, dash:null},      // field boundaries and stockades: l.style is fence, hedge, wall or palisade (see drawFence)
   realm: {name:'Realm',  width:2.5, dash:[10,4,2,4]},      // a closed loop round a territory, marked inside its edge and only on land (drawn in compose, see drawRealms)
 };
 const STAMP_SETS = {           // top-level stamp categories. Add group names to City and Dungeon as that art gets made.
   world:  {name:'World & region', groups:['Settlements','Landmarks','Trees','Plants','Mountains','Hills','Sea','Creatures','Markers','Effects','Furniture']},
   city:   {name:'City',    groups:['Houses','Market','Civic','Defences','Grounds','Outskirts','Waterfront','Furniture']},
-  dungeon:{name:'Dungeon', groups:[], empty:'Nothing here yet. Dungeon stamps (doors, stairs, pillars, chests) will live here.'},
+  dungeon:{name:'Dungeon', groups:['Doors','Stairs & pits','Furnishings','Hazards & features']},
 };
 const STAMP_GROUPS = {         // scatter:true = dragging lays down many, with a little size variation
   Settlements:{kinds:['city','town','village','hamlet','castle','fort','outpost','tower','inn'], size:58},
@@ -282,6 +286,10 @@ const STAMP_GROUPS = {         // scatter:true = dragging lays down many, with a
   Outskirts:  {kinds:['farmstead','barn','haystacks','mill','watchtower','outpost','shrine','paddock','vineyard','quarry','tents'], size:60},
   Defences:   {kinds:['keep','gatehouse','walltower','barracks'], size:56},
   Grounds:    {kinds:['fountain','well','statue','garden','orchard','fieldplot','cemetery','treetop','treerow'], size:40, scatter:true},
+  Doors:      {kinds:['door','doubledoor','dooropen','secretdoor','arch','portcullis'], size:60, dun:true},      // dun: sized by the grid square, and snapped to the grid
+  'Stairs & pits':{kinds:['stairs','spiral','ladder','trapdoor','pit','plankbridge'], size:60, dun:true},
+  Furnishings:{kinds:['table','roundtable','chair','bed','bookcase','treasure','dbarrel','altar','sarcophagus','throne','fireplace','idol','pillar','roundpillar','brazier','rug'], size:60, dun:true},
+  'Hazards & features':{kinds:['trap','spikes','lever','rubble','bones','web','pool','stalagmite','torch','sigil','crack'], size:60, dun:true},
   Waterfront: {kinds:['pier','boat','barge','crane'], size:44},      // map furniture: one of each is usual
   Creatures:  {kinds:['dragon','griffin','giant','spider','unicorn','stag','horse','wolf','bear','mammoth','camel','sheep','eagle','birds','bats'], size:50},
 };
@@ -382,26 +390,45 @@ function brushOutline(l){
   return {poly:[...side(L,l.seed), ...cap(c[n-1],ang[n-1]+Math.PI/2), ...side(R,l.seed+1).reverse(), ...cap(c[0],ang[0]-Math.PI/2)], center:c};
 }
 function linePoints(line){
+  if(line.sharp) return line.pts;      // dungeon walls keep their corners
   let p = line.pts.length>6 ? every(line.pts,3,false) : line.pts;
   if(line.rough>0.02) p = fractal(p, line.rough, line.seed, false, 0.3, 3);
   return chaikin(p,2,false);
 }
 function toPath(pts, closed){ const P=new Path2D(); pts.forEach((p,i)=> i?P.lineTo(p[0],p[1]):P.moveTo(p[0],p[1])); if(closed) P.closePath(); return P; }
 const built = new WeakMap();
+/* ---- dungeon floors. A room with straight walls keeps its corners and only wobbles a little along each edge, as a pen hand does;
+   a corridor is a ribbon of flat-ended rectangles, mitred where it turns. ---- */
+function sharpPoly(l){ const rn=mulberry((l.seed||1)+5), out=[], n=l.pts.length;
+  for(let i=0;i<n;i++){ const a=l.pts[i], b=l.pts[(i+1)%n], d=dist(a,b)||1, k=Math.max(1,Math.round(d/16)), nx=-(b[1]-a[1])/d, ny=(b[0]-a[0])/d; out.push(a);
+    for(let j=1;j<k;j++){ const f=j/k, w=(rn()-.5)*1.2; out.push([a[0]+(b[0]-a[0])*f+nx*w,a[1]+(b[1]-a[1])*f+ny*w]); } }
+  return out; }
+function sharpCorridor(l){ const hw=l.size/2, P=new Path2D(), poly=[], pts=l.pts, n=pts.length;
+  const add=q=>{ let A=0; for(let i=0;i<q.length;i++){ const a=q[i], b=q[(i+1)%q.length]; A+=a[0]*b[1]-b[0]*a[1]; } if(A<0) q=q.slice().reverse(); q.forEach((v,i)=>i?P.lineTo(v[0],v[1]):P.moveTo(v[0],v[1])); P.closePath(); poly.push(...q); };
+  if(n<2){ const c=pts[0]; add([[c[0]-hw,c[1]-hw],[c[0]+hw,c[1]-hw],[c[0]+hw,c[1]+hw],[c[0]-hw,c[1]+hw]]); return {poly,path:P}; }
+  const dir=i=>{ const a=pts[i], b=pts[i+1], d=dist(a,b)||1; return [(b[0]-a[0])/d,(b[1]-a[1])/d]; };
+  for(let i=0;i<n-1;i++){ const a=pts[i], b=pts[i+1], u=dir(i); let e0=0, e1=0;
+    if(i>0){ const v=dir(i-1), c=Math.max(-1,Math.min(1,u[0]*v[0]+u[1]*v[1])); e0=hw*Math.tan(Math.acos(c)/2); }
+    if(i<n-2){ const v=dir(i+1), c=Math.max(-1,Math.min(1,u[0]*v[0]+u[1]*v[1])); e1=hw*Math.tan(Math.acos(c)/2); }
+    e0=Math.min(e0,hw*1.6); e1=Math.min(e1,hw*1.6); const nx=-u[1]*hw, ny=u[0]*hw;
+    add([[a[0]-u[0]*e0+nx,a[1]-u[1]*e0+ny],[b[0]+u[0]*e1+nx,b[1]+u[1]*e1+ny],[b[0]+u[0]*e1-nx,b[1]+u[1]*e1-ny],[a[0]-u[0]*e0-nx,a[1]-u[1]*e0-ny]]); }
+  return {poly,path:P}; }
 function landPath(l){ let b=built.get(l); if(!b){
-    if(l.brush){ const o=brushOutline(l); b={poly:o.poly, path:toPath(o.poly,true), core:o.center.length>1?toPath(o.center,false):null, cw:l.size*.55}; }
-    else { const poly=coastPoints(l); b={poly, path:toPath(poly,true)}; }
+    if(l.brush && l.sharp){ const o=sharpCorridor(l); b={poly:o.poly, path:o.path, core:null, cw:1}; }
+    else if(l.brush){ const o=brushOutline(l); b={poly:o.poly, path:toPath(o.poly,true), core:o.center.length>1?toPath(o.center,false):null, cw:l.size*.55}; }
+    else { const poly=l.sharp?sharpPoly(l):coastPoints(l); b={poly, path:toPath(poly,true)}; }
     const xs=b.poly.map(p=>p[0]), ys=b.poly.map(p=>p[1]); b.bb=[Math.min(...xs),Math.min(...ys),Math.max(...xs),Math.max(...ys)];
     built.set(l,b);} return b.path; }
 function lineBuilt(l){ let b=built.get(l); if(!b){ const pts=linePoints(l); b={pts, path:toPath(pts,false)}; built.set(l,b);} return b; }
 
 /* ============================================================ state */
+const DUN_DEF = {hatch:1, shadow:true};      // dungeon sheet settings: how far the rock is hatched, and the shadow along the left of each wall
 let S = blankState(2400,1500);
-function blankState(w,h){ return {w,h,name:'Untitled map',lands:[],cliffs:[],paints:[],lines:[],stamps:[],labels:[],grid:{type:'none',size:60},tick:0,theme:'sketchp',frame:'none',rhumb:false,scale:{per100:10,unit:'miles'},layers:[{id:'base',name:'Map',v:true,lock:false}],active:'base'}; }
+function blankState(w,h){ return {w,h,kind:'world',dun:{...DUN_DEF},name:'Untitled map',lands:[],cliffs:[],paints:[],lines:[],stamps:[],labels:[],grid:{type:'none',size:60},tick:0,theme:'sketchp',frame:'none',rhumb:false,scale:{per100:10,unit:'miles'},layers:[{id:'base',name:'Map',v:true,lock:false}],active:'base'}; }
 const layers = { terrain:{name:'Ground & water paint',v:true}, cliffs:{name:'Cliffs',v:true}, lines:{name:'Rivers, roads, borders',v:true,lock:false}, stamps:{name:'Stamps',v:true,lock:false}, labels:{name:'Labels',v:true,lock:false} };
 const opts = { tool:'land', reshape:'pull', reach:160, cliffMode:'outline', cliffBrush:120, cliffRough:.4, cliffH:26, cliffPrimary:'up', paintLayer:'land', water:'deep', landPrimary:'land', hard:.6, bop:1, landMode:'outline', landBrush:140, landRough:0.55, terrain:'grass', brush:110, scatter:60,
-  stampSizes:Object.fromEntries(Object.entries(STAMP_GROUPS).map(([g,v])=>[g,v.size])), lineRough:0.35, lineWidth:{river:4,road:2.5,border:2.5,realm:2.5,street:8,wall:7,fence:3}, fenceStyle:'hedge', realmFill:'band',
-  stamp:'town', stampRot:0, stampSet:'world', stampFlip:'shuffle', stampMode:'place', fillDensity:1, stampVar:'shuffle', stampTint:{}, labelStyle:'place', labelSize:30 };
+  stampSizes:Object.fromEntries(Object.entries(STAMP_GROUPS).map(([g,v])=>[g,v.size])), lineRough:0.35, lineWidth:{river:4,road:2.5,border:2.5,realm:2.5,street:8,wall:7,fence:3,dwall:5}, fenceStyle:'hedge', realmFill:'band',
+  roomShape:'rect', roomCut:false, roomTex:'flag', corrW:1, snap:true, snapFine:false, caveRough:.55, partW:5, stamp:'town', stampRot:0, stampSet:'world', stampFlip:'shuffle', stampMode:'place', fillDensity:1, stampVar:'shuffle', stampTint:{}, labelStyle:'place', labelSize:30 };
 let sel = null;                        // {type:'land'|'line'|'stamp'|'label', obj}
 let undoStack=[], redoStack=[], editing=false;
 /* Layers: rivers, roads, borders, realms, stamps and labels each sit on one layer (S.layers, bottom first). A layer can be hidden, locked,
@@ -409,7 +436,7 @@ let undoStack=[], redoStack=[], editing=false;
 const lyOf = o => o.ly || 'base', layerOf = o => S.layers.find(L=>L.id===lyOf(o)) || S.layers[0];
 const lyVisible = o => layerOf(o).v!==false, lyPickable = o => { const L=layerOf(o); return L.v!==false && !L.lock; };
 const withLy = o => (S.active && S.active!=='base' && S.layers.some(L=>L.id===S.active)) ? {...o,ly:S.active} : o;
-const snap = () => ({w:S.w,h:S.h,name:S.name,cliffs:S.cliffs,lands:S.lands,paints:S.paints,lines:S.lines,stamps:S.stamps,labels:S.labels,grid:{...S.grid},tick:S.tick,theme:S.theme,frame:S.frame,rhumb:S.rhumb,scale:{...S.scale},layers:S.layers,active:S.active});   // lists are never changed in place, so sharing them is safe
+const snap = () => ({w:S.w,h:S.h,kind:S.kind,dun:S.dun,name:S.name,cliffs:S.cliffs,lands:S.lands,paints:S.paints,lines:S.lines,stamps:S.stamps,labels:S.labels,grid:{...S.grid},tick:S.tick,theme:S.theme,frame:S.frame,rhumb:S.rhumb,scale:{...S.scale},layers:S.layers,active:S.active});   // lists are never changed in place, so sharing them is safe
 function pushUndo(){ undoStack.push(snap()); if(undoStack.length>60) undoStack.shift(); redoStack=[]; syncButtons(); queueSave(); }
 function restore(s){ S={...s,theme:S.theme}; sel=null; rebuildAll(); renderPanel(); syncButtons(); queueSave(); }
 function undo(){ if(!undoStack.length) return; redoStack.push(snap()); restore(undoStack.pop()); }
@@ -457,18 +484,20 @@ function migrate(d){   // maps saved before trees and mountains became stamps
   d.paints.forEach((p,i)=>{ const o=old[p.type]; if(o) add=add.concat(scatterAlong(o[0],p.pts,p.size,o[1],o[2],i+2)); else if(p.type==='erase'||TERRAIN[p.type]||WATER[p.type]) keep.push(p); });
   d.paints=keep; d.stamps=d.stamps.filter(s=>SKETCH_DRAW[s.kind]).concat(add);
   const sparse=(pts,closed)=>{ let len=0; for(let i=1;i<pts.length;i++) len+=dist(pts[i-1],pts[i]); return pts.length>=(closed?3:2) && len/pts.length>16; };   // hand-written shapes get the same point spacing as drawn ones
-  d.lands=d.lands.map(l=>!l.brush && sparse(l.pts,true) ? {...l,pts:resample(l.pts,10,true)} : l); d.lines=d.lines.map(l=>sparse(l.pts,false) ? {...l,pts:resample(l.pts,10,false)} : l);
+  d.lands=d.lands.map(l=>!l.brush && !l.sharp && sparse(l.pts,true) ? {...l,pts:resample(l.pts,10,true)} : l); d.lines=d.lines.map(l=>sparse(l.pts,false) ? {...l,pts:resample(l.pts,10,false)} : l);
   if(!d.tick){ let n=0; d.lands=d.lands.map(l=>({...l,t:++n})); d.paints=d.paints.map(p=>({...p,t:++n})); d.tick=n; }   // t = the order things were made in
   return d; }
-function loadState(d){ d=migrate(d); S={w:d.w,h:d.h,name:d.name||'Untitled map',cliffs:Array.isArray(d.cliffs)?d.cliffs:[],lands:d.lands,paints:d.paints,lines:d.lines,stamps:d.stamps,labels:d.labels,grid:d.grid||{type:'none',size:60},tick:d.tick||0,theme:'sketchp',frame:['line','graduated'].includes(d.frame)?d.frame:'none',rhumb:!!d.rhumb,scale:d.scale && d.scale.per100>0 ? {per100:+d.scale.per100,unit:String(d.scale.unit||'miles')} : {per100:10,unit:'miles'},
+function loadState(d){ d=migrate(d); S={w:d.w,h:d.h,kind:d.kind==='dungeon'?'dungeon':'world',dun:{...DUN_DEF,...(d.dun||{})},name:d.name||'Untitled map',cliffs:Array.isArray(d.cliffs)?d.cliffs:[],lands:d.lands,paints:d.paints,lines:d.lines,stamps:d.stamps,labels:d.labels,grid:d.grid||{type:'none',size:60},tick:d.tick||0,theme:'sketchp',frame:['line','graduated'].includes(d.frame)?d.frame:'none',rhumb:!!d.rhumb,scale:d.scale && d.scale.per100>0 ? {per100:+d.scale.per100,unit:String(d.scale.unit||'miles')} : {per100:10,unit:'miles'},
     layers:Array.isArray(d.layers) && d.layers.length && d.layers.some(L=>L.id==='base') ? d.layers.map(L=>({id:String(L.id),name:String(L.name||'Layer'),v:L.v!==false,lock:!!L.lock})) : [{id:'base',name:'Map',v:true,lock:false}], active:'base'};
   if(S.layers.some(L=>L.id===d.active)) S.active=d.active;
-  undoStack=[]; redoStack=[]; sel=null; $('mapName').value=S.name; initBuffers(); rebuildAll(); fitView(); renderPanel(); syncButtons(); }
+  undoStack=[]; redoStack=[]; sel=null; draft=null; $('mapName').value=S.name; initBuffers(); buildRail(); if(!TOOLS.some(t=>t.id===opts.tool && (!t.m || t.m===(S.kind==='dungeon'?'d':'w')))) opts.tool=S.kind==='dungeon'?'room':'land'; if(S.kind==='dungeon' && opts.stampSet!=='dungeon'){ opts.stampSet='dungeon'; opts.stamp='door'; opts.stampSizes['Doors']=dungSize('door'); } else if(S.kind!=='dungeon' && opts.stampSet==='dungeon'){ opts.stampSet='world'; opts.stamp='town'; }
+  setTool(opts.tool); rebuildAll(); fitView(); renderPanel(); syncButtons(); }
 
 /* ============================================================ raster buffers */
 let landMask,lm, landLayer,lc, base,bc, tmpC,tc, invC,iv, innerC,ic, coastC,cc, ringC,rc, halfC,hc, terrainC,tx, waterC,wx, sbC,sb, clipC,cl, wSynced=[], pat={}, coastDirty=true;
 let synced={lands:null,paints:null}; const tcache=[];
 let cliffSolidC,csx, cleanC,cnx, cleanFor=null;
+let dgF,dgFx, dgT,dgTx;
 let cliffC,cf, landVer=0, cliffBuilt={cliffs:null,landVer:-1};
 const tone=(hex,f)=>{ const n=parseInt(hex.slice(1),16); return '#'+[n>>16&255,n>>8&255,n&255].map(v=>Math.round(f>0?v+(255-v)*f:v*(1+f)).toString(16).padStart(2,'0')).join(''); };
 const withA=(hex,a)=>{ const n=parseInt(hex.slice(1),16); return `rgba(${n>>16&255},${n>>8&255},${n&255},${a})`; };
@@ -554,6 +583,7 @@ function initBuffers(){
   { const mk=()=>{ const a=mkCanvas(W*WASH_SCALE,H*WASH_SCALE); a[1].setTransform(WASH_SCALE,0,0,WASH_SCALE,0,0); return a; }; [washLand,wtx]=mk(); [washSea,wwx]=mk(); [washTmp,wtt]=mk(); }
   [terrainC,tx]=full();                         // every ground paint stroke, already textured, in the order it was painted
   [sbC,sb]=mkCanvas(mw,mh); [clipC,cl]=mkCanvas(mw,mh);   // one brush stroke as opacity; and the land it is allowed to land on
+  if(S.kind==='dungeon'){ [dgF,dgFx]=full(); [dgT,dgTx]=full(); }      // the dungeon's floor plan, and the textures laid on it
   synced={lands:null,paints:null}; tcache.length=0; wSynced=[]; sprites.clear(); hitMaps.clear();
   const mkPat=(col,kind,seed,sk=SK())=>{ const p=bc.createPattern(texture(col,kind,seed,sk),'repeat'); p.setTransform(new DOMMatrix().scale(1/Math.min(R,3))); return p; };   // one tile always covers 256 map units
   pat.paper = mkPat(PAPER(),'paper',9,false);
@@ -774,6 +804,7 @@ function rebuildCoast(){
   coastDirty=false;
 }
 function compose(full){
+  if(S.kind==='dungeon') return composeDungeon(full);
   const W=S.w,H=S.h, live = act && act.type==='paint' && act.pts.length ? act.stroke : null;
   if(full){ if(coastDirty) rebuildCoast(); syncTerrain(); syncWater(); }
   if(cliffBuilt.cliffs!==S.cliffs || (full && cliffBuilt.landVer!==landVer)) rebuildCliffs();
@@ -809,11 +840,55 @@ function drawRealms(W,H){ const rs=layers.lines.v ? S.lines.filter(l=>l.kind==='
       tc.restore(); }
     tc.setLineDash(LINES.realm.dash.map(d=>d*k)); tc.lineWidth=(l.width||2.5)*.9; tc.stroke(P); tc.globalAlpha=1; tc.setLineDash([]); }
   tc.globalCompositeOperation='destination-in'; tc.drawImage(landMask,0,0,W,H); tc.globalCompositeOperation='source-over'; bc.drawImage(tmpC,0,0,W,H); }
+/* ============================================================ dungeon sheet
+   The floor plan is the union of the room and corridor shapes (S.lands; a cut shape digs a hole). Everything else is made from it:
+   a distance field over the rock gives the hatching, thickest at the wall and thinning out; the wall is the floor's own silhouette nudged
+   round in ink; and, light being from the left, a band of close shading runs down the inside of each wall that faces it. */
+function distField(){ const ds=.33, w=Math.max(2,Math.round(S.w*ds)), h=Math.max(2,Math.round(S.h*ds)), [c,x]=mkCanvas(w,h); x.drawImage(dgF,0,0,w,h);
+  const a=x.getImageData(0,0,w,h).data, d=new Float32Array(w*h); for(let i=0;i<w*h;i++) d[i]=a[i*4+3]>110?0:1e6;
+  for(let y=0;y<h;y++) for(let xx=0;xx<w;xx++){ const i=y*w+xx; let v=d[i]; if(!v) continue; if(xx>0) v=Math.min(v,d[i-1]+3); if(y>0){ v=Math.min(v,d[i-w]+3); if(xx>0) v=Math.min(v,d[i-w-1]+4); if(xx<w-1) v=Math.min(v,d[i-w+1]+4); } d[i]=v; }
+  for(let y=h-1;y>=0;y--) for(let xx=w-1;xx>=0;xx--){ const i=y*w+xx; let v=d[i]; if(!v) continue; if(xx<w-1) v=Math.min(v,d[i+1]+3); if(y<h-1){ v=Math.min(v,d[i+w]+3); if(xx<w-1) v=Math.min(v,d[i+w+1]+4); if(xx>0) v=Math.min(v,d[i+w-1]+4); } d[i]=v; }
+  return (px,py)=>d[Math.min(h-1,Math.max(0,Math.round(py*ds)))*w+Math.min(w-1,Math.max(0,Math.round(px*ds)))]/3/ds; }
+function dgHatch(c,at,reach,fast){ const W=S.w, H=S.h, Ld=Math.hypot(W,H), cx=W/2, cy=H/2, passes=[[.95,4.6,1,.75],[-.55,5.8,.62,.7],[.95,2.6,.3,.8]];
+  c.save(); c.globalAlpha=.9; c.lineCap='round'; passes.forEach(([ang,sp,rf,lw],pi)=>{ if(fast && pi<2) return; const ux=Math.cos(ang), uy=Math.sin(ang), nx=-uy, ny=ux; let i=0;
+    for(let t=-Ld/2;t<Ld/2;t+=sp*(.85+((i*7919+pi*131)%97)/97*.3),i++){ engSeed=(pi*7919+i*104729+11)%2147483000+1; const thr=reach*rf*(.74+.3*engR()); let run=null, last=null;
+      for(let q=-Ld/2;q<=Ld/2;){ const x=cx+nx*t+ux*q, y=cy+ny*t+uy*q; let step=2.5;
+        if(x<-20||y<-20||x>W+20||y>H+20){ step=Math.max(2.5,Math.min(Ld/2-q,Math.abs(x<0?-x:x>W?x-W:0),20)); }
+        else { const d=at(x,y); if(d>0&&d<thr&&x>=0&&y>=0&&x<=W&&y<=H){ if(!run) run=[x,y]; last=[x,y]; } else { if(run){ if(dist(run,last)>1.5) engScratch(c,run,last,lw); run=null; } step=d>=thr?Math.max(2.5,(d-thr)*.8):d===0?4:2.5; } }
+        q+=step; }
+      if(run && dist(run,last)>1.5) engScratch(c,run,last,lw); } });
+  c.restore(); }
+function dgTexture(c,l,cell){ const tex=l.tex; if(!tex||tex==='none'||l.mode==='sea') return; landPath(l); const b=built.get(l), bb=b.bb; c.save(); c.clip(b.path); c.strokeStyle=INK; c.fillStyle=INK; c.globalAlpha=.5; engSeed=((l.seed|0)%2147483000)+7;
+  const x0=Math.floor(bb[0]/cell)*cell, y0=Math.floor(bb[1]/cell)*cell, x1=bb[2]+cell, y1=bb[3]+cell;
+  if(tex==='flag'){ const rh=cell/2; let row=0; for(let y=y0;y<y1;y+=rh,row++){ engScratch(c,[x0,y],[x1,y],.3); for(let x=x0+(row%2)*cell*.3+engR()*cell*.2;x<x1;x+=cell*(.45+engR()*.7)) engScratch(c,[x,y],[x+(engR()-.5)*1.4,y+rh],.28); } }
+  else if(tex==='plank'){ const bh=cell/4; let row=0; for(let y=y0;y<y1;y+=bh,row++){ engScratch(c,[x0,y],[x1,y],.3); for(let x=x0+engR()*cell*1.4;x<x1;x+=cell*(1+engR()*1.3)) engScratch(c,[x,y],[x,y+bh],.26); } }
+  else if(tex==='dirt'){ const n=Math.round((x1-x0)*(y1-y0)/(cell*cell)*13); for(let i=0;i<n;i++){ const x=x0+engR()*(x1-x0), y=y0+engR()*(y1-y0); if(engR()<.55){ c.beginPath(); c.arc(x,y,.35+engR()*.5,0,7); c.fill(); } else engScratch(c,[x,y],[x+2+engR()*4,y+(engR()-.5)*1.5],.28); } }
+  c.restore(); }
+function composeDungeon(full){      // while something is being dragged (full is false) only the thick hatching nearest the wall is drawn, and no floor texture, to keep it quick
+  const W=S.w, H=S.h, cell=cellSz(), amt=S.dun.hatch ?? 1, ww=clamp(cell*.05,2,4.2);
+  bc.globalAlpha=1; bc.globalCompositeOperation='source-over'; bc.fillStyle=pat.paper||PAPER(); bc.fillRect(0,0,W,H); bc.drawImage(ageC,0,0,W,H); tnx.clearRect(0,0,W,H);
+  dgFx.globalCompositeOperation='source-over'; dgFx.clearRect(0,0,W,H); dgFx.fillStyle='#000';
+  for(const l of S.lands){ dgFx.globalCompositeOperation=l.mode==='sea'?'destination-out':'source-over'; dgFx.fill(landPath(l)); }
+  dgFx.globalCompositeOperation='source-over';
+  if(amt>0) dgHatch(bc,distField(),cell*amt*1.15,!full);                                                                                     // the rock
+  tc.globalAlpha=1; tc.globalCompositeOperation='source-over'; tc.clearRect(0,0,W,H); tc.drawImage(dgF,0,0,W,H); tc.globalCompositeOperation='source-in'; tc.fillStyle=INK; tc.fillRect(0,0,W,H); tc.globalCompositeOperation='source-over';
+  for(let i=0;i<8;i++){ const a=i/8*Math.PI*2+.39; bc.drawImage(tmpC,Math.cos(a)*ww,Math.sin(a)*ww,W,H); }                                   // the wall: the floor's silhouette, nudged round
+  tc.clearRect(0,0,W,H); tc.drawImage(dgF,0,0,W,H); tc.globalCompositeOperation='source-in'; tc.fillStyle=pat.paper||PAPER(); tc.fillRect(0,0,W,H); tc.globalCompositeOperation='source-atop'; tc.drawImage(ageC,0,0,W,H); tc.globalCompositeOperation='source-over';
+  bc.drawImage(tmpC,0,0,W,H);                                                                                                          // the floor, over the wall's inner half
+  dgTx.globalCompositeOperation='source-over'; dgTx.clearRect(0,0,W,H);
+  if(S.grid.type!=='none'){ dgTx.globalAlpha=.3; dgTx.strokeStyle=INK; dgTx.lineWidth=.7; dgTx.stroke(gridPath()); dgTx.globalAlpha=1; dgTx.globalCompositeOperation='destination-in'; dgTx.drawImage(dgF,0,0,W,H); dgTx.globalCompositeOperation='source-over'; }
+  if(full) for(const l of S.lands){ if(l.mode==='sea'){ dgTx.globalCompositeOperation='destination-out'; dgTx.fill(landPath(l)); dgTx.globalCompositeOperation='source-over'; } else dgTexture(dgTx,l,cell); }
+  bc.drawImage(dgT,0,0,W,H);
+  if(S.dun.shadow){ const sh=Math.max(3,cell*.11), q=Math.min(R,3), [pc,px]=mkCanvas(2.1*q,2.1*q); px.fillStyle=INK; px.fillRect(0,0,.75*q,2.1*q); const pt=bc.createPattern(pc,'repeat'); pt.setTransform(new DOMMatrix().scale(1/q));
+    if(full){ tc.clearRect(0,0,W,H); tc.globalCompositeOperation='source-over'; tc.drawImage(dgF,0,0,W,H); tc.globalCompositeOperation='destination-out'; tc.drawImage(dgF,sh,0,W,H); tc.globalCompositeOperation='source-in'; tc.fillStyle=pt; tc.fillRect(0,0,W,H); tc.globalCompositeOperation='source-over'; bc.globalAlpha=.7; bc.drawImage(tmpC,0,0,W,H); bc.globalAlpha=1; }
+    else { hc.save(); hc.setTransform(R/2,0,0,R/2,0,0); hc.globalAlpha=1; hc.globalCompositeOperation='source-over'; hc.clearRect(0,0,W,H); hc.drawImage(dgF,0,0,W,H); hc.globalCompositeOperation='destination-out'; hc.drawImage(dgF,sh,0,W,H); hc.globalCompositeOperation='source-in'; hc.fillStyle=pt; hc.fillRect(0,0,W,H); hc.globalCompositeOperation='source-over'; hc.restore(); bc.globalAlpha=.7; bc.drawImage(halfC,0,0,W,H); bc.globalAlpha=1; } }
+}
 function rebuildAll(){ rebuildLand(true); compose(true); invalidate(); }
 
 /* ============================================================ vector drawing: lines, stamps, labels, grid */
 function drawLine(c,l){
   const b=lineBuilt(l), st=LINES[l.kind]; c.lineCap='round'; c.lineJoin='round';
+  if(l.kind==='dwall'){ c.save(); c.lineCap='square'; c.lineJoin='miter'; c.strokeStyle=INK; c.lineWidth=l.width; c.stroke(b.path); c.restore(); return; }
   if(l.kind==='fence'){ drawFence(c,l,b.pts); return; }
   if(l.kind==='river' || l.kind==='realm' || l.kind==='street' || l.kind==='wall' || l.kind==='road') return;      // roads are drawn together so that they join (see drawRoads)
      // rivers and realms are drawn with the land (see riverPath, drawRealms)
@@ -1494,6 +1569,56 @@ const SKETCH_DRAW = {
     const R=(x,y)=>[[-x,-y],[x,-y],[x,y],[-x,y]], o=R(18,9.4), i=R(15.6,7); engPath(c,o,1); c.fillStyle=PAPER(); c.fill(); engShade(c,[[18,-9.4],[18,9.4],[-18,9.4],[-15.6,7],[15.6,7],[15.6,-7]],'d',.55); engInk(c,o,.65,true,{gap:0,rough:.08}); engInk(c,i,.45,true,{gap:0,rough:.06}); engInk(c,R(14.6,6),.22,true,{gap:.03});      // a plain tablet with a moulded edge
     for(const [x,y] of R(16.8,8.2)) engDot(c,x,y,.5); for(const [a,b] of [[o[0],i[0]],[o[1],i[1]],[o[2],i[2]],[o[3],i[3]]]) engInk(c,[a,b],.36,false,{gap:0}); for(const s of [-1,1]){ curl(s*19.4,-2.6,s,-1); curl(s*19.4,2.6,s,1); } },
 };
+/* ---- dungeon stamps, all seen from above. Drawn in the usual 40-unit box, and sized so that one box is the object's footprint in grid squares (see DUN_FOOT):
+   a door spans one square, a table two. Raised things take their shading on the right, as everywhere else on the atlas. ---- */
+const dQ=(x0,y0,x1,y1)=>[[x0,y0],[x1,y0],[x1,y1],[x0,y1]];
+function dBox(c,x0,y0,x1,y1,o={}){ const q=engPoly(c,dQ(x0,y0,x1,y1),{j:.3,lw:o.lw||.55}); if(o.sh!==false){ const xs=q.map(p=>p[0]), a=Math.min(...xs), b=Math.max(...xs); engShade(c,q,'d',o.sp||.8,{clipX:a+(b-a)*(o.at||.64)}); } return q; }
+function dRing(c,x,y,r,o={}){ const X=EX(x), q=engArc(X,y,r,o.ry||r,0,Math.PI*2,Math.max(16,Math.round(r*2))); engPath(c,q,1); c.fillStyle=PAPER(); c.fill(); if(o.sh!==false) engShade(c,q,'d',o.sp||.8,{clipX:X+r*(o.at??.3)}); engInk(c,q,o.lw||.55,true,{gap:.03,rough:.07}); return q; }
+function dPost(c,x,y,w=2.4,h=3.8){ engPoly(c,dQ(x-w,y-h,x+w,y+h),{ink:true,j:.12,lw:.4}); }
+function dJambs(c){ dPost(c,-19,0); dPost(c,19,0); }
+function dDoorLeaf(c,x0,x1){ dBox(c,x0,-3,x1,3,{sh:false,lw:.5}); engInk(c,[[EX(x0+2),0],[EX(x1-2),0]],.28,false,{gap:.2}); }
+Object.assign(SKETCH_DRAW,{
+  door(c){ dDoorLeaf(c,-17,17); dJambs(c); engDot(c,-15,0,.8); engDot(c,12,0,.55); },
+  doubledoor(c){ dDoorLeaf(c,-17,-.6); dDoorLeaf(c,.6,17); dJambs(c); engDot(c,-15,0,.7); engDot(c,15,0,.7); },
+  dooropen(c){ dJambs(c); dBox(c,-20.5,-30,-17.5,0,{lw:.45,sp:.6}); engInk(c,ENG_M<0?engArc(EX(-19),0,30,30,Math.PI,Math.PI*1.5,12):engArc(-19,0,30,30,-Math.PI/2,0,12),.3,false,{gap:.35,rough:.1}); engInk(c,[[EX(-17),0],[EX(18),0]],.25,false,{gap:.5}); },
+  secretdoor(c){ dJambs(c); engInk(c,[[EX(-17),0],[EX(17),0]],1.4,false,{gap:.04,rough:.15}); c.save(); c.fillStyle=INK; c.font='italic 600 15px "IM Fell English", Georgia, serif'; c.textAlign='center'; c.textBaseline='middle'; c.fillText('S',EX(0),-9); c.restore(); },
+  arch(c){ dBox(c,-20,-5,-13,5,{lw:.5}); dBox(c,13,-5,20,5,{lw:.5}); engInk(c,[[EX(-12),-3],[EX(12),-3]],.4,false,{gap:.3}); engInk(c,[[EX(-12),3],[EX(12),3]],.4,false,{gap:.3}); },
+  portcullis(c){ dJambs(c); engInk(c,[[EX(-17),0],[EX(17),0]],.45,false,{gap:.05}); for(let x=-15;x<=15;x+=5){ engInk(c,[[EX(x),-3.8],[EX(x),3.8]],.5,false,{gap:0}); engDot(c,x,3.8,.55); } },
+  stairs(c){ engPoly(c,dQ(-16,-19,16,19),{j:.3,lw:.6}); for(let i=1;i<9;i++){ const y=-19+i*38/9; engScratch(c,[EX(-16),y],[EX(16),y],.42); const n=Math.round(i*ENG_K*.8); for(let k=0;k<n;k++){ const x=-14+(k+.5)*28/Math.max(n,1); engScratch(c,[EX(x),y],[EX(x+(k%2?.4:-.4)),y+38/9*.8],.2); } }
+    engInk(c,[[EX(-16),-19],[EX(-16),19]],.8,false,{gap:0}); engInk(c,[[EX(16),-19],[EX(16),19]],.8,false,{gap:0}); },
+  spiral(c){ dRing(c,0,0,17,{sh:false}); for(let k=0;k<12;k++){ const a=k/12*Math.PI*2; engInk(c,[[EX(Math.cos(a)*4.5),Math.sin(a)*4.5],[EX(Math.cos(a)*17),Math.sin(a)*17]],.4,false,{gap:.05}); } for(let k=0;k<6;k++){ const a=k/6*Math.PI*2+.26; engScratch(c,[EX(Math.cos(a)*7),Math.sin(a)*7],[EX(Math.cos(a+.3)*14),Math.sin(a+.3)*14],.2); } dRing(c,0,0,4.2,{sh:false}); engDot(c,0,0,3.2); },
+  ladder(c){ engInk(c,[[EX(-6),-19],[EX(-6),19]],.9,false,{gap:.02,rough:.1}); engInk(c,[[EX(6),-19],[EX(6),19]],.9,false,{gap:.02,rough:.1}); for(let y=-16;y<=16;y+=4.4) engInk(c,[[EX(-6),y],[EX(6),y]],.55,false,{gap:0,rough:.1}); },
+  trapdoor(c){ dBox(c,-15,-15,15,15,{sh:false,lw:.6}); for(let y=-10;y<15;y+=5) engInk(c,[[EX(-15),y],[EX(15),y]],.3,false,{gap:.1}); engInk(c,[[EX(-15),-15],[EX(-9),-9]],.4,false,{gap:0}); dRing(c,5,5,2.8,{sh:false,lw:.5}); engDot(c,-11,-11,.8); engDot(c,-11,11,.8); },
+  pit(c){ const q=engPoly(c,[[-16,-14],[-2,-17],[14,-15],[17,-1],[15,14],[0,17],[-15,15],[-18,0]],{j:.5,lw:.7}); engShade(c,q,'d',1.5); c.save(); engPath(c,q,1); c.clip(); engShade(c,[[-20,-18],[-6,-18],[-6,18],[-20,18]].map(v=>[EX(v[0]),v[1]]),'x',1.1); c.restore(); engPoly(c,[[-16,-14],[-2,-17],[14,-15],[17,-1],[15,14],[0,17],[-15,15],[-18,0]],{j:.5,lw:.7,open:true}); },
+  table(c){ dBox(c,-19,-9,19,9,{lw:.65}); for(let y=-4.5;y<9;y+=4.5) engScratch(c,[EX(-17),y],[EX(17),y],.25); engInk(c,[[EX(-13),-9],[EX(-13),9]],.3,false,{gap:.5}); },
+  roundtable(c){ dRing(c,0,0,18); for(let k=0;k<3;k++){ const y=-7+k*7, w=Math.sqrt(Math.max(0,18*18-y*y))-3; engScratch(c,[EX(-w),y],[EX(w),y],.25); } },
+  chair(c){ dBox(c,-8,-7,8,7,{lw:.55}); engInk(c,[[EX(-8),-9],[EX(8),-9]],1.4,false,{gap:.05,rough:.1}); },
+  bed(c){ dBox(c,-11,-19,11,19,{lw:.65}); dBox(c,-8,-17,8,-8,{lw:.5,sh:false}); for(let y=-4;y<18;y+=3.2) engScratch(c,[EX(-10),y],[EX(10),y+.8],.22); engInk(c,[[EX(-11),-5],[EX(11),-5]],.45,false,{gap:.1}); },
+  bookcase(c){ dBox(c,-19,-5,19,5,{lw:.6}); for(let x=-15;x<=15;x+=6) engInk(c,[[EX(x),-5],[EX(x),5]],.35,false,{gap:.05}); for(let x=-17;x<18;x+=2.2) engScratch(c,[EX(x),-2.2],[EX(x+.2),2.2],.2); },
+  treasure(c){ dBox(c,-13,-9,13,9,{lw:.65}); engInk(c,[[EX(-13),-3],[EX(13),-3]],.4,false,{gap:.05}); dBox(c,-2,-5,2,-1,{lw:.4,sh:false}); engInk(c,[[EX(-9),-9],[EX(-9),9]],.35,false,{gap:.1}); engInk(c,[[EX(9),-9],[EX(9),9]],.35,false,{gap:.1}); },
+  dbarrel(c){ dRing(c,0,0,13); for(const r of [8.5,4.2]) engInk(c,engArc(EX(0),0,r,r,0,Math.PI*2,18),.3,true,{gap:.15,rough:.04}); for(let k=0;k<8;k++){ const a=k/8*Math.PI; engScratch(c,[EX(Math.cos(a)*13),Math.sin(a)*13],[EX(-Math.cos(a)*13),-Math.sin(a)*13],.18); } },
+  altar(c){ dBox(c,-17,-10,17,10,{lw:.7}); dBox(c,-13,-6,13,6,{lw:.4,sh:false}); engInk(c,[[EX(0),-5],[EX(0),5]],.5,false,{gap:0}); engInk(c,[[EX(-4),-1.5],[EX(4),-1.5]],.5,false,{gap:0}); engDot(c,-9,0,1.1); engDot(c,9,0,1.1); },
+  sarcophagus(c){ const q=engPoly(c,[[-9,-19],[9,-19],[11,-6],[8,19],[-8,19],[-11,-6]],{j:.35,lw:.7}); engShade(c,q,'d',.8,{clipX:EX(1)}); engPoly(c,[[-6,-15],[6,-15],[7,-5],[5,15],[-5,15],[-7,-5]],{j:.3,lw:.4,open:true}); engInk(c,[[EX(0),-12],[EX(0),6]],.45,false,{gap:0}); engInk(c,[[EX(-3.5),-7],[EX(3.5),-7]],.45,false,{gap:0}); },
+  throne(c){ dBox(c,-9,-6,9,9,{lw:.65}); dBox(c,-11,-12,11,-6,{lw:.7}); dBox(c,-13,-6,-9,9,{lw:.5,sh:false}); dBox(c,9,-6,13,9,{lw:.5}); for(let y=-3;y<9;y+=2.4) engScratch(c,[EX(-8),y],[EX(8),y],.2); },
+  fireplace(c){ dBox(c,-19,-6,19,6,{lw:.7}); engPoly(c,dQ(-12,-3,12,6),{j:.3,lw:.55}); for(let k=0;k<14;k++){ const x=-10+engR()*20, y=-1.5+engR()*6; engScratch(c,[EX(x),y],[EX(x+1.2+engR()*1.5),y+(engR()-.5)],.3); } engDot(c,-4,2.2,1.4); engDot(c,3,1.2,1.1); },
+  idol(c){ dBox(c,-11,-11,11,11,{lw:.65}); dRing(c,0,1.5,6.2,{lw:.55}); engInk(c,engArc(EX(0),-3.2,3.6,3.6,0,Math.PI*2,10),.45,true,{gap:.1}); },
+  pillar(c){ dBox(c,-12,-12,12,12,{lw:.75,sp:.7}); engInk(c,[[EX(-12),-12],[EX(12),12]],.3,false,{gap:.3}); engInk(c,[[EX(12),-12],[EX(-12),12]],.3,false,{gap:.3}); },
+  roundpillar(c){ dRing(c,0,0,13,{lw:.75,sp:.7}); engInk(c,engArc(EX(0),0,8,8,0,Math.PI*2,14),.35,true,{gap:.25,rough:.04}); },
+  brazier(c){ dRing(c,0,0,12,{lw:.7}); dRing(c,0,0,7.5,{sh:false,lw:.45}); for(let k=0;k<10;k++){ const a=k/10*Math.PI*2+.3, r=2+engR()*4; engScratch(c,[EX(0),0],[EX(Math.cos(a)*r+1),Math.sin(a)*r],.3); } for(let k=0;k<3;k++){ const a=k/3*Math.PI*2+.5; engDot(c,Math.cos(a)*13.8,Math.sin(a)*13.8,1.1); } },
+  rug(c){ engPoly(c,dQ(-19,-13,19,13),{j:.4,lw:.5}); engPoly(c,dQ(-16,-10,16,10),{j:.3,lw:.35,open:true}); engPoly(c,[[0,-7],[11,0],[0,7],[-11,0]],{j:.2,lw:.35,open:true}); for(let y=-12;y<=12;y+=3){ engInk(c,[[EX(-19),y],[EX(-21),y]],.25,false,{gap:.1}); engInk(c,[[EX(19),y],[EX(21),y]],.25,false,{gap:.1}); } },
+  trap(c){ dBox(c,-13,-13,13,13,{lw:.65,sh:false}); engInk(c,[[EX(-13),-13],[EX(13),13]],.35,false,{gap:.25}); engInk(c,[[EX(13),-13],[EX(-13),13]],.35,false,{gap:.25}); engPoly(c,dQ(-5,-5,5,5),{j:.2,lw:.5,ink:true}); },
+  spikes(c){ dBox(c,-15,-15,15,15,{lw:.65,sh:false}); for(let i=0;i<4;i++) for(let j=0;j<4;j++){ const x=-10.5+i*7, y=-10.5+j*7; engPoly(c,[[x-2.2,y+2],[x+2.2,y+2],[x,y-2.6]],{j:.1,lw:.4,shade:'d',sp:.45}); } },
+  lever(c){ dBox(c,-6,-3,6,3,{lw:.6}); engInk(c,[[EX(0),0],[EX(9),-11]],.9,false,{gap:0}); engDot(c,9,-11,2.2); engDot(c,0,0,1); },
+  rubble(c){ const rn=mulberry(12); for(let k=0;k<9;k++){ const x=(rn()-.5)*28, y=(rn()-.5)*24, r=2+rn()*4, a=rn()*6, pts=[0,1,2,3,4].map(i=>{ const t=a+i*1.26, rr=r*(.7+rn()*.5); return [x+Math.cos(t)*rr,y+Math.sin(t)*rr*.8]; }); engPoly(c,pts,{j:.15,lw:.45,shade:'d',sp:.5}); } },
+  bones(c){ const rn=mulberry(5); for(let k=0;k<5;k++){ const x=(rn()-.5)*22, y=(rn()-.5)*20, a=rn()*Math.PI, l=5+rn()*5, dx=Math.cos(a)*l, dy=Math.sin(a)*l; engInk(c,[[EX(x-dx),y-dy],[EX(x+dx),y+dy]],.8,false,{gap:0,rough:.1}); engDot(c,x-dx,y-dy,1.2,true); engDot(c,x+dx,y+dy,1.2,true); } for(let k=0;k<4;k++) engInk(c,engArc(EX(-6),-8+k*2.4,6,3,.2,Math.PI-.2,6),.4,false,{gap:.1}); },
+  web(c){ for(let k=0;k<=6;k++){ const a=k/6*Math.PI/2; engInk(c,[[EX(-19),-19],[EX(-19+Math.cos(a)*30),-19+Math.sin(a)*30]],.28,false,{gap:.1,rough:.05}); } for(let r=7;r<=29;r+=6) engInk(c,engArc(EX(-19),-19,r,r,0,Math.PI/2,8),.25,false,{gap:.1,rough:.1}); },
+  pool(c){ const R=[1,.9,1,.82,.95,1,.86,.94], q=R.map((r,i)=>{ const a=i/R.length*Math.PI*2; return [EX(Math.cos(a)*18*r),Math.sin(a)*13*r]; }); engPath(c,q,1); c.fillStyle=PAPER(); c.fill(); engInk(c,q,.6,true,{gap:.05,rough:.3}); engShade(c,q,'h',1.3,{clipX:-30}); for(let k=0;k<3;k++){ const y=-6+k*6; engInk(c,[[EX(-8),y],[EX(-5),y-1],[EX(-2),y],[EX(1),y-1],[EX(4),y]],.28,false,{gap:.2}); } },
+  stalagmite(c){ for(const [x,y,r] of [[-6,-3,7],[7,5,5.2],[-2,10,3.6],[10,-8,3.4]]){ dRing(c,x,y,r,{lw:.5,at:.1}); engInk(c,engArc(EX(x),y,r*.45,r*.45,0,Math.PI*2,8),.28,true,{gap:.2}); } },
+  torch(c){ dRing(c,0,0,4.2,{sh:false,lw:.5}); engDot(c,0,0,1.8); for(let k=0;k<10;k++){ const a=k/10*Math.PI*2; engInk(c,[[EX(Math.cos(a)*7),Math.sin(a)*7],[EX(Math.cos(a)*(10+(k%2)*5)),Math.sin(a)*(10+(k%2)*5)]],.3,false,{gap:0}); } },
+  sigil(c){ for(const r of [17,14.5]) engInk(c,engArc(EX(0),0,r,r,0,Math.PI*2,28),.5,true,{gap:.03,rough:.06}); const st=[0,2,4,1,3].map(i=>{ const a=-Math.PI/2+i*Math.PI*2/5; return [EX(Math.cos(a)*14.5),Math.sin(a)*14.5]; }); engInk(c,[...st,st[0]],.4,false,{gap:.05}); for(let k=0;k<12;k++){ const a=k/12*Math.PI*2; engInk(c,[[EX(Math.cos(a)*14.5),Math.sin(a)*14.5],[EX(Math.cos(a)*17),Math.sin(a)*17]],.3,false,{gap:0}); } },
+  crack(c){ engInk(c,[[EX(-18),-6],[EX(-12),-2],[EX(-9),-5],[EX(-3),1],[EX(2),-1],[EX(8),5],[EX(18),3]],.6,false,{gap:.05,rough:.3}); engInk(c,[[EX(-3),1],[EX(-5),7],[EX(-9),10]],.4,false,{gap:.05,rough:.25}); engInk(c,[[EX(8),5],[EX(11),11]],.35,false,{gap:.1,rough:.2}); },
+  plankbridge(c){ dBox(c,-19,-8,19,8,{lw:.55,sh:false}); for(let x=-17;x<=17;x+=3.4) engInk(c,[[EX(x),-8],[EX(x),8]],.3,false,{gap:.1}); engInk(c,[[EX(-19),-9.5],[EX(19),-9.5]],.9,false,{gap:.03,rough:.12}); engInk(c,[[EX(-19),9.5],[EX(19),9.5]],.9,false,{gap:.03,rough:.12}); },
+});
 function sprite(s,px){ const k=stampLook(s), g=['Trees','Plants'].includes(groupOf(s.kind))&&k.g, pen=penOf(s.size), key=[s.kind,k.n,k.tint,g,px,s.flip?1:0,pen].join('|'); let sp=sprites.get(key);
   if(!sp){ const side=Math.ceil(px*1.7), [cn,x]=mkCanvas(side,side); x.translate(side/2,side/2); x.scale(px/40,px/40); paintStamp(x,{kind:s.kind,var:k.n,tint:k.tint,v:g?.75:.25,flip:s.flip,pen}); sp=cn; sprites.set(key,sp); }
   return sp; }
@@ -1525,7 +1650,7 @@ function gridPath(){ const g=S.grid, key=[g.type,g.size,S.w,S.h].join(); if(grid
   gridCache={key,path:P}; return P; }
 function drawVectors(c,k){
   c.save(); c.beginPath(); c.rect(0,0,S.w,S.h); c.clip();
-  if(S.grid.type!=='none'){ c.strokeStyle='rgba(58,42,28,.28)'; c.lineWidth=1; c.stroke(gridPath()); }
+  if(S.grid.type!=='none' && S.kind!=='dungeon'){ c.strokeStyle='rgba(58,42,28,.28)'; c.lineWidth=1; c.stroke(gridPath()); }
   if(S.frame!=='none') drawFrame(c);
   const one=S.layers.length===1, ss=layers.stamps.v?stampsSorted():[];
   for(const L of S.layers){ if(L.v===false) continue; const mine=o=>one || layerOf(o)===L;      // each layer in turn, bottom first: its lines, then its stamps, then its lettering
@@ -1571,7 +1696,17 @@ function draw(){
   const ring = opts.tool==='reshape' ? (opts.reshape==='cut' ? cutR()*2 : 44*px) : opts.tool==='paint' ? opts.brush : landBrushOn() ? opts.landBrush : opts.tool==='cliff' && opts.cliffMode==='brush' ? opts.cliffBrush : opts.tool==='stamp' && opts.stampMode!=='fill' && STAMP_GROUPS[groupOf(opts.stamp)].scatter && opts.scatter>20 ? opts.scatter : 0;
   if(ring && hover){ ctx.beginPath(); ctx.arc(hover[0],hover[1],ring/2,0,7); ctx.strokeStyle='rgba(20,30,30,.8)'; ctx.lineWidth=1.5*px; ctx.stroke(); }
   drawMeasure(ctx,px);
-  if(opts.tool==='stamp' && hover && !act){ ctx.globalAlpha=.55; drawStamp(ctx,{kind:opts.stamp,x:hover[0],y:hover[1],size:opts.stampSizes[groupOf(opts.stamp)],rot:opts.stampRot,flip:opts.stampFlip==='on',var:opts.stampVar==='shuffle'?0:opts.stampVar,tint:opts.stampTint[opts.stamp]}); ctx.globalAlpha=1; }
+  if(DUNG()){ const cell=cellSz(), tool=opts.tool, dtool=tool==='room'||tool==='corridor'||tool==='dwall';
+    if(dtool && hover && !(act && act.type==='pan')){ const q=draft ? draftSnap(hover) : tool==='corridor' ? gsnap(hover,corrOff()) : gsnap(hover); ctx.fillStyle=accent; ctx.beginPath(); ctx.arc(q[0],q[1],4*px,0,7); ctx.fill();
+      if(draft){ const pts=[...draft.pts,q], cutc=draft.cut; ctx.beginPath(); pts.forEach((v,i)=>i?ctx.lineTo(v[0],v[1]):ctx.moveTo(v[0],v[1]));
+        if(draft.kind==='room'){ ctx.closePath(); ctx.fillStyle=cutc?'rgba(120,170,180,.45)':'rgba(234,223,191,.6)'; ctx.fill(); ctx.strokeStyle=accent; ctx.lineWidth=2*px; ctx.setLineDash([6*px,5*px]); ctx.stroke(); ctx.setLineDash([]); }
+        else { const w=draft.kind==='corr'?Math.round(opts.corrW)*cell:opts.lineWidth.dwall; ctx.lineJoin='miter'; ctx.lineCap='butt'; ctx.strokeStyle=draft.kind==='corr'?(cutc?'rgba(120,170,180,.5)':'rgba(234,223,191,.75)'):'rgba(58,42,28,.55)'; ctx.lineWidth=w; ctx.stroke(); ctx.lineJoin='round'; ctx.lineCap='round';
+          ctx.strokeStyle=accent; ctx.lineWidth=1.5*px; ctx.setLineDash([6*px,5*px]); ctx.beginPath(); pts.forEach((v,i)=>i?ctx.lineTo(v[0],v[1]):ctx.moveTo(v[0],v[1])); ctx.stroke(); ctx.setLineDash([]); }
+        if(draft.pts.length) { ctx.fillStyle=accent; for(const v of draft.pts){ ctx.beginPath(); ctx.arc(v[0],v[1],3*px,0,7); ctx.fill(); } } } }
+    if(act && act.type==='drect'){ const a=act.a, b=act.b, x0=Math.min(a[0],b[0]), y0=Math.min(a[1],b[1]), w=Math.abs(b[0]-a[0]), h=Math.abs(b[1]-a[1]); ctx.beginPath();
+      if(act.shape==='ellipse') ctx.ellipse(x0+w/2,y0+h/2,w/2,h/2,0,0,7); else ctx.rect(x0,y0,w,h); ctx.fillStyle=act.mode==='sea'?'rgba(120,170,180,.45)':'rgba(234,223,191,.6)'; ctx.fill(); ctx.strokeStyle=accent; ctx.lineWidth=2*px; ctx.setLineDash([6*px,5*px]); ctx.stroke(); ctx.setLineDash([]);
+      const lab=(Math.round(w/cell*2)/2)+' × '+(Math.round(h/cell*2)/2); ctx.font=`600 ${14*px}px sans-serif`; ctx.lineWidth=4*px; ctx.strokeStyle='rgba(255,255,255,.9)'; ctx.strokeText(lab,x0+4*px,y0-6*px); ctx.fillStyle=accent; ctx.fillText(lab,x0+4*px,y0-6*px); } }
+  if(opts.tool==='stamp' && hover && !act){ ctx.globalAlpha=.55; const gs=DUNG()?dungSnap(opts.stamp,hover,opts.stampRot):{p:hover,rot:opts.stampRot}; drawStamp(ctx,{kind:opts.stamp,x:gs.p[0],y:gs.p[1],size:opts.stampSizes[groupOf(opts.stamp)],rot:gs.rot,flip:opts.stampFlip==='on',var:opts.stampVar==='shuffle'?0:opts.stampVar,tint:opts.stampTint[opts.stamp]}); ctx.globalAlpha=1; }
   if(sel && opts.tool==='select' && !(act && act.type==='box')){ const hs=selHandles(); if(hs){ const [a,b,c2,d2]=hs.corners, q=5*px;      // transform box
       ctx.setLineDash([4*px,4*px]); ctx.strokeStyle=accent; ctx.lineWidth=px; ctx.strokeRect(a[0],a[1],b[0]-a[0],d2[1]-a[1]); ctx.setLineDash([]);
       ctx.beginPath(); ctx.moveTo(hs.rot[0],a[1]); ctx.lineTo(hs.rot[0],hs.rot[1]); ctx.stroke(); ctx.fillStyle='#fff'; ctx.lineWidth=1.6*px;
@@ -1596,6 +1731,21 @@ function draw(){
 }
 
 /* ============================================================ pointer input */
+let draft=null;      // a polygon room, corridor or inner wall being laid out point by point: {kind:'room'|'corr'|'wall', pts, cut}
+const DUNG = () => S.kind==='dungeon', cellSz = () => S.grid.size||60;
+function gsnap(p,off=0){ if(!opts.snap || !DUNG()) return [Math.round(p[0]*10)/10,Math.round(p[1]*10)/10]; const g=cellSz()/(opts.snapFine?2:1); return [Math.round((p[0]-off)/g)*g+off, Math.round((p[1]-off)/g)*g+off]; }
+const corrOff = () => Math.round(opts.corrW)%2===1 ? cellSz()/2 : 0;      // a one-square passage runs down the middle of its squares; a two-square one runs along the grid lines
+const draftSnap = p => gsnap(p, draft && draft.kind==='corr' ? corrOff() : (!draft && opts.tool==='corridor') ? corrOff() : 0);
+function draftClick(p,cut){ const k=opts.tool==='corridor'?'corr':opts.tool==='dwall'?'wall':'room'; if(!draft||draft.kind!==k) draft={kind:k,pts:[],cut}; const q=draftSnap(p), last=draft.pts[draft.pts.length-1];
+  if(last && dist(last,q)<1) return draftEnd();                                    // clicking the same spot again (a double-click) finishes
+  if(k==='room' && draft.pts.length>=3 && dist(q,draft.pts[0])<14/view.k) return draftEnd();      // so does closing the loop
+  draft.pts.push(q); invalidate(); }
+function draftEnd(){ const d=draft; draft=null; invalidate(); if(!d) return; const pts=d.pts;
+  if(d.kind==='room' && pts.length>=3){ pushUndo(); S.lands=[...S.lands,{mode:d.cut?'sea':'land',floor:1,sharp:true,pts:pts.slice(),rough:0,seed:rseed(),t:++S.tick,tex:opts.roomTex}]; need.land=true; need.compose='full'; }
+  else if(d.kind==='corr' && pts.length>=2){ pushUndo(); S.lands=[...S.lands,{mode:d.cut?'sea':'land',floor:1,sharp:true,brush:true,pts:pts.slice(),size:Math.round(opts.corrW)*cellSz(),rough:0,seed:rseed(),t:++S.tick,tex:opts.roomTex}]; need.land=true; need.compose='full'; }
+  else if(d.kind==='wall' && pts.length>=2){ pushUndo(); S.lines=[...S.lines,withLy({kind:'dwall',sharp:true,pts:pts.slice(),rough:0,width:opts.lineWidth.dwall,seed:rseed()})]; need.compose='full'; }
+  invalidate(); }
+function ellipsePts(a,b){ const cx=(a[0]+b[0])/2, cy=(a[1]+b[1])/2, rx=Math.abs(b[0]-a[0])/2, ry=Math.abs(b[1]-a[1])/2, n=Math.max(24,Math.round((rx+ry)/5)), out=[]; for(let i=0;i<n;i++){ const t=i/n*Math.PI*2; out.push([Math.round((cx+Math.cos(t)*rx)*10)/10,Math.round((cy+Math.sin(t)*ry)*10)/10]); } return out; }
 let act=null; const pointers=new Map(); let pinch=null, spaceDown=false;
 const landBrushOn = () => opts.tool==='land' && opts.landMode==='brush';
 const rseed = () => (Math.random()*1e9)|0;
@@ -1746,7 +1896,18 @@ function fillArea(pts){      // fills a drawn outline with the chosen stamp: a j
   for(let y=y0;y<=y1;y+=cell*.8,row++) for(let x=x0+(row%2)*cell*.5;x<=x1;x+=cell){ const q=[x+(Math.random()-.5)*cell*.7,y+(Math.random()-.5)*cell*.6]; if(ptInPoly(q,pts) && isLandAt(q)!==sea) spots.push(q); }
   if(!spots.length) return 0; const cap=1500, step=Math.max(1,spots.length/cap); pushUndo(); const before=S.stamps, keep=S.stamps; S.stamps=[]; let n=0;
   for(let i=0;i<spots.length && n<cap;i+=step){ placeStamp(spots[Math.floor(i)],true); n++; } S.stamps=keep.concat(S.stamps); return n; }
-function placeStamp(p,vary,rot){ const kind=opts.stamp, base=opts.stampSizes[groupOf(kind)], v=Math.random(), n=VARIANTS[kind]||1, o={kind,x:Math.round(p[0]),y:Math.round(p[1]),size:Math.round(vary?base*(.82+.36*v):base),rot:rot ?? opts.stampRot,v};
+const DUN_FOOT={door:1,doubledoor:2,dooropen:1,secretdoor:1,arch:1,portcullis:1,stairs:1.5,spiral:2,ladder:1,trapdoor:1,pit:1,plankbridge:2,table:2,roundtable:2,chair:.6,bed:1.5,bookcase:2,treasure:.8,dbarrel:.6,altar:1.5,sarcophagus:1.2,throne:.9,fireplace:2,idol:.8,pillar:.6,roundpillar:.6,brazier:.7,rug:3,trap:1,spikes:1,lever:.5,rubble:1.2,bones:1,web:1.5,pool:2,stalagmite:1.2,torch:.7,sigil:3,crack:1.5};      // each dungeon stamp's footprint, in grid squares
+const dungSize = kind => Math.round((DUN_FOOT[kind]||1)*cellSz());
+const DOORS=new Set(STAMP_GROUPS.Doors.kinds);
+function dungSnap(kind,p,rot){      // doors go on the middle of a square's edge and turn to cross the passage; everything else sits on the half-squares
+  const c=cellSz(), g=c/2; if(!opts.snap) return {p,rot};
+  if(!DOORS.has(kind)) return {p:[Math.round(p[0]/g)*g,Math.round(p[1]/g)*g],rot};
+  const v=[Math.round(p[0]/c)*c, Math.floor(p[1]/c)*c+g], h=[Math.floor(p[0]/c)*c+g, Math.round(p[1]/c)*c], fl=q=>isLandAt(q);
+  const passV = fl([v[0]-g,v[1]]) && fl([v[0]+g,v[1]]) && !fl([v[0],v[1]-g]) && !fl([v[0],v[1]+g]), passH = fl([h[0],h[1]-g]) && fl([h[0],h[1]+g]) && !fl([h[0]-g,h[1]]) && !fl([h[0]+g,h[1]]);      // a passage runs through a vertical edge when floor lies either side of it
+  const useV = passV!==passH ? passV : dist(p,v)<dist(p,h);
+  return useV ? {p:v,rot:90+(rot||0)} : {p:h,rot:rot||0}; }
+function placeStamp(p,vary,rot){ const kind=opts.stamp, base=opts.stampSizes[groupOf(kind)], v=Math.random(), n=VARIANTS[kind]||1; let r0=rot ?? opts.stampRot; if(DUNG()){ const d=dungSnap(kind,p,r0); p=d.p; r0=d.rot; }
+  const o={kind,x:Math.round(p[0]),y:Math.round(p[1]),size:Math.round(vary?base*(.82+.36*v):base),rot:r0,v};
   if(n>1) o.var = opts.stampVar==='shuffle' ? Math.floor(Math.random()*n) : opts.stampVar%n;
   if(TINTS[kind]) o.tint=opts.stampTint[kind]||TINTS[kind][0];
   if(opts.stampFlip==='on' || (opts.stampFlip==='shuffle' && vary && Math.random()<.5)) if(!STAMP_GROUPS[groupOf(kind)].align) o.flip=true;      // Random: about half of the stamps laid down by dragging are mirrored
@@ -1757,7 +1918,7 @@ function touches(a,b){ landPath(a); landPath(b); const A=built.get(a), B=built.g
   if(A.bb[0]>B.bb[2]||B.bb[0]>A.bb[2]||A.bb[1]>B.bb[3]||B.bb[1]>A.bb[3]) return false;
   return A.poly.some((p,i)=>i%2===0 && inLand(b,p)) || B.poly.some((p,i)=>i%2===0 && inLand(a,p)); }
 function landGroup(l){        // every land shape that overlaps this one, directly or through others: one landmass
-  if(l.mode==='sea') return [l];
+  if(l.mode==='sea' || S.kind==='dungeon') return [l];      // (in a dungeon each room or corridor is picked on its own)
   const lands=S.lands.filter(o=>o.mode!=='sea'), g=[l], seen=new Set(g);
   for(let i=0;i<g.length;i++) for(const o of lands) if(!seen.has(o) && touches(g[i],o)){ seen.add(o); g.push(o); }
   return g; }
@@ -1846,12 +2007,14 @@ cv.addEventListener('pointerdown',e=>{
     const [a,b]=[...pointers.values()]; pinch={d:dist(a,b),cx:(a[0]+b[0])/2,cy:(a[1]+b[1])/2}; invalidate(); return; }
   const p=toWorld(e), t=opts.tool;
   if(e.button===1 || t==='pan' || spaceDown){ act={type:'pan',sx:e.clientX,sy:e.clientY,vx:view.x,vy:view.y}; return; }
-  if(e.button===2 && t!=='land' && t!=='cliff') return;
+  if(DUNG() && (t==='corridor'||t==='dwall'||(t==='room'&&opts.roomShape==='poly'))){ if(e.button===2){ if(draft){ draft.pts.pop(); if(!draft.pts.length) draft=null; invalidate(); } return; } draftClick(p,opts.roomCut&&t!=='dwall'); return; }
+  if(e.button===2 && t!=='land' && t!=='cliff' && t!=='room') return;
   const lmode = (e.button===2)!==(opts.landPrimary==='sea') ? 'sea' : 'land';   // right button does the opposite of the left
   if(t==='cliff'){ const cm = (e.button===2)!==(opts.cliffPrimary==='down') ? 'down' : 'up';
     if(opts.cliffMode==='brush'){ pushUndo(); const c={mode:cm,brush:true,pts:[],size:opts.cliffBrush,rough:opts.cliffRough,seed:rseed(),h:opts.cliffH,taper:0,dir:-90}; act={type:'cbrush',pts:c.pts,cliff:c,pushed:true}; addPoint(act,p,0); S.cliffs=[...S.cliffs,c]; need.compose='fast'; }
     else { act={type:'shape',mode:cm,cliff:true,pts:[]}; addPoint(act,p,0); } }
   else if(landBrushOn()){ pushUndo(); const land={mode:lmode,brush:true,pts:[],size:opts.landBrush,rough:opts.landRough,seed:rseed(),t:++S.tick}; act={type:'lbrush',pts:land.pts,land,pushed:true}; addPoint(act,p,0); S.lands=[...S.lands,land]; need.land=true; need.compose='fast'; }
+  else if(t==='room'){ const cut=(e.button===2)!==opts.roomCut; if(opts.roomShape==='cave'){ act={type:'shape',mode:cut?'sea':'land',cave:true,pts:[]}; addPoint(act,p,0); } else act={type:'drect',shape:opts.roomShape,mode:cut?'sea':'land',a:gsnap(p),b:gsnap(p)}; }
   else if(t==='land'){ act={type:'shape',mode:lmode,pts:[]}; addPoint(act,p,0); }
   else if(LINES[t]){ act={type:'line',kind:t,pts:[]}; addPoint(act,p,0); }
   else if(t==='paint'){ const water=opts.paintLayer==='water', stroke={type:water?opts.water:opts.terrain,size:opts.brush,hard:opts.hard,op:opts.bop,pts:[]}; if(water) stroke.w=true; act={type:'paint',pts:stroke.pts,stroke}; addPoint(act,p,0); need.compose='fast'; }
@@ -1874,13 +2037,14 @@ cv.addEventListener('pointermove',e=>{
   if(pinch && pointers.size===2){ const [a,b]=[...pointers.values()], d=dist(a,b), cx=(a[0]+b[0])/2, cy=(a[1]+b[1])/2, r=cv.getBoundingClientRect();
     view.x+=cx-pinch.cx; view.y+=cy-pinch.cy; zoomAt(cx-r.left,cy-r.top,d/(pinch.d||1)); pinch={d,cx,cy}; return; }
   const p=toWorld(e); hover=p;
-  if(!act){ if(opts.tool==='paint'||opts.tool==='stamp'||opts.tool==='cliff'||opts.tool==='reshape'||landBrushOn()) invalidate(); return; }
+  if(!act){ if(draft || (DUNG() && (opts.tool==='room'||opts.tool==='corridor'||opts.tool==='dwall')) || opts.tool==='paint'||opts.tool==='stamp'||opts.tool==='cliff'||opts.tool==='reshape'||landBrushOn()) invalidate(); return; }
   if(act.type==='pan'){ view.x=act.vx+e.clientX-act.sx; view.y=act.vy+e.clientY-act.sy; }
   else if(act.type==='xf') xfApply(p);
   else if(act.type==='pull'){ const a=act, dx=p[0]-a.start[0], dy=p[1]-a.start[1]; if(!a.moved){ if(Math.hypot(dx,dy)<3/view.k) return; pushUndo(); a.moved=true; }
     const n={...a.cur,pts:a.orig.map((q,i)=>a.w[i]?[q[0]+dx*a.w[i],q[1]+dy*a.w[i]]:q)}; S[a.key]=S[a.key].map(o=>o===a.cur?n:o); a.cur=n; shapeDirty(a.key,n,false); }
   else if(act.type==='cut'){ cutLines(p); }
   else if(act.type==='box') act.b=p;
+  else if(act.type==='drect') act.b=gsnap(p);
   else if(act.type==='shape'||act.type==='line'||act.type==='fill'||act.type==='measure') addPoint(act,p,5);
   else if(act.type==='cbrush'){ if(addPoint(act,p,6)){ const nc={...act.cliff}; S.cliffs=S.cliffs.map(o=>o===act.cliff?nc:o); act.cliff=nc; need.compose='fast'; } }
   else if(act.type==='cheight' && sel){ if(!act.moved){ pushUndo(); act.moved=true; }   // drag up for a plateau, down past level for a pit
@@ -1909,11 +2073,14 @@ function endPointer(e){
     if(Math.hypot(a.b[0]-a.a[0],a.b[1]-a.a[1])<4/view.k) sel=a.click;
     else { const it=boxSelect(a.a,a.b); sel = !it.length ? null : it.length>1 ? {type:'multi',items:it} : it[0].type==='land' ? {...it[0],group:landGroup(it[0].obj)} : it[0]; }
     renderPanel(); }
+  else if(a.type==='drect'){ const w=Math.abs(a.b[0]-a.a[0]), h=Math.abs(a.b[1]-a.a[1]);
+    if(w>=cellSz()*.45 && h>=cellSz()*.45){ pushUndo(); const x0=Math.min(a.a[0],a.b[0]), x1=Math.max(a.a[0],a.b[0]), y0=Math.min(a.a[1],a.b[1]), y1=Math.max(a.a[1],a.b[1]);
+      S.lands=[...S.lands,{mode:a.mode,floor:1,...(a.shape==='ellipse'?{pts:ellipsePts([x0,y0],[x1,y1]),rough:0}:{sharp:true,pts:[[x0,y0],[x1,y0],[x1,y1],[x0,y1]],rough:0}),seed:rseed(),t:++S.tick,tex:opts.roomTex}]; need.land=true; need.compose='full'; } }
   else if(a.type==='shape'){ const xs=a.pts.map(p=>p[0]), ys=a.pts.map(p=>p[1]);
     if(a.pts.length>=4 && Math.max(...xs)-Math.min(...xs)>14 && Math.max(...ys)-Math.min(...ys)>14 && a.cliff){ pushUndo();
       S.cliffs=[...S.cliffs,{mode:a.mode,pts:resample(a.pts,10,true),rough:opts.cliffRough,seed:rseed(),h:opts.cliffH,taper:0,dir:-90}]; need.compose='full'; }
     else if(a.pts.length>=4 && Math.max(...xs)-Math.min(...xs)>14 && Math.max(...ys)-Math.min(...ys)>14){ pushUndo();
-      S.lands=[...S.lands,{mode:a.mode,pts:resample(a.pts,10,true),rough:opts.landRough,seed:rseed(),t:++S.tick}]; need.land=true; need.compose='full'; } }
+      S.lands=[...S.lands,{mode:a.mode,pts:resample(a.pts,10,true),rough:a.cave?opts.caveRough:opts.landRough,seed:rseed(),t:++S.tick,...(a.cave?{floor:1,tex:opts.roomTex==='flag'?'dirt':opts.roomTex}:{})}]; need.land=true; need.compose='full'; } }
   else if(a.type==='line'){ if(a.pts.length>=3){ pushUndo(); S.lines=[...S.lines,withLy({kind:a.kind,pts:resample(a.pts,10,a.kind==='realm'),rough:opts.lineRough,width:opts.lineWidth[a.kind],seed:rseed(),...(a.kind==='realm'?{fill:opts.realmFill}:{}),...(a.kind==='fence'?{style:opts.fenceStyle}:{})})]; if(a.kind==='river'){ need.land=true; need.compose='full'; } } }
   else if(a.type==='paint'){ pushUndo(); S.paints=[...S.paints,{...a.stroke,t:++S.tick}]; need.compose='full'; }
   else if(a.type==='lbrush'){ need.land=true; need.compose='full'; }
@@ -1944,11 +2111,14 @@ window.addEventListener('keydown',e=>{
   if(mod && e.key.toLowerCase()==='z'){ e.preventDefault(); e.shiftKey?redo():undo(); }
   else if(mod && e.key.toLowerCase()==='y'){ e.preventDefault(); redo(); }
   else if(e.key===' '){ spaceDown=true; e.preventDefault(); }
+  else if(draft && e.key==='Enter'){ e.preventDefault(); draftEnd(); }
+  else if(draft && e.key==='Escape'){ draft=null; invalidate(); }
+  else if(draft && e.key==='Backspace'){ e.preventDefault(); draft.pts.pop(); if(!draft.pts.length) draft=null; invalidate(); }
   else if((e.key==='Delete'||e.key==='Backspace') && sel){ e.preventDefault(); deleteSel(); }
   else if(sel && e.key.startsWith('Arrow')){ e.preventDefault(); const d=e.shiftKey?20:2; nudgeSel(e.key==='ArrowLeft'?-d:e.key==='ArrowRight'?d:0, e.key==='ArrowUp'?-d:e.key==='ArrowDown'?d:0); }
   else if(mod && e.key.toLowerCase()==='d' && sel){ e.preventDefault(); $('selDup')?.click(); }
   else if(e.key==='Escape'){ sel=null; renderPanel(); invalidate(); }
-  else if(!mod){ const t=TOOLS.find(t=>t.key===e.key.toLowerCase()); if(t) setTool(t.id); }
+  else if(!mod){ const mode=S.kind==='dungeon'?'d':'w', t=TOOLS.find(t=>t.key===e.key.toLowerCase() && (!t.m || t.m===mode)); if(t) setTool(t.id); }
 });
 window.addEventListener('keyup',e=>{ if(e.key===' ') spaceDown=false; });
 function deleteSel(){ if(!sel) return; pushUndo(); const gone=new Set([...selItems().map(it=>it.obj),...ridersOn(selLands()).flatMap(r=>r[1])]); selDirty(true);
@@ -1958,6 +2128,7 @@ function deleteSel(){ if(!sel) return; pushUndo(); const gone=new Set([...selIte
 const ICON = {
   select:'<path d="M5 3l12 7-5 2 3 6-2 1-3-6-4 4z"/>', reshape:'<path d="M3 17c4-9 8 3 12-6M15 11l5-6M20 5l-4 .5M20 5l-.5 4"/>', pan:'<path d="M12 3v18M3 12h18M12 3l-3 3M12 3l3 3M12 21l-3-3M12 21l3-3M3 12l3-3M3 12l3 3M21 12l-3-3M21 12l-3 3"/>',
   land:'<path d="M4 13c0-5 4-8 8-8s9 2 8 7-4 3-6 6-10 1-10-5z"/>', sea:'<path d="M3 9c2-2 4-2 6 0s4 2 6 0 4-2 6 0M3 15c2-2 4-2 6 0s4 2 6 0 4-2 6 0"/>',
+  room:'<path d="M4 5h16v14H4z M4 12h5M15 12h5"/>', corridor:'<path d="M3 9h12v6H3M15 9v-5h6v16h-6v-5"/>', dwall:'<path d="M3 12h18M7 12v-4M12 12v4M17 12v-4"/>',
   paint:'<path d="M14 4l6 6-8 8H6v-6z M4 21h16"/>', cliff:'<path d="M3 8h11l7 4M3 8v9M6.5 8v7M10 8v9M14 8v8M17.5 10v6M21 12v5"/>', river:'<path d="M7 3c-3 5 6 6 3 10s4 5 6 8"/>', road:'<path d="M5 20L10 4M19 20L14 4M12 6v2M12 11v2M12 16v2"/>',
   border:'<path d="M3 17l4-8 5 5 4-9 5 7" stroke-dasharray="4 3"/>', stamp:'<path d="M4 20V11l4-4 4 4v9zM12 20v-6l4-3 4 3v6z"/>', label:'<path d="M5 6h14M12 6v13M9 19h6"/>', realm:'<path d="M4 9l5-5 8 2 3 7-4 7-9-1z" stroke-dasharray="3 2"/><path d="M8 10l2 2M12 8l2 2M9 14l2 2M13 12l2 2"/>', street:'<path d="M3 9h8V3M3 15h8v6M15 3v6h6M15 21v-6h6"/>', wall:'<path d="M3 18V9h3v3h3V9h3v3h3V9h3v3h3v6z"/>', fence:'<path d="M3 10h18M3 15h18M6 7v11M12 7v11M18 7v11"/>', measure:'<path d="M3 16l13-13 5 5-13 13zM7 12l2 2M10 9l2 2M13 6l2 2"/>',
 };
@@ -1965,25 +2136,31 @@ const TOOLS = [
   {g:'Edit', id:'select', name:'Select', key:'v', hint:'Click to select, or drag a box around several things. Drag a selection to move it. Middle-click or hold Space to pan.'},
   {id:'reshape', name:'Reshape', key:'e', hint:'Drag a coastline, river, road, border or cliff edge to pull it into a new shape.'},
   {id:'pan', name:'Pan', key:'h', hint:'Drag to move around. Scroll or pinch to zoom. Middle-click or Space does the same from any tool.'},
-  {g:'Shape', id:'land', name:'Land', key:'l', hint:'Left-drag a loop to raise land. Right-drag a loop to carve sea or a lake.'},
-  {id:'cliff', name:'Cliffs', key:'c', hint:'Left-drag raises the land into a plateau with cliffs. Right-drag lowers it again.'},
-  {id:'paint', name:'Terrain', key:'t', hint:'Paint ground onto the land, or switch to Water to paint the sea and lakes.'},
-  {g:'Lines', id:'river', name:'River', key:'r', hint:'Draw a river from source to mouth.'},
-  {id:'road', name:'Road', key:'d', hint:'Draw a road between places.'},
-  {id:'border', name:'Border', key:'b', hint:'Draw a border between realms.'},
-  {id:'realm', name:'Realm', key:'k', hint:'Draw a loop round a territory. It is marked along the inside of its edge, on land only.'},
-  {g:'City', id:'street', name:'Street', key:'s', hint:'Draw a street. Where streets meet or cross they join into one junction.'},
-  {id:'fence', name:'Fence', key:'f', hint:'Draw a hedge, fence, field wall or palisade, for plots and outworks.'},
-  {id:'wall', name:'Wall', key:'w', hint:'Draw a town wall. Towers are set along it; a street drawn across it makes a gate.'},
+  {g:'Shape', id:'land', m:'w', name:'Land', key:'l', hint:'Left-drag a loop to raise land. Right-drag a loop to carve sea or a lake.'},
+  {id:'cliff', m:'w', name:'Cliffs', key:'c', hint:'Left-drag raises the land into a plateau with cliffs. Right-drag lowers it again.'},
+  {id:'paint', m:'w', name:'Terrain', key:'t', hint:'Paint ground onto the land, or switch to Water to paint the sea and lakes.'},
+  {g:'Dungeon', id:'room', m:'d', name:'Room', key:'o', hint:'Drag to draw a room. Choose Rectangle, Ellipse, Polygon or Cave below. Right-drag cuts a hole out of the floor.'},
+  {id:'corridor', m:'d', name:'Corridor', key:'i', hint:'Click along the passage, double-click or press Enter to finish. The width is in squares.'},
+  {id:'dwall', m:'d', name:'Wall', key:'p', hint:'Draw an inner wall across a room. Click along it, double-click or press Enter to finish.'},
+  {g:'Lines', id:'river', m:'w', name:'River', key:'r', hint:'Draw a river from source to mouth.'},
+  {id:'road', m:'w', name:'Road', key:'d', hint:'Draw a road between places.'},
+  {id:'border', m:'w', name:'Border', key:'b', hint:'Draw a border between realms.'},
+  {id:'realm', m:'w', name:'Realm', key:'k', hint:'Draw a loop round a territory. It is marked along the inside of its edge, on land only.'},
+  {g:'City', id:'street', m:'w', name:'Street', key:'s', hint:'Draw a street. Where streets meet or cross they join into one junction.'},
+  {id:'fence', m:'w', name:'Fence', key:'f', hint:'Draw a hedge, fence, field wall or palisade, for plots and outworks.'},
+  {id:'wall', m:'w', name:'Wall', key:'w', hint:'Draw a town wall. Towers are set along it; a street drawn across it makes a gate.'},
   {g:'Mark', id:'stamp', name:'Stamp', key:'m', hint:'Click to place one. Drag with trees or mountains to scatter many.'},
   {id:'label', name:'Label', key:'a', hint:'Click where the name should go, then type it.'},
   {g:'Check', id:'measure', name:'Measure', key:'g', hint:'Drag along a route to read its length. Nothing is added to the map.'},
 ];
-function buildRail(){ $('rail').innerHTML = TOOLS.map(t=>`${t.g?`<h3>${t.g}</h3>`:''}<button class="tool" data-tool="${t.id}" title="${t.name} (${t.key.toUpperCase()})" aria-pressed="false"><svg viewBox="0 0 24 24">${ICON[t.id]}</svg>${t.name}</button>`).join('');
+let railBound=false;
+function buildRail(){ const mode=S.kind==='dungeon'?'d':'w'; let pend=null, h='';      // world tools and dungeon tools are offered by map kind; a hidden tool hands its heading to the next one shown
+  for(const t of TOOLS){ if(t.g) pend=t.g; if(t.m && t.m!==mode) continue; h+=`${pend?`<h3>${pend}</h3>`:''}<button class="tool" data-tool="${t.id}" title="${t.name} (${t.key.toUpperCase()})" aria-pressed="false"><svg viewBox="0 0 24 24">${ICON[t.id]}</svg>${t.name}</button>`; pend=null; }
+  $('rail').innerHTML=h; if(railBound) return; railBound=true;
   $('rail').addEventListener('click',e=>{ const b=e.target.closest('[data-tool]'); if(!b) return;
     if(PHONE && b.dataset.tool===opts.tool) document.body.classList.toggle('drawer-open');     // on a phone, tapping the tool you're on opens its settings
     else { setTool(b.dataset.tool); document.body.classList.remove('drawer-open'); } }); }
-function setTool(id){ opts.tool=id; if(id!=='select') sel=null;
+function setTool(id){ opts.tool=id; draft=null; if(id!=='select') sel=null;
   document.querySelectorAll('.tool').forEach(b=>b.setAttribute('aria-pressed',b.dataset.tool===id));
   $('hint').textContent = landBrushOn() ? 'Left-drag paints land. Right-drag paints sea over it.' : TOOLS.find(t=>t.id===id).hint; cv.style.cursor = id==='pan'?'grab': id==='select'?'default':'crosshair'; renderPanel(); invalidate(); }
 
@@ -1999,15 +2176,25 @@ function lookControls(kind,curVar,curTint,shuffle){     // shape and colour pick
   const n=VARIANTS[kind]||1, tints=TINTS[kind]; let h='';
   if(n>1) h+=`<p class="grp">Shape</p><div class="stamps" id="varPick">${shuffle?`<button data-var="shuffle" aria-pressed="${curVar==='shuffle'}"><span class="shuf">⤮</span>shuffle</button>`:''}${Array.from({length:n},(_,i)=>`<button data-var="${i}" aria-pressed="${curVar===i}"><canvas width="88" height="88" data-kind="${kind}" data-var="${i}" data-tint="${curTint||''}"></canvas>${i+1}</button>`).join('')}</div>`;
   return h; }
+const FLOORS=[['flag','Flagstone'],['plank','Planks'],['dirt','Earth'],['none','Plain']];
+function dungToolPanel(t){ const chips=(id,items,cur,attr)=>`<div class="chips" id="${id}">${items.map(([k,n])=>`<button class="chip" data-${attr}="${k}" aria-pressed="${String(cur)===String(k)}">${n}</button>`).join('')}</div>`;
+  let h=`<section><h2>${t==='room'?'Room':t==='corridor'?'Corridor':'Inner wall'}</h2>`;
+  if(t==='room') h+=`<p class="grp">Shape</p>${chips('roomShape',[['rect','Rectangle'],['ellipse','Ellipse'],['poly','Polygon'],['cave','Cave']],opts.roomShape,'shape')}<p>${{rect:'Drag out a rectangle. It snaps to the squares, and its size is shown in squares.',ellipse:'Drag out a round or oval room.',poly:'Click the corners. Click the first corner again, double-click or press Enter to close it. Right-click takes back a corner.',cave:'Drag a rough loop for a cavern. It is not snapped to the grid.'}[opts.roomShape]}</p>`;
+  if(t==='corridor') h+=`<p class="grp">Width</p>${chips('corrW',[[1,'1 square'],[2,'2 squares'],[3,'3 squares']],Math.round(opts.corrW),'cw')}<p>Click along the passage. Double-click or press Enter to finish; right-click takes back a point. It runs down the middle of its squares.</p>`;
+  if(t==='dwall') h+=slider('dwallW','Thickness',2,14,.5,opts.lineWidth.dwall,v=>v)+`<p>Click along the wall. Double-click or press Enter to finish; right-click takes back a point. Doors and arches are in Stamps, Doors.</p>`;
+  if(t!=='dwall'){ h+=`<p class="grp">This draws</p>${chips('roomCut',[[0,'Floor'],[1,'A hole in the floor']],opts.roomCut?1:0,'cut')}`; if(!opts.roomCut) h+=`<p class="grp">Floor</p>${chips('roomTex',FLOORS,opts.roomTex,'tex')}`; if(t==='room' && opts.roomShape!=='poly') h+=`<p>Right button does the opposite.</p>`; }
+  h+=`<div class="layer"><span>Snap to grid</span><label><input type="checkbox" id="snapOn" ${opts.snap?'checked':''}>on</label><label><input type="checkbox" id="snapFine" ${opts.snapFine?'checked':''}>half</label></div></section>`; return h; }
+function dungSelPanel(o){ return `<section><h2>${o.mode==='sea'?'Hole in the floor':o.brush?'Corridor':o.sharp?'Room':'Cave or round room'}</h2>${o.mode==='sea'?'':`<p class="grp">Floor</p><div class="chips" id="selTex">${FLOORS.map(([k,n])=>`<button class="chip" data-tex="${k}" aria-pressed="${(o.tex||'none')===k}">${n}</button>`).join('')}</div>`}${o.brush?slider('selBrush','Width',20,600,2,o.size,num):''}${!o.sharp?slider('selRough','Edge',0,1,.01,o.rough,pct)+'<div class="ends"><span>smooth</span><span>rough</span></div>':''}</section>`; }
 function renderPanel(){
   const t=opts.tool; let h = PHONE ? '<button class="btn" id="drawerX">Close settings</button>' : '';
   if(t==='select'){
-    if(!sel) h+=`<section><h2>Select</h2><p>Click a landmass, river, road, border, settlement or label to change it.</p></section>`;
+    if(!sel) h+=`<section><h2>Select</h2><p>${DUNG()?'Click a room, corridor, wall, stamp or label to change it. Drag to move it.':'Click a landmass, river, road, border, settlement or label to change it.'}</p></section>`;
     else if(sel.type==='multi'){ h+=`<section><h2>${sel.items.length} selected</h2><p>Drag any of them to move the lot.</p>${sel.items.some(i=>i.type==='stamp')?ORDER_BUTTONS:''}</section><div class="btnrow"><button class="btn" id="selDup">Duplicate</button><button class="btn danger" id="selDel">Delete</button></div>`; }
     else { const o=sel.obj;
       if(sel.type==='cliff') h+=`<section><h2>${o.mode==='down'?'Lowered area':(o.h ?? 26)<0?'Pit':'Cliff'}</h2>${o.mode==='up'?slider('selH','Height',-220,140,1,o.h ?? 26,num)+'<div class="ends"><span>deep pit</span><span>high cliff</span></div><p>Or drag the round grip under the shape: up raises it, down past level sinks it into a pit. Deep pits fade to black.</p>'+slider('selTaper','Taper',0,1,.01,o.taper||0,pct)+'<div class="ends"><span>even</span><span>ramps to nothing</span></div>'+slider('selDir','Direction',-180,180,1,o.dir ?? -90,deg)+'<p>Drag the arrow on the map to set both at once. It points from the low end to the high end.</p>':''}
         ${slider('selRough','Edge',0,1,.01,o.rough,pct)}<div class="ends"><span>smooth</span><span>jagged</span></div>${o.brush?slider('selBrush','Width',20,600,2,o.size,num):''}<div class="btnrow"><button class="btn" id="selSeed">Reshuffle edge</button></div></section>`;
-      if(sel.type==='land') h+=`<section><h2>${o.mode==='sea'?'Sea shape':'Landmass'}</h2>${sel.group.length>1?`<p>${sel.group.length} overlapping shapes, joined into one landmass.</p>`:''}${slider('selRough','Coastline',0,1,.01,o.rough,pct)}<div class="ends"><span>smooth</span><span>jagged</span></div>${sel.group.some(g=>g.brush)?slider('selBrush','Width',20,600,2,(sel.group.find(g=>g.brush)).size,num):''}<div class="btnrow"><button class="btn" id="selSeed">Reshuffle coast</button></div></section>`;
+      if(sel.type==='land' && DUNG()) h+=dungSelPanel(o);
+      if(sel.type==='land' && !DUNG()) h+=`<section><h2>${o.mode==='sea'?'Sea shape':'Landmass'}</h2>${sel.group.length>1?`<p>${sel.group.length} overlapping shapes, joined into one landmass.</p>`:''}${slider('selRough','Coastline',0,1,.01,o.rough,pct)}<div class="ends"><span>smooth</span><span>jagged</span></div>${sel.group.some(g=>g.brush)?slider('selBrush','Width',20,600,2,(sel.group.find(g=>g.brush)).size,num):''}<div class="btnrow"><button class="btn" id="selSeed">Reshuffle coast</button></div></section>`;
       if(sel.type==='line') h+=`<section><h2>${LINES[o.kind].name}</h2>${slider('selRough','Wander',0,1,.01,o.rough,pct)}${slider('selWidth','Width',1,60,.5,o.width,v=>v)}${o.kind==='fence'?`<p class="grp">Kind</p><div class="chips" id="selFence">${[['hedge','Hedge'],['fence','Fence'],['wall','Field wall'],['palisade','Palisade']].map(([k,n])=>`<button class="chip" data-fstyle="${k}" aria-pressed="${(o.style||'hedge')===k}">${n}</button>`).join('')}</div>`:''}${o.kind==='realm'?`<p class="grp">Marked by</p><div class="chips three" id="selFill">${[['band','Fringe'],['hatch','Hatching'],['dots','Stipple']].map(([k,n])=>`<button class="chip" data-rfill="${k}" aria-pressed="${(o.fill||'band')===k}">${n}</button>`).join('')}</div>`:''}<div class="btnrow"><button class="btn" id="selSeed">Reshuffle bends</button></div></section>`;
       if(S.layers.length>1 && ['stamp','label','line','multi'].includes(sel.type)){ const cur=sel.type==='multi'?'':lyOf(o); h+=`<section><label class="row wide" for="selLayer">Layer<select id="selLayer">${sel.type==='multi'?'<option value="" selected disabled>Move to…</option>':''}${S.layers.slice().reverse().map(L=>`<option value="${L.id}"${L.id===cur?' selected':''}>${L.name.replace(/</g,'&lt;')}</option>`).join('')}</select></label></section>`; }
       if(sel.type==='stamp') h+=`<section><h2>${groupOf(o.kind)}</h2>${stampGrid('selKinds',STAMP_GROUPS[groupOf(o.kind)].kinds,o.kind)}${lookControls(o.kind,stampLook(o).n,stampLook(o).tint,false)}${slider('selSize','Size',14,200,1,o.size,num)}${slider('selRot','Rotation',-180,180,1,o.rot,deg)}
@@ -2018,6 +2205,7 @@ function renderPanel(){
         ${slider('selSize','Size',10,160,1,o.size,num)}${slider('selRot','Rotation',-180,180,1,o.rot,deg)}${slider('selSpace','Spacing',0,1.5,.01,o.spacing ?? (LABEL_STYLES[o.style]||LABEL_STYLES.place).spacing,pct)}${slider('selBend','Curve',-1,1,.01,o.bend||0,pct)}<div class="ends"><span>dips</span><span>arches</span></div><p>Double-click a label to retype it on the map. A new line in the text makes a second line.</p></section>`;
       h+=`<div class="btnrow"><button class="btn" id="selDup">Duplicate</button><button class="btn danger" id="selDel">Delete</button></div>`; }
   }
+  if(t==='room'||t==='corridor'||t==='dwall') h+=dungToolPanel(t);
   if(t==='land') h+=`<section><h2>Land &amp; sea</h2><p>Left button raises land. Right button carves sea. Both use these settings.</p>
     <p class="grp">Brush type</p><div class="chips" id="landModes"><button class="chip" data-mode="outline" aria-pressed="${opts.landMode==='outline'}">Outline</button><button class="chip" data-mode="brush" aria-pressed="${opts.landMode==='brush'}">Brush</button></div>
     <p>${opts.landMode==='brush' ? 'Paints as you drag.' : 'Draw a loop and it fills in when you let go.'}</p>
@@ -2034,7 +2222,7 @@ function renderPanel(){
     ${groups.map(g=>`<p class="grp">${g}</p><div class="chips">${Object.entries(INKS).filter(([k,v])=>v.g===g).map(([k,v])=>`<button class="chip" data-terr="${k}" aria-pressed="${k===cur||DEF[cur]?.tex===v.tex}">${v.name}</button>`).join('')}</div>`).join('')}
     <div class="chips"><button class="chip" data-terr="erase" aria-pressed="${cur==='erase'}"><i style="background:${water?MAP.water:MAP.land}"></i>Eraser</button></div>${slider('brush','Brush',16,400,2,opts.brush,num)}${slider('hard','Hardness',0,1,.01,opts.hard,pct)}<div class="ends"><span>soft edge</span><span>hard edge</span></div>${slider('bop','Opacity',.05,1,.01,opts.bop,pct)}
     <p>${water?'Water paint goes on the sea and lakes. Land always sits on top of it.':'Ground paint goes onto the land. Add trees and mountains from Stamps.'}</p></section>`; }
-  if(LINES[t]) h+=`<section><h2>${LINES[t].name}</h2>${slider('lineRough','Wander',0,1,.01,opts.lineRough,pct)}<div class="ends"><span>straight</span><span>winding</span></div>${slider('lineWidth','Width',1,60,.5,opts.lineWidth[t],v=>v)}${t==='fence'?`<p class="grp">Kind</p><div class="chips" id="fenceStyle">${[['hedge','Hedge'],['fence','Fence'],['wall','Field wall'],['palisade','Palisade']].map(([k,n])=>`<button class="chip" data-fstyle="${k}" aria-pressed="${(opts.fenceStyle)===k}">${n}</button>`).join('')}</div>`:''}${t==='street'?`<p class="grp">Kind</p><div class="chips" id="streetKind">${[[5,'Lane'],[8,'Street'],[12,'Avenue'],[46,'Square']].map(([w,n])=>`<button class="chip" data-sw="${w}" aria-pressed="${opts.lineWidth.street===w}">${n}</button>`).join('')}</div><p>For a square, pick Square and make a very short stroke. Then use the Stamp tool, City, Houses and “Fills an area” to line the streets with buildings.</p>`:''}${t==='realm'?`<p class="grp">Marked by</p><div class="chips three" id="realmFill">${[['band','Fringe'],['hatch','Hatching'],['dots','Stipple']].map(([k,n])=>`<button class="chip" data-rfill="${k}" aria-pressed="${(opts.realmFill)===k}">${n}</button>`).join('')}</div><p>Draw right round the territory; the loop closes itself. Anything over the sea is left out.</p>`:''}</section>`;
+  if(LINES[t] && t!=='dwall') h+=`<section><h2>${LINES[t].name}</h2>${slider('lineRough','Wander',0,1,.01,opts.lineRough,pct)}<div class="ends"><span>straight</span><span>winding</span></div>${slider('lineWidth','Width',1,60,.5,opts.lineWidth[t],v=>v)}${t==='fence'?`<p class="grp">Kind</p><div class="chips" id="fenceStyle">${[['hedge','Hedge'],['fence','Fence'],['wall','Field wall'],['palisade','Palisade']].map(([k,n])=>`<button class="chip" data-fstyle="${k}" aria-pressed="${(opts.fenceStyle)===k}">${n}</button>`).join('')}</div>`:''}${t==='street'?`<p class="grp">Kind</p><div class="chips" id="streetKind">${[[5,'Lane'],[8,'Street'],[12,'Avenue'],[46,'Square']].map(([w,n])=>`<button class="chip" data-sw="${w}" aria-pressed="${opts.lineWidth.street===w}">${n}</button>`).join('')}</div><p>For a square, pick Square and make a very short stroke. Then use the Stamp tool, City, Houses and “Fills an area” to line the streets with buildings.</p>`:''}${t==='realm'?`<p class="grp">Marked by</p><div class="chips three" id="realmFill">${[['band','Fringe'],['hatch','Hatching'],['dots','Stipple']].map(([k,n])=>`<button class="chip" data-rfill="${k}" aria-pressed="${(opts.realmFill)===k}">${n}</button>`).join('')}</div><p>Draw right round the territory; the loop closes itself. Anything over the sea is left out.</p>`:''}</section>`;
   if(t==='stamp'){ const g=groupOf(opts.stamp), sc=STAMP_GROUPS[g].scatter, set=STAMP_SETS[opts.stampSet];
     h+=`<section id="stampKinds"><h2>Stamps</h2><div class="chips three" id="stampSets">${Object.entries(STAMP_SETS).map(([k,v])=>`<button class="chip" data-set="${k}" aria-pressed="${k===opts.stampSet}">${v.name}</button>`).join('')}</div>
     ${set.groups.length ? set.groups.map(n=>`<p class="grp">${n}</p>${stampGrid('sg_'+n,STAMP_GROUPS[n].kinds,opts.stamp)}`).join('') : `<p>${set.empty}</p>`}</section>`;
@@ -2046,7 +2234,7 @@ function renderPanel(){
   if(t==='pan') h+=`<section><h2>Pan</h2><p>Hold Space with any tool to pan without switching.</p></section>`;
   h+=`<hr><section><h2>Detail</h2>${PHONE?'<p>Phone mode draws at reduced detail.</p>':`<div class="chips" id="detailPick"><button class="chip" data-detail="1" aria-pressed="${R===1}">Normal</button><button class="chip" data-detail="${Math.min(2,maxScale())}" aria-pressed="${R>1}">High</button></div><p>High stays sharp when you zoom in, but painting and undo are slower.</p>`}</section>`;
   h+=`<hr><section><h2>Grid</h2><label class="row wide" for="gridType">Type<select id="gridType"><option value="none">None</option><option value="hex">Hex</option><option value="square">Square</option></select></label>${slider('gridSize','Cell',20,200,2,S.grid.size,num)}</section>
-  <hr><section><h2>Sheet</h2><label class="row wide" for="frameType">Border<select id="frameType"><option value="none">None</option><option value="line">Double line</option><option value="graduated">Chart border</option></select></label><div class="layer"><span>Rhumb lines</span><label><input type="checkbox" id="rhumbOn" ${S.rhumb?'checked':''}>show</label><span></span></div><p>Rhumb lines run across the sea from every compass stamp. Compass, scale and cartouche are under Stamps, Furniture.</p></section>
+  <hr><section><h2>${DUNG()?'Sheet':'Sheet'}</h2><label class="row wide" for="frameType">Border<select id="frameType"><option value="none">None</option><option value="line">Double line</option><option value="graduated">Chart border</option></select></label>${DUNG()?slider('dunHatch','Rock hatching',0,2,.05,S.dun.hatch,pct)+'<div class="layer"><span>Wall shadow</span><label><input type="checkbox" id="dunShadow" '+(S.dun.shadow?'checked':'')+'>show</label><span></span></div><p>The rock round the rooms is hatched, and a band of shading runs down the left inside of each wall.</p>':`<div class="layer"><span>Rhumb lines</span><label><input type="checkbox" id="rhumbOn" ${S.rhumb?'checked':''}>show</label><span></span></div><p>Rhumb lines run across the sea from every compass stamp. Compass, scale and cartouche are under Stamps, Furniture.</p>`}</section>
   <hr><section><h2>Layers</h2><div id="lyList">${S.layers.slice().reverse().map(L=>`<div class="lyrow${L.id===S.active?' on':''}" data-ly="${L.id}"><input type="radio" name="lyActive" ${L.id===S.active?'checked':''} aria-label="Draw on ${L.name.replace(/"/g,'')}"><input type="text" class="lyname" value="${L.name.replace(/"/g,'&quot;')}" aria-label="Layer name"><label title="Show"><input type="checkbox" data-lyv ${L.v!==false?'checked':''}>show</label><label title="Lock"><input type="checkbox" data-lyl ${L.lock?'checked':''}>lock</label><span class="lybtns"><button type="button" data-lyup title="Move up" aria-label="Move up">&#9650;</button><button type="button" data-lydn title="Move down" aria-label="Move down">&#9660;</button>${L.id==='base'?'':'<button type="button" data-lydel title="Delete layer" aria-label="Delete layer">&#215;</button>'}</span></div>`).join('')}</div>
     <div class="btnrow"><button class="btn" id="lyAdd">Add layer</button></div><p>New rivers, roads, stamps and labels go on the chosen layer. Hidden layers are left out of the exported picture.</p>
     <p class="grp">Show by kind</p>${Object.entries(layers).map(([k,l])=>`<div class="layer"><span>${l.name}</span><label><input type="checkbox" id="lv_${k}" ${l.v?'checked':''}>show</label>${'lock' in l?`<label><input type="checkbox" id="ll_${k}" ${l.lock?'checked':''}>lock</label>`:'<span></span>'}</div>`).join('')}</section>`;
@@ -2055,7 +2243,7 @@ function renderPanel(){
   bind('landRough',pct,v=>opts.landRough=v); bind('brush',num,v=>opts.brush=v); bind('lineRough',pct,v=>opts.lineRough=v); bind('lineWidth',v=>v,v=>opts.lineWidth[t]=v);
   bind('stampSize',num,v=>opts.stampSizes[groupOf(opts.stamp)]=v); bind('scatter',num,v=>opts.scatter=v); bind('fillDensity',pct,v=>opts.fillDensity=v); $('stampMode')?.addEventListener('click',e=>{ const b=e.target.closest('[data-smode]'); if(b){ opts.stampMode=b.dataset.smode; renderPanel(); invalidate(); } }); bind('landBrush',num,v=>opts.landBrush=v);
   $('flipPick')?.addEventListener('click',e=>{ const b=e.target.closest('[data-flipmode]'); if(b){ opts.stampFlip=b.dataset.flipmode; renderPanel(); invalidate(); } });
-  $('stampSets')?.addEventListener('click',e=>{ const b=e.target.closest('[data-set]'); if(b){ opts.stampSet=b.dataset.set; renderPanel(); } });
+  $('stampSets')?.addEventListener('click',e=>{ const b=e.target.closest('[data-set]'); if(b){ opts.stampSet=b.dataset.set; const gs=STAMP_SETS[opts.stampSet].groups; if(gs.length && !gs.some(g=>STAMP_GROUPS[g].kinds.includes(opts.stamp))){ opts.stamp=STAMP_GROUPS[gs[0]].kinds[0]; if(DUNG() && DUN_FOOT[opts.stamp]) opts.stampSizes[groupOf(opts.stamp)]=dungSize(opts.stamp); } renderPanel(); } });
   const selStamp = sel && sel.type==='stamp' && t==='select';
   $('varPick')?.addEventListener('click',e=>{ const b=e.target.closest('button[data-var]'); if(!b) return; const v=b.dataset.var==='shuffle'?'shuffle':+b.dataset.var;
     if(selStamp){ pushUndo(); editSel(o=>({...o,var:v})); } else opts.stampVar=v; renderPanel(); invalidate(); });
@@ -2070,9 +2258,9 @@ function renderPanel(){
   $('landModes')?.addEventListener('click',e=>{ const b=e.target.closest('[data-mode]'); if(b){ opts.landMode=b.dataset.mode; setTool(opts.tool); } }); bind('stampRot',deg,v=>opts.stampRot=v); bind('labelSize',num,v=>opts.labelSize=v);
   $('labelStyle')?.addEventListener('change',e=>opts.labelStyle=e.target.value);
   $('terrChips')?.addEventListener('click',e=>{ const l=e.target.closest('[data-layer]'), b=e.target.closest('[data-terr]'); if(l) opts.paintLayer=l.dataset.layer; else if(b) opts[opts.paintLayer==='water'?'water':'terrain']=b.dataset.terr; else return; renderPanel(); });
-  $('stampKinds')?.addEventListener('click',e=>{ const b=e.target.closest('[data-kind]'); if(b){ opts.stamp=b.dataset.kind; renderPanel(); } });
+  $('stampKinds')?.addEventListener('click',e=>{ const b=e.target.closest('[data-kind]'); if(b){ opts.stamp=b.dataset.kind; if(DUNG() && DUN_FOOT[opts.stamp]) opts.stampSizes[groupOf(opts.stamp)]=dungSize(opts.stamp); renderPanel(); } });
   $('detailPick')?.addEventListener('click',e=>{ const b=e.target.closest('[data-detail]'); if(b){ toast('Redrawing…'); setTimeout(()=>{ setDetail(+b.dataset.detail); renderPanel(); },50); } });
-  $('gridType').addEventListener('change',e=>{ pushUndo(); S.grid={...S.grid,type:e.target.value}; invalidate(); });
+  $('gridType').addEventListener('change',e=>{ pushUndo(); S.grid={...S.grid,type:e.target.value}; if(DUNG()) need.compose='full'; invalidate(); });
   $('scaleN')?.addEventListener('change',e=>{ const v=+e.target.value; if(v>0){ pushUndo(); S.scale={...S.scale,per100:v}; sprites.clear(); queueSave(); renderPanel(); invalidate(); } });
   $('scaleU')?.addEventListener('change',e=>{ pushUndo(); S.scale={...S.scale,unit:e.target.value}; queueSave(); renderPanel(); invalidate(); });
   $('fenceStyle')?.addEventListener('click',e=>{ const b=e.target.closest('[data-fstyle]'); if(b){ opts.fenceStyle=b.dataset.fstyle; renderPanel(); } });
@@ -2081,8 +2269,13 @@ function renderPanel(){
   $('realmFill')?.addEventListener('click',e=>{ const b=e.target.closest('[data-rfill]'); if(b){ opts.realmFill=b.dataset.rfill; renderPanel(); } });
   $('selFill')?.addEventListener('click',e=>{ const b=e.target.closest('[data-rfill]'); if(b && sel){ pushUndo(); editSel(o=>o.kind==='realm'?{...o,fill:b.dataset.rfill}:o); renderPanel(); invalidate(); queueSave(); } });
   $('frameType').addEventListener('change',e=>{ pushUndo(); S.frame=e.target.value; queueSave(); invalidate(); });
-  $('rhumbOn').addEventListener('change',e=>{ pushUndo(); S.rhumb=e.target.checked; rhumbFor=null; invalidate.sig=null; need.compose=need.compose||true; queueSave(); invalidate(); });
-  bind('gridSize',num,v=>S.grid={...S.grid,size:v},true);
+  $('rhumbOn')?.addEventListener('change',e=>{ pushUndo(); S.rhumb=e.target.checked; rhumbFor=null; invalidate.sig=null; need.compose=need.compose||true; queueSave(); invalidate(); });
+  bind('gridSize',num,v=>{ S.grid={...S.grid,size:v}; if(DUNG()) need.compose='full'; },true);
+  bind('dunHatch',pct,v=>{ S.dun={...S.dun,hatch:v}; need.compose='full'; },true); $('dunShadow')?.addEventListener('change',e=>{ pushUndo(); S.dun={...S.dun,shadow:e.target.checked}; need.compose='full'; invalidate(); });
+  const pick=(id,attr,fn)=>$(id)?.addEventListener('click',e=>{ const b=e.target.closest('[data-'+attr+']'); if(b){ fn(b.dataset[attr]); renderPanel(); invalidate(); } });
+  pick('roomShape','shape',v=>{ opts.roomShape=v; draft=null; }); pick('corrW','cw',v=>opts.corrW=+v); pick('roomCut','cut',v=>opts.roomCut=v==='1'); pick('roomTex','tex',v=>opts.roomTex=v);
+  $('snapOn')?.addEventListener('change',e=>opts.snap=e.target.checked); $('snapFine')?.addEventListener('change',e=>opts.snapFine=e.target.checked); bind('dwallW',v=>v,v=>opts.lineWidth.dwall=v);
+  $('selTex')?.addEventListener('click',e=>{ const b=e.target.closest('[data-tex]'); if(!b) return; pushUndo(); editSel(o=>({...o,tex:b.dataset.tex})); selDirty(true); renderPanel(); invalidate(); });
   const lyChanged=()=>{ need.land=true; need.compose='full'; sel=null; renderPanel(); invalidate(); queueSave(); };
   $('lyAdd').addEventListener('click',()=>{ pushUndo(); const id='L'+Date.now().toString(36); S.layers=[...S.layers,{id,name:'Layer '+S.layers.length,v:true,lock:false}]; S.active=id; lyChanged(); });
   $('lyList').addEventListener('change',e=>{ const row=e.target.closest('[data-ly]'); if(!row) return; const id=row.dataset.ly, t=e.target;
@@ -2144,15 +2337,15 @@ $('fileIn').onchange=e=>{ const f=e.target.files[0]; if(!f) return; const r=new 
   r.onload=()=>{ let d=null; try{ d=JSON.parse(r.result); }catch(err){} if(!validState(d)){ toast('That file is not a Wayfarer Atlas map.'); return; } addMap(d,'select').then(()=>{ $('note').hidden=true; toast('Opened '+f.name+' as a new map in Maps.'); }); };
   r.readAsText(f); e.target.value=''; };
 const genOpts={land:1,mountains:1,forests:1,rivers:1,towns:1,last:null};
-function syncGen(){ const kind=document.querySelector('input[name=start]:checked').value, on=kind!=='blank'; $('cityBox').hidden=kind!=='city'; $('genSliders').style.display=kind==='city'?'none':'flex'; $('genBox').querySelector('p').hidden=kind==='city'; $('genBox').style.opacity=on?1:.45; $('genBox').querySelectorAll('input,button').forEach(el=>el.disabled=!on); $('genLast').disabled=!on||genOpts.last===null; }
+function syncGen(){ const kind=document.querySelector('input[name=start]:checked').value, on=kind!=='blank'&&kind!=='dungeon'; $('cityBox').hidden=kind!=='city'; $('genSliders').style.display=kind==='city'||kind==='dungeongen'?'none':'flex'; $('dgSliders').style.display=kind==='dungeongen'?'flex':'none'; $('genBox').querySelector('p').hidden=kind==='city'; $('genBox').querySelector('p').textContent=kind==='dungeongen'?'The dungeon':'How much of each'; $('genBox').style.opacity=on?1:.45; $('genBox').querySelectorAll('input,button').forEach(el=>el.disabled=!on); $('genLast').disabled=!on||genOpts.last===null; }
 $('genSliders').innerHTML=[['land','Land','less','more'],['mountains','Mountains','none','many'],['forests','Forests','none','thick'],['rivers','Rivers','none','many'],['towns','Settlements','none','many']].map(([k,n,a,b])=>`<label style="display:grid;grid-template-columns:7em 2.4em 1fr 2.8em;align-items:center;gap:6px"><span>${n}</span><small style="color:var(--muted);text-align:right">${a}</small><input type="range" id="gen_${k}" aria-label="${n}" min="0" max="2" step="0.1" value="1"><small style="color:var(--muted)">${b}</small></label>`).join('');
 for(const k of ['land','mountains','forests','rivers','towns']) $('gen_'+k).addEventListener('input',e=>genOpts[k]=+e.target.value);
 document.querySelectorAll('input[name=start]').forEach(r=>r.addEventListener('change',syncGen)); $('genLast').addEventListener('click',()=>{ if(genOpts.last!==null) $('genSeed').value=genOpts.last; });
 $('newBtn').onclick=()=>{ syncGen(); $('newDlg').showModal(); };
 $('newDlg').addEventListener('close',()=>{ if($('newDlg').returnValue!=='ok') return; const v=document.querySelector('input[name=size]:checked').value.split('x').map(Number);
   const kind=document.querySelector('input[name=start]:checked').value;
-  const sd=parseInt($('genSeed').value,10), made = kind==='blank' ? blankState(v[0],v[1]) : kind==='city' ? generateCity(v[0],v[1],{size:+$('city_size').value,density:+$('city_density').value,walls:$('city_walls').checked,river:$('city_river').checked,coast:$('city_coast').checked,seed:Number.isFinite(sd)?sd:undefined}) : generateMap(v[0],v[1],kind,{...genOpts,seed:Number.isFinite(sd)?sd:undefined}); if(kind==='city'){ opts.stampSet='city'; opts.stamp='house'; opts.lineRough=.08; } if(made.gen) genOpts.last=made.gen.seed;
-  addMap(made, kind==='blank'?'land':'select').then(()=>{ $('mapName').value=S.name; $('note').hidden=true; if(kind!=='blank') toast('Generated '+S.name+' (seed '+genOpts.last+'). It is in Maps with your others.'); }); });
+  const sd=parseInt($('genSeed').value,10), made = kind==='blank' ? blankState(v[0],v[1]) : kind==='dungeon' ? blankDungeon(v[0],v[1]) : kind==='dungeongen' ? generateDungeon(v[0],v[1],{rooms:+$('dg_rooms').value,props:+$('dg_props').value,seed:Number.isFinite(sd)?sd:undefined}) : kind==='city' ? generateCity(v[0],v[1],{size:+$('city_size').value,density:+$('city_density').value,walls:$('city_walls').checked,river:$('city_river').checked,coast:$('city_coast').checked,seed:Number.isFinite(sd)?sd:undefined}) : generateMap(v[0],v[1],kind,{...genOpts,seed:Number.isFinite(sd)?sd:undefined}); if(kind==='city'){ opts.stampSet='city'; opts.stamp='house'; opts.lineRough=.08; } if(made.gen) genOpts.last=made.gen.seed;
+  addMap(made, kind==='blank'?'land':kind==='dungeon'?'room':'select').then(()=>{ $('mapName').value=S.name; $('note').hidden=true; if(kind!=='blank'&&kind!=='dungeon') toast('Generated '+S.name+' (seed '+genOpts.last+'). It is in Maps with your others.'); }); });
 $('mapsBtn').onclick=async()=>{ await saveNow(); renderMaps(); $('mapsDlg').showModal(); };
 $('mapsDlg').addEventListener('close',()=>{ if($('mapsDlg').returnValue==='new'){ syncGen(); $('newDlg').showModal(); } });
 $('mapsList').addEventListener('click',async e=>{ const b=e.target.closest('button'); if(!b) return;
@@ -2171,6 +2364,49 @@ $('mapName').addEventListener('input',e=>{ S.name=e.target.value; queueSave(); }
    Works on a coarse grid of heights. Coasts come from layered noise bent by a second noise (so they wander like real ones),
    mountains follow ridge lines inland, rivers run from the mountains down to the nearest sea or lake, climate goes cold to
    warm from top to bottom and wet to dry by a third noise, and towns go where people would build: river mouths and coasts. */
+/* ============================================================ random dungeons
+   Rooms of several kinds are dropped on the squares with rock left between them, joined by one-square passages (a spanning tree, then a
+   loop or two), doors go where a passage meets a straight wall, and each room is given a use: pillars, books, tombs, beds, stores, an altar. */
+function blankDungeon(w,h){ return {...blankState(w,h),kind:'dungeon',grid:{type:'square',size:60},scale:{per100:8.33,unit:'feet'},name:'Untitled dungeon'}; }
+function generateDungeon(W,H,G={}){ G={rooms:1,props:1,...G}; const seed=Number.isFinite(G.seed)?G.seed:rseed(), rnd=mulberry(seed), pick=a=>a[Math.floor(rnd()*a.length)], ri=(a,b)=>a+Math.floor(rnd()*(b-a+1));
+  const C=60, cols=Math.floor(W/C), rows=Math.floor(H/C), st={app:'wayfarer-atlas',...blankDungeon(W,H),gen:{seed}}, rooms=[], want=clamp(Math.round(cols*rows/60*G.rooms),4,28);
+  const fits=(x,y,w,h)=>x>=2&&y>=4&&x+w<=cols-2&&y+h<=rows-2&&rooms.every(r=>x>r.x+r.w+1||x+w<r.x-1||y>r.y+r.h+1||y+h<r.y-1);
+  for(let t=0;t<1200&&rooms.length<want;t++){ const q=rnd(), shape=q<.13?'round':q<.24?'L':q<.33?'cave':'rect'; let w=ri(3,9), h=ri(3,7), arm=null; if(shape==='round') w=h=ri(4,7); if(shape==='cave'){ w=ri(5,8); h=ri(4,7); } if(shape==='L'){ w=ri(4,8); h=ri(3,5); arm=[ri(2,3),ri(2,3)]; }
+    const x=ri(2,cols-w-2), y=ri(4,rows-h-2), hh=h+(arm?arm[1]:0); if(!fits(x,y,w,hh)) continue; rooms.push({x,y,w,h:hh,shape,arm,mainH:h,cx:x+w/2,cy:y+hh/2,tex:rnd()<.62?'flag':rnd()<.55?'plank':'none',props:[]}); }
+  if(rooms.length<2) return blankDungeon(W,H);
+  const cell=q=>(Math.floor(q)+.5)*C, blocked=new Set(), links=[];
+  const link=(a,b)=>{ const ax=cell(a.cx), ay=cell(a.cy), bx=cell(b.cx), by=cell(b.cy), pts=rnd()<.5?[[ax,ay],[bx,ay],[bx,by]]:[[ax,ay],[ax,by],[bx,by]]; st.lands.push({mode:'land',floor:1,sharp:true,brush:true,pts,size:C,rough:0,seed:rseed(),t:st.lands.length,tex:'flag'}); links.push({a,b,pts});
+    for(let i=1;i<pts.length;i++){ const p=pts[i-1], q=pts[i], n=Math.ceil(dist(p,q)/(C/2)); for(let k=0;k<=n;k++) blocked.add(Math.floor((p[0]+(q[0]-p[0])*k/n)/C)+','+Math.floor((p[1]+(q[1]-p[1])*k/n)/C)); } };
+  const inTree=[rooms[0]], rest=rooms.slice(1); while(rest.length){ let best=null; for(const r of rest) for(const t of inTree){ const d=Math.hypot(r.cx-t.cx,r.cy-t.cy); if(!best||d<best.d) best={d,r,t}; } link(best.t,best.r); inTree.push(best.r); rest.splice(rest.indexOf(best.r),1); }
+  for(let k=0;k<Math.round(rooms.length/5);k++){ const a=pick(rooms), b=rooms.slice().sort((p,q)=>Math.hypot(p.cx-a.cx,p.cy-a.cy)-Math.hypot(q.cx-a.cx,q.cy-a.cy))[ri(1,2)]; if(b && !links.some(l=>(l.a===a&&l.b===b)||(l.a===b&&l.b===a))) link(a,b); }
+  rooms.forEach((r,i)=>{ const X=r.x*C, Y=r.y*C, w=r.w*C, h=r.h*C; r.i=i;
+    if(r.shape==='round') st.lands.push({mode:'land',floor:1,pts:ellipsePts([X,Y],[X+w,Y+h]),rough:0,seed:rseed(),t:st.lands.length,tex:r.tex});
+    else if(r.shape==='cave'){ const o=[]; for(let k=0;k<16;k++){ const a=k/16*Math.PI*2, rr=.82+rnd()*.3; o.push([Math.round(X+w/2+Math.cos(a)*w/2*rr),Math.round(Y+h/2+Math.sin(a)*h/2*rr)]); } st.lands.push({mode:'land',floor:1,pts:o,rough:.55,seed:rseed(),t:st.lands.length,tex:'dirt'}); r.tex='dirt'; }
+    else if(r.shape==='L') st.lands.push({mode:'land',floor:1,sharp:true,pts:[[X,Y],[X+w,Y],[X+w,Y+r.mainH*C],[X+r.arm[0]*C,Y+r.mainH*C],[X+r.arm[0]*C,Y+h],[X,Y+h]],rough:0,seed:rseed(),t:st.lands.length,tex:r.tex});
+    else st.lands.push({mode:'land',floor:1,sharp:true,pts:[[X,Y],[X+w,Y],[X+w,Y+h],[X,Y+h]],rough:0,seed:rseed(),t:st.lands.length,tex:r.tex}); });
+  const stamp=(kind,cx,cy,rot=0,k=1)=>{ const key=Math.floor(cx)+','+Math.floor(cy); if(blocked.has(key)) return false; st.stamps.push({kind,x:Math.round(cx*C),y:Math.round(cy*C),size:Math.round((DUN_FOOT[kind]||1)*C*k),rot,v:rnd()}); return true; };
+  for(const l of links) for(const r of [l.a,l.b]){ if(r.shape!=='rect') continue; const X0=r.x*C, X1=(r.x+r.w)*C, Y0=r.y*C, Y1=(r.y+r.h)*C;      // doors where a passage crosses a straight wall
+    for(let i=1;i<l.pts.length;i++){ const p=l.pts[i-1], q=l.pts[i]; const horiz=Math.abs(p[1]-q[1])<1; if(horiz){ if(p[1]>Y0&&p[1]<Y1) for(const xw of [X0,X1]) if(xw>Math.min(p[0],q[0])&&xw<Math.max(p[0],q[0])) door(xw,p[1],90); } else if(p[0]>X0&&p[0]<X1) for(const yw of [Y0,Y1]) if(yw>Math.min(p[1],q[1])&&yw<Math.max(p[1],q[1])) door(p[0],yw,0); } }
+  function door(x,y,rot){ if(st.stamps.some(s=>DOORS.has(s.kind)&&Math.hypot(s.x-x,s.y-y)<4)) return; const t=rnd(), kind=t<.55?'door':t<.68?'dooropen':t<.8?'arch':t<.88?'secretdoor':t<.94?'doubledoor':'portcullis'; st.stamps.push({kind:kind==='doubledoor'?'door':kind,x:Math.round(x),y:Math.round(y),size:C,rot,v:rnd()}); }
+  const themes=['hall','library','crypt','barracks','store','shrine','dining','pit','empty','empty'];      // what each room is for
+  rooms.forEach((r,i)=>{ if(G.props<=0.05) return; const x=r.x, y=r.y, w=r.w, h=r.shape==='L'?r.mainH:r.h, th=i===0?'empty':pick(themes), cx=x+w/2, cy=y+h/2, nz=Math.max(1,Math.round(G.props));
+    if(r.shape==='round'){ stamp('pillar',cx,cy); if(w>=5) for(let k=0;k<4;k++){ const a=k/4*Math.PI*2+.785; stamp('roundpillar',cx+Math.cos(a)*(w/2-1.3),cy+Math.sin(a)*(h/2-1.3)); } if(rnd()<.5) stamp('sigil',cx,cy,0,.8); return; }
+    if(r.shape==='cave'){ for(let k=0;k<ri(2,4);k++) stamp('stalagmite',cx+(rnd()-.5)*w*.6,cy+(rnd()-.5)*h*.6,0,.9); if(rnd()<.5) stamp('pool',cx+(rnd()-.5)*w*.4,cy+(rnd()-.5)*h*.4); if(rnd()<.4) stamp('bones',cx+(rnd()-.5)*w*.5,cy+(rnd()-.5)*h*.5); return; }
+    if(th==='hall' && w>=6 && h>=4){ for(let px=x+1.5;px<x+w-1;px+=2) for(const py of [y+1.5,y+h-1.5]) stamp(rnd()<.8?'pillar':'roundpillar',px,py); }
+    else if(th==='library' && w>=4){ for(let px=x+1.5;px<x+w-1;px+=2) stamp('bookcase',px+.5,y+.5,0,1); stamp('table',cx,cy+.3); stamp('chair',cx-.6,cy+1.2,180*(rnd()<.5)); }
+    else if(th==='crypt' && h>=3){ const n=Math.min(4,Math.floor((w-1)/2)); for(let k=0;k<n;k++) stamp('sarcophagus',x+1.5+k*(w-2)/Math.max(n,1)+.2,cy+.2,0); stamp('altar',cx,y+.9); if(rnd()<.5) stamp('bones',x+w-1.2,y+h-1.2); }
+    else if(th==='barracks' && w>=4){ for(let px=x+1;px<x+w-.5;px+=1.7){ stamp('bed',px+.2,y+1.2,0,.8); if(h>=5) stamp('bed',px+.2,y+h-1.2,0,.8); } stamp('table',cx,cy,0,.8); }
+    else if(th==='store'){ for(let k=0;k<ri(3,6)*nz;k++) stamp(rnd()<.7?'dbarrel':'treasure',x+.6+rnd()*(w-1.2),y+.6+rnd()*(h-1.2),rnd()<.5?0:90); stamp('rubble',x+w-1,y+.8,0,.7); }
+    else if(th==='shrine' && w>=4){ stamp('altar',cx,y+1); stamp('sigil',cx,cy+.6,0,.9); stamp('brazier',x+.8,y+.8); stamp('brazier',x+w-.8,y+.8); stamp('rug',cx,cy+.8,0,.6); }
+    else if(th==='dining' && w>=5){ stamp('table',cx,cy,0,1.4); for(let k=-1;k<=1;k++){ stamp('chair',cx+k*1.1,cy-1.3,180); stamp('chair',cx+k*1.1,cy+1.3,0); } stamp('throne',cx+1.9,cy,90,.9); stamp('fireplace',cx,y+.5); }
+    else if(th==='pit' && w>=4 && h>=4){ stamp('pit',cx,cy,0,1.4); stamp('plankbridge',cx,cy,0,.9); stamp('lever',x+.6,y+.6); }
+    if(rnd()<.18*nz) stamp('web',x+.75,y+.75); if(rnd()<.15*nz) stamp('crack',x+rnd()*w,y+rnd()*h,rnd()<.5?0:90,.9); if(rnd()<.18*nz) stamp('torch',x+.25,y+h*.5,0,.8); });
+  { const r=rooms[0]; if(r.shape==='rect'||r.shape==='L') stamp('stairs',r.x+1,r.y+.9); const far=rooms.slice(1).sort((a,b)=>Math.hypot(b.cx-r.cx,b.cy-r.cy)-Math.hypot(a.cx-r.cx,a.cy-r.cy))[0]; if(far&&far.shape==='rect') stamp('stairs',far.x+far.w-1,far.y+far.h-.9,180); }
+  rooms.forEach((r,i)=>st.labels.push({text:String(i+1),x:Math.round((r.x+.45)*C),y:Math.round((r.y+.55)*C),size:22,rot:0,style:'town'}));
+  const pre=['The Sunken','The Drowned','The Ashen','The Hollow','The Forgotten','The Gilded','The Black','Under','The Weeping'], post=['Crypt','Vault','Catacombs','Warrens','Cellars','Undercroft','Deeps','Barrows','Halls'];
+  st.name=pick(pre)+' '+pick(post); { const [mc,mx]=mkCanvas(1,1); let sz=50; while(sz>22 && labelMetrics(mx,{text:st.name,size:sz,style:'title'}).width>W*.5) sz-=2; st.labels.push({text:st.name,x:Math.round(W/2),y:Math.round(C*1.5),size:sz,rot:0,style:'title'},{text:'the lower levels, one square to five feet',x:Math.round(W/2),y:Math.round(C*2.3),size:20,rot:0,style:'note'}); }
+  st.stamps.push({kind:'scalebar',x:W-C*4.2,y:H-C*1.3,size:200,rot:0,v:.5});
+  return st; }
 function generateMap(W,H,kind,G={}){ G={land:1,mountains:1,forests:1,rivers:1,towns:1,...G};      // G: how much of each there should be (1 = the usual amount), and optionally the seed to repeat a map
   const seed=Number.isFinite(G.seed)?G.seed:rseed(), rnd=mulberry(seed), cs=20, nx=Math.floor(W/cs)+1, ny=Math.floor(H/cs)+1, N=nx*ny, at=(i,j)=>j*nx+i, pos=k=>[(k%nx)*cs, Math.floor(k/nx)*cs];
   const vn=(x,y,s)=>{ const xi=Math.floor(x), yi=Math.floor(y), fx=x-xi, fy=y-yi, u=fx*fx*(3-2*fx), v=fy*fy*(3-2*fy), a=hash(xi,yi,s), b=hash(xi+1,yi,s), c=hash(xi,yi+1,s), d=hash(xi+1,yi+1,s); return a+(b-a)*u+(c-a)*v+(a-b-c+d)*u*v; };
