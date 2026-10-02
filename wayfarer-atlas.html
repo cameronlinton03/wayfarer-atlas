@@ -274,7 +274,7 @@ const STAMP_GROUPS = {         // scatter:true = dragging lays down many, with a
   Settlements:{kinds:['city','town','village','hamlet','castle','fort','outpost','tower','inn'], size:58},
   Landmarks:  {kinds:['ruins','temple','monastery','lighthouse','windmill','farm','mine','cave','camp','stones','pyramid','obelisk','graveyard','bridge','docks','port'], size:55},
   Trees:      {kinds:['deciduous','conifer','grove','pines','autumn','blossom','jungle','palm','willow','snag'], size:40, scatter:true},
-  Plants:     {kinds:['bush','cactus','mushroom','reeds','tufts','flowers','stump'], size:32, scatter:true},
+  Plants:     {kinds:['wildflowers','wildgrass','shrubs','thicket','saplings','ferns','bush','tufts','flowers','reeds','cactus','mushroom','stump'], size:32, scatter:true},
   Mountains:  {kinds:['highpeak','mountain','snowpeak','volcano','mesa','crag','boulders'], size:80, scatter:true},
   Hills:      {kinds:['hill','dunes'], size:68, scatter:true},
   Sea:        {kinds:['waves','breaker','whirlpool','reef','iceberg','ship','sailboat','wreck','serpent','tentacles','whale','dolphin','shark'], size:58, scatter:true},
@@ -301,7 +301,7 @@ const STAMP_GROUPS = {         // scatter:true = dragging lays down many, with a
 };
 const KIND_SIZE={highpeak:170}, SOLO_KINDS=new Set(['highpeak']);      // kinds with a size of their own, and kinds that are placed one at a time even in a group that scatters
 const scatterOf=kind=>!!STAMP_GROUPS[groupOf(kind)].scatter && !SOLO_KINDS.has(kind);
-const VARIANTS = {highpeak:4, ...Object.fromEntries(GLYPH_KINDS.map(k=>[k,2])), bones:2, pool:2, fieldplot:8, orchard:3, vineyard:3, house:4, stall:3, treetop:3, compass:3, cartouche:3, dragon:4, autumn:4, blossom:4, jungle:2, waves:3, breaker:2, deciduous:4, conifer:4, grove:4, pines:4, mountain:12, snowpeak:12, hill:8};   // how many shapes each stamp has
+const VARIANTS = {wildflowers:8, wildgrass:4, shrubs:5, thicket:4, saplings:3, ferns:3, highpeak:4, ...Object.fromEntries(GLYPH_KINDS.map(k=>[k,2])), bones:2, pool:2, fieldplot:8, orchard:3, vineyard:3, house:4, stall:3, treetop:3, compass:3, cartouche:3, dragon:4, autumn:4, blossom:4, jungle:2, waves:3, breaker:2, deciduous:4, conifer:4, grove:4, pines:4, mountain:12, snowpeak:12, hill:8};   // how many shapes each stamp has
 const STONES=['stone','slate','rock'], SANDS=['sand','beach','redsand'], GRASSES=['grass','meadow','forest','steppe','marsh'];
 const swatch = k => TERRAIN[k];
 const TINTS = {};      // stamps are ink only, so none of them takes a colour
@@ -1767,6 +1767,69 @@ Object.assign(SKETCH_DRAW,{
   runestone(c){ const R=[1,.9,1.05,.88,1,.92], q=R.map((r,i)=>{ const a=i/R.length*Math.PI*2; return [Math.cos(a)*10*r,Math.sin(a)*12*r]; }); const f=mBody(c,q,{sp:.7,thr:.1}); engInk(c,[[EX(-3),-6],[EX(-3),6]],.5,false,{gap:0}); engInk(c,[[EX(-3),-6],[EX(3),-2],[EX(-3),1]],.5,false,{gap:0}); engInk(c,[[EX(2),2],[EX(2),7]],.5,false,{gap:0}); engInk(c,[[EX(-1),4],[EX(5),4]],.5,false,{gap:0}); },
   puddle(c){ const R=[1,.8,1.1,.9,1,.7,1.05,.86], q=R.map((r,i)=>{ const a=i/R.length*Math.PI*2; return [Math.cos(a)*14*r,Math.sin(a)*8*r]; }); const f=engForm(c,q,{flat:1,lw:.45}); engInk(c,f,.5,true,{gap:.15,rough:.3}); for(let k=0;k<3;k++) engInk(c,[[EX(-6+k*2),-2+k*2.2],[EX(-2+k*2),-2.6+k*2.2],[EX(2+k*2),-2+k*2.2]],.26,false,{gap:.15}); },
 });
+/* ---- wildflowers, wild grasses and the edge of the wood. Everything is ink, drawn upright from the ground at y = 14. A swath of them across a meadow is made by the map generator
+   from many small stamps, so each stamp is a loose handful and several of them side by side read as one drift. ---- */
+const wfBase=(c,x,y,dx,h,lw=.48)=>{ engCurve(c,[x,y],[x+dx*.25,y-h*.55],[x+dx,y-h],lw); return [x+dx,y-h]; };      // a stem from the ground, returning where its head goes
+const wfBlades=(c,x,n,rn)=>{ for(let k=0;k<n;k++){ const s=(k%2?1:-1)*(1+rn()*2.4), h=3+rn()*4; engCurve(c,[x+(rn()-.5)*1.2,14.4],[x+s*.5,14-h*.5],[x+s,14-h],.3); } };
+const WF={
+  daisy(c,x,y,rn){ const r=1.5+rn()*.5; engInk(c,engArc(EX(x),y,r,r,0,Math.PI*2,8),.44,true,{gap:.05,rough:.03}); engDot(c,x,y,.5); for(let k=0;k<8;k++){ const a=k/8*Math.PI*2; engInk(c,[[EX(x+Math.cos(a)*(r+.3)),y+Math.sin(a)*(r+.3)],[EX(x+Math.cos(a)*(r+1.4)),y+Math.sin(a)*(r+1.4)]],.28,false,{gap:0}); } },
+  poppy(c,x,y,rn){ engInk(c,[[EX(x-2.2),y-1.8],[EX(x-1.7),y+.5],[EX(x),y+1.5],[EX(x+1.7),y+.5],[EX(x+2.2),y-1.8]],.5,false,{gap:0}); engInk(c,[[EX(x-2.2),y-1.8],[EX(x-.9),y-.5],[EX(x),y-1.9],[EX(x+.9),y-.5],[EX(x+2.2),y-1.8]],.3,false,{gap:0}); engDot(c,x,y-.2,.5); },
+  tulip(c,x,y,rn){ engInk(c,[[EX(x-1.7),y-3],[EX(x-1.9),y-.2],[EX(x),y+1.5],[EX(x+1.9),y-.2],[EX(x+1.7),y-3],[EX(x+.6),y-1.2],[EX(x),y-3.4],[EX(x-.6),y-1.2],[EX(x-1.7),y-3]],.38,false,{gap:0}); engInk(c,[[EX(x),y-1.2],[EX(x),y+1.4]],.25,false,{gap:0}); },
+  thistle(c,x,y,rn){ engInk(c,[[EX(x-1.6),y],[EX(x-1.2),y+1.4],[EX(x+1.2),y+1.4],[EX(x+1.6),y]],.36,false,{gap:0}); for(let k=0;k<9;k++){ const a=-Math.PI*.95+k*Math.PI*.9/8, l=2.2+rn()*1.2; engInk(c,[[EX(x+Math.cos(a)*1.2),y+Math.sin(a)*.8],[EX(x+Math.cos(a)*(1.2+l)),y+Math.sin(a)*(.8+l)]],.28,false,{gap:0}); } engScratch(c,[EX(x-1.2),y+.5],[EX(x+1.2),y+.7],.2); },
+  umbel(c,x,y,rn){ for(let k=0;k<7;k++){ const a=-Math.PI*.92+k*Math.PI*.84/6, r=3.4; engInk(c,[[EX(x),y+.6],[EX(x+Math.cos(a)*r),y+Math.sin(a)*r*.7]],.24,false,{gap:0}); engDot(c,x+Math.cos(a)*r,y+Math.sin(a)*r*.7,.45); } },
+  bell(c,x,y,rn){ for(let k=0;k<3;k++){ const bx=x+k*1.9, by=y+k*1.6+.4; engInk(c,[[EX(bx),by-1.4],[EX(bx-.4),by]],.26,false,{gap:0}); engInk(c,[[EX(bx-.2),by],[EX(bx-1.1),by+2],[EX(bx-1.5),by+3.1],[EX(bx+1.3),by+3.1],[EX(bx+1),by+2],[EX(bx+.2),by],[EX(bx-.2),by]],.34,false,{gap:0}); } },
+  spike(c,x,y,rn,len=8){ for(let k=0;k<9;k++){ const yy=y+k*len/9, s=k%2?1:-1, l=1.9*(1-k*.06); engInk(c,[[EX(x),yy],[EX(x+s*l),yy-.9]],.26,false,{gap:.05}); engInk(c,[[EX(x+s*l),yy-.9],[EX(x+s*l*1.1),yy-1.5]],.2,false,{gap:.1}); } },
+};
+const WF_KINDS={
+  0:[['daisy',[5,6,7],9,18]],            // 0: daisies, round heads on straight stems
+  1:[['poppy',[4,5,6],8,16]],            // 1: poppies, cupped
+  2:[['spike',[4,5],10,20]],             // 2: lupines and foxgloves, tall spikes
+  3:[['bell',[3,4],9,15]],               // 3: bluebells, nodding
+  4:[['umbel',[5,6],10,18]],             // 4: cow parsley, flat umbels
+  5:[['thistle',[5,6],8,15]],            // 5: thistles and knapweed
+  6:[['tulip',[5,6],7,13]],              // 6: crocus and wild tulips, closed cups with blades
+  7:null,                                // 7: a mixed meadow of all of them
+};
+Object.assign(SKETCH_DRAW,{
+  wildflowers(c,n){ n%=8; const rn=mulberry(n*131+17), plan=WF_KINDS[n], heads=['daisy','poppy','tulip','thistle','umbel'];
+    const cnt=plan?plan[0][1][Math.floor(rn()*plan[0][1].length)]:8, h0=plan?plan[0][2]:7, h1=plan?plan[0][3]:19;
+    for(let k=0;k<cnt;k++){ const x=-15+k*30/Math.max(1,cnt-1)+(rn()-.5)*2.4, h=h0+rn()*(h1-h0), dx=(rn()-.5)*(n===1?5:3.4), kind=plan?plan[0][0]:heads[Math.floor(rn()*heads.length)];
+      if(n===3){ const t=wfBase(c,x,14,dx-2,h*.9,.46); engCurve(c,[x+dx-2,14-h*.9],[x+dx,14-h-1],[x+dx+2.4,14-h+.5],.3); WF.bell(c,x+dx+1.6,14-h+.8,rn); }
+      else if(kind==='spike'){ const t=wfBase(c,x,14,dx,h,.46); WF.spike(c,t[0],t[1]-.5,rn,Math.min(9,h*.55)); }
+      else { const t=wfBase(c,x,14,dx,h,.46); WF[kind](c,t[0],t[1],rn); }
+      if(n===6 || k%3===0) wfBlades(c,x,2,rn); }
+    wfBlades(c,0,4,rn); },
+  wildgrass(c,n){ n%=4; const rn=mulberry(n*71+9);
+    if(n===0){ for(let k=0;k<9;k++){ const x=-14+k*3.5+(rn()-.5)*2, h=12+rn()*8, lean=(rn()-.35)*5; const t=wfBase(c,x,14.4,lean,h,.46); for(let q=0;q<6;q++){ const yy=t[1]+q*1.5, sx=t[0]+lean*.1*q; engInk(c,[[EX(sx),yy],[EX(sx+1.3),yy+1.5]],.3,false,{gap:0}); engDot(c,sx+1.3,yy+1.5,.35); } } }      // oat-like seed heads, drooping
+    else if(n===1){ for(let k=0;k<7;k++){ const x=-12+k*4+(rn()-.5)*2, h=14+rn()*8, dx=-3-rn()*5; const q=[]; for(let t=0;t<=8;t++){ const u=t/8; q.push([EX(x+dx*u*u),14.4-h*u+Math.sin(u*3)*.6]); } engInk(c,q,.34,false,{gap:0}); for(let t=3;t<=8;t++){ const p=q[t]; for(const s of [-1,1]) engInk(c,[[p[0],p[1]],[p[0]+s*1.3*(ENG_M),p[1]+1.6]],.2,false,{gap:.1}); } } }      // feather grass, arching plumes
+    else if(n===2){ for(let k=0;k<8;k++){ const x=-14+k*3.9+(rn()-.5)*2, h=13+rn()*9; engCurve(c,[x,14.4],[x+(rn()-.5)*1.4,14-h*.5],[x+(rn()-.5)*2,14-h],.36); const tx=x, ty=14-h; for(let q=-4;q<=4;q++){ const a=q*.17, l=4.4-Math.abs(q)*.35; engInk(c,[[EX(tx),ty+1.6],[EX(tx+Math.sin(a)*l*1.1),ty+1.6-Math.cos(a)*l]],.3,false,{gap:.05}); } engInk(c,[[EX(tx-1.6),ty-.4],[EX(tx),ty-3],[EX(tx+1.6),ty-.4]],.22,false,{gap:.2}); } }      // tall stems with pointed plumes
+    else { for(let k=0;k<13;k++){ const x=-10+k*1.7+(rn()-.5)*1.2, h=7+rn()*7, lean=(k-6)*.9+(rn()-.5)*2; engCurve(c,[x*.5,14.4],[x*.5+lean*.2,14-h*.5],[x*.5+lean,14-h],.46); } for(let k=0;k<4;k++) engDot(c,-9+k*5.5+(rn()-.5)*2,13.4,.3); }      // a wind-bent tussock
+  },
+});
+const SH=(c,x,y,s,seed,o={})=>engTree(c,x,y,s,{seed,wr:1.6,hr:.7,...o});      // a shrub's crown, wide and low
+const shrubLeaves=(c,x,y,n,rn,r=6)=>{ for(let k=0;k<n;k++){ const a=rn()*6.28, d=Math.sqrt(rn())*r; engScratch(c,[EX(x+Math.cos(a)*d),y+Math.sin(a)*d*.7],[EX(x+Math.cos(a)*d+1.2),y+Math.sin(a)*d*.7-.6],.22); } };
+Object.assign(SKETCH_DRAW,{
+  shrubs(c,n){ n%=5; const rn=mulberry(n*53+3);
+    if(n===0){ SH(c,-5,13.5,10,71); SH(c,6,14.5,8.5,72); }                                                                                      // two round bushes
+    else if(n===1){ SH(c,0,14,11,73); for(let k=0;k<12;k++){ const a=rn()*6.28, d=Math.sqrt(rn())*6; engDot(c,Math.cos(a)*d,8.4+Math.sin(a)*d*.5,.5,true); } }      // a berry bush
+    else if(n===2){ for(let k=0;k<26;k++){ const a=-Math.PI*.95+rn()*Math.PI*.9, l=6+rn()*8; engInk(c,[[EX(rn()*6-3),14.4],[EX(Math.cos(a)*l*.9),14.4+Math.sin(a)*l]],.3,false,{gap:.05}); } for(let k=0;k<7;k++) engDot(c,(rn()-.5)*18,8+rn()*4,.55); }      // gorse: spiny, with a few flowers
+    else if(n===3){ for(let k=0;k<44;k++){ const u=k/43*2-1, bx=u*8.5, top=14.4-(3.6+Math.sqrt(Math.max(0,1-u*u))*6.6)*(.75+rn()*.3), lean=u*3.2+(rn()-.5)*1.4; engInk(c,[[EX(bx*.35),14.4],[EX(bx*.7+lean*.3),(14.4+top)/2],[EX(bx+lean),top]],.3,false,{gap:.05}); engDot(c,bx+lean,top,.38); if(k%3===0) engDot(c,bx+lean+(rn()-.5)*1.6,top+1+rn()*1.5,.28); } engInk(c,[[EX(-10),14.5],[EX(10),14.5]],.3,false,{gap:.4}); }      // heather: a dome of fine stems, tipped with bells
+    else { SH(c,0,15,9,74,{wr:1.5,hr:.55}); for(let k=0;k<11;k++){ const x=-13+k*2.6+(rn()-.5)*1.6, up=8+rn()*8, lean=(rn()-.45)*9; const q=[]; for(let t=0;t<=8;t++){ const u=t/8; q.push([EX(x+lean*u),14.6-up*Math.sin(u*Math.PI*.8)]); } engInk(c,q,.5,false,{gap:.02}); for(let t=1;t<8;t++){ const p=q[t]; engInk(c,[[p[0],p[1]],[p[0]+(t%2?1.4:-1.4),p[1]-1.1]],.3,false,{gap:0}); } if(k%3===0) engDot(c,x+lean*.95,14.6-up*.6,.55,true); } }      // brambles: arching canes with thorns and berries
+    if(n<2) shrubLeaves(c,0,10,10,rn,7); },
+  thicket(c,n){ n%=4; const rn=mulberry(n*37+5);
+    if(n===0){ SH(c,-6,14,9,81); SH(c,6,14.6,8,82); for(const x of [-12,-1,11]) engTree(c,x,14.6,10+rn()*3,{seed:83+x,wr:.55,hr:1.1}); }      // hazel: bushes with slim stems rising among them
+    else if(n===1){ for(let k=0;k<8;k++){ const x=-12+k*3.4, up=10+rn()*7, lean=(rn()-.5)*8, q=[]; for(let t=0;t<=6;t++){ const u=t/6; q.push([EX(x+lean*u),14.4-up*Math.sin(u*Math.PI*.7)]); } engInk(c,q,.4,false,{gap:.02}); for(let t=1;t<6;t++){ const p=q[t]; engInk(c,[[p[0],p[1]],[p[0]-1,p[1]-1]],.22,false,{gap:0}); } } engTree(c,6,14.6,13,{seed:86,wr:.6,hr:1}); SH(c,-6,15,7,87); }      // bramble with a sapling coming through
+    else if(n===2){ for(const [x,s] of [[-9,12],[0,15],[8,11]]) engTree(c,x,14.6,s,{con:1,seed:88+x,wr:.7}); SH(c,-3,15.5,6,91,{wr:1.5,hr:.6}); SH(c,12,15,5,92,{wr:1.4,hr:.6}); }      // young pines among scrub
+    else { for(const [x,s] of [[-11,12],[-3,14],[5,11],[12,13]]) engTree(c,x,14.6,s,{seed:93+x,wr:.62,hr:1.05}); SH(c,0,15.6,8,97,{wr:1.6,hr:.55}); } },      // saplings crowding in
+  saplings(c,n){ n%=3; const rn=mulberry(n*41+11);
+    if(n===0){ for(const [x,s] of [[-6,12],[7,10]]) engTree(c,x,14.6,s,{seed:101+x,wr:.7,hr:1}); }
+    else if(n===1){ for(const [x,s] of [[-11,10],[-1,13],[10,9]]) engTree(c,x,14.6,s,{con:1,seed:105+x,wr:.7}); }
+    else { engTree(c,-8,14.6,12,{seed:110,wr:.66,hr:1}); engTree(c,3,14.6,9,{con:1,seed:111,wr:.7}); engTree(c,11,14.6,10,{seed:112,wr:.66,hr:1}); } },
+  ferns(c,n){ n%=3; const rn=mulberry(n*29+7), frond=(x,len,lean,k=1)=>{ const q=[]; for(let t=0;t<=8;t++){ const u=t/8; q.push([x+lean*u*u*k,14.4-len*Math.sin(u*Math.PI*.55)]); } engInk(c,q.map(p=>[EX(p[0]),p[1]]),.5,false,{gap:.02}); for(let t=1;t<8;t++){ const p=q[t], w=(1-t/8)*3.8+.5; for(const s of [-1,1]) engInk(c,[[EX(p[0]),p[1]],[EX(p[0]+s*w),p[1]+w*.55]],.34,false,{gap:.03}); } };
+    if(n===0){ for(const [x,l,ln] of [[-4,13,-7],[0,16,0],[4,13,7],[-8,9,-9],[8,9,9]]) frond(x,l,ln); }
+    else if(n===1){ for(let k=0;k<4;k++) frond(-9+k*4.5,10+rn()*5,(k-1.5)*5); }
+    else { for(const [x,l,ln] of [[-9,10,-9],[-3,15,-3],[3,15,3],[9,10,9],[0,8,0]]) frond(x,l,ln); } },
+});
 /* ---- single letters and numbers, to be set down one at a time (a room's number, a key letter on a plan). Variant 2 rings the character. ---- */
 const GLYPHS='0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
 for(const g of GLYPHS) SKETCH_DRAW['ch_'+g]=function(c,n){ c.save(); const r=15; if(n%2){ c.fillStyle=PAPER(); c.beginPath(); c.arc(0,0,r+1,0,7); c.fill(); engInk(c,engArc(0,0,r+1,r+1,0,Math.PI*2,26),.8,true,{gap:.03,rough:.08}); engInk(c,engArc(0,0,r-1.6,r-1.6,0,Math.PI*2,24),.4,true,{gap:.06,rough:.06}); }
@@ -2679,10 +2742,31 @@ function generateMap(W,H,kind,G={}){ G={land:1,mountains:1,forests:1,rivers:1,to
     else if(b==='marsh'){ rnd()<.6 ? add('reeds',22+rnd()*6) : add('willow',30+rnd()*8); }
     else if(b==='beach' && temp[k]>.62){ if(rnd()<.6) add('palm',26+rnd()*8); }
     else if(b==='rock'){ if(rnd()<.4) add('boulders',30+rnd()*14,{tint:'rock'}); }
-    else if(b==='meadow'){ if(rnd()<.25) add(rnd()<.5?'flowers':'bush',22+rnd()*6); } }
+  }
   let trees=0; for(let j=1;j<ny-1;j++) for(let i=1;i<nx-1;i++){ const k=at(i,j); if(trees>2600*Math.max(1,G.forests) || biome(k)!=='forest' || cd[k]<2 || riverCell[k] || fbm(i*.21,j*.21,seed+707,2)<.47-(G.forests-1)*.1) continue;
     for(let n=rnd()<.55?2:1;n>0;n--){ const x=i*cs+(rnd()-.5)*18, y=j*cs+(rnd()-.5)*18; if(!clear(x,y,34)) continue; const t=temp[k]+(rnd()-.5)*.12;
       st.stamps.push({kind:t<.47?'conifer':'deciduous',x:Math.round(x),y:Math.round(y),size:Math.round(26+rnd()*9),rot:0,v:rnd(),var:Math.floor(rnd()*4)}); trees++; } }
+
+  /* the open ground: drifts of wildflowers, stretches of wild grass, and, where the plain meets the wood, scrub, thickets and saplings thickening towards the trees */
+  { const fd=spread(k=>biome(k)==='forest'), openB=b=>b==='grass'||b==='meadow'||b==='steppe', nz=(x,y,sc,s,o=3)=>fbm(x*sc,y*sc,seed+s,o); let placed=0;
+    const SZ=30, occ=new Map(), cellOf=(x,y)=>Math.floor(x/SZ)+','+Math.floor(y/SZ), reach=s=>s.kind==='highpeak'?s.size*.4:s.kind==='mountain'||s.kind==='snowpeak'?s.size*.34:s.kind==='hill'?s.size*.28:s.size*.3;      // every stamp so far, by where it stands, so a new plant keeps clear of trees, hills and mountains
+    const note=s=>{ const key=cellOf(s.x,s.y); (occ.get(key)||occ.set(key,[]).get(key)).push([s.x,s.y,reach(s)]); };
+    for(const s of st.stamps) note(s);
+    const free=(x,y,r)=>{ const cx=Math.floor(x/SZ), cy=Math.floor(y/SZ); for(let b=-3;b<=3;b++) for(let a=-3;a<=3;a++){ const L=occ.get((cx+a)+','+(cy+b)); if(L) for(const q of L) if(Math.hypot(q[0]-x,q[1]-y)<r+q[2]) return false; } return clear(x,y,r+14); };
+    const put=(kind,x,y,size,v)=>{ const s={kind,x:Math.round(x),y:Math.round(y),size:Math.round(size),rot:0,v:rnd(),var:v,flip:rnd()<.5}; st.stamps.push(s); note(s); placed++; };
+    for(let j=1;j<ny-1;j++) for(let i=1;i<nx-1;i++){ const k=at(i,j), b=biome(k); if(placed>1800 || !isLand(k) || riverCell[k] || cd[k]<1 || !openB(b)) continue;
+      const x=i*cs+(rnd()-.5)*cs*1.2, y=j*cs+(rnd()-.5)*cs*1.2, d=fd[k]; if(bil(x,y)<=.02) continue;
+      const f=nz(x,y,.0040,811), g=nz(x,y,.0034,823), v=nz(x,y,.0058,835,2), pick=(n)=>(Math.floor(v*n*1.15)+(rnd()<.35?1+Math.floor(rnd()*2):0))%n;      // v picks which kind of flower a drift is mostly made of, with some others mixed in
+      if(G.forests>0 && d>=1 && d<=5 && b!=='steppe'){ const near=6-d, r=rnd();      // the edge of the wood: the closer, the denser and the more tree-like
+        if(rnd()>[0,.62,.5,.4,.3,.2][d]) continue; if(!free(x,y,12)) continue;
+        if(d===1) put(r<.45?'thicket':r<.75?'saplings':'ferns',x,y,34+rnd()*12,rnd()<.5?Math.floor(rnd()*4):Math.floor(rnd()*3));
+        else if(d===2) put(r<.4?'shrubs':r<.65?'thicket':r<.88?'saplings':'ferns',x,y,30+rnd()*10,Math.floor(rnd()*4));
+        else if(d<=4) put(r<.7?'shrubs':r<.88?'saplings':'wildflowers',x,y,28+rnd()*10,r<.7?Math.floor(rnd()*5):pick(8));
+        else put('shrubs',x,y,26+rnd()*8,Math.floor(rnd()*5));
+        continue; }
+      if(f>.545 && b!=='steppe'){ if(rnd()>.66 || !free(x,y,9)) continue; put('wildflowers',x,y,30+rnd()*12,pick(8)); }      // a drift of wildflowers
+      else if(g>.535 || (b==='steppe' && g>.46)){ if(rnd()>.55 || !free(x,y,9)) continue; put('wildgrass',x,y,28+rnd()*12,pick(4)); }      // wild grass
+      else if(rnd()<.025 && free(x,y,18)) put(rnd()<.6?'tufts':'shrubs',x,y,24+rnd()*10,rnd()<.6?0:Math.floor(rnd()*5)); } }
 
   /* names on the map */
   const big=pick(syl[0])+pick(['a','e','i','o','ae','ia'])+pick(['ria','ron','neth','land','mar','ven','dor','this']);
