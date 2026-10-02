@@ -2753,20 +2753,20 @@ function generateMap(W,H,kind,G={}){ G={land:1,mountains:1,forests:1,rivers:1,to
     const note=s=>{ const key=cellOf(s.x,s.y); (occ.get(key)||occ.set(key,[]).get(key)).push([s.x,s.y,reach(s)]); };
     for(const s of st.stamps) note(s);
     const free=(x,y,r)=>{ const cx=Math.floor(x/SZ), cy=Math.floor(y/SZ); for(let b=-3;b<=3;b++) for(let a=-3;a<=3;a++){ const L=occ.get((cx+a)+','+(cy+b)); if(L) for(const q of L) if(Math.hypot(q[0]-x,q[1]-y)<r+q[2]) return false; } return clear(x,y,r+14); };
-    const put=(kind,x,y,size,v)=>{ const s={kind,x:Math.round(x),y:Math.round(y),size:Math.round(size),rot:0,v:rnd(),var:v,flip:rnd()<.5}; st.stamps.push(s); note(s); placed++; };
+    const PS=.45, put=(kind,x,y,size,v)=>{ const s={kind,x:Math.round(x),y:Math.round(y),size:Math.round(size*PS),rot:0,v:rnd(),var:v,flip:rnd()<.5}; st.stamps.push(s); note(s); placed++; };      // PS: these are small things beside a tree, so they are drawn at under half the size they are listed at
     for(let j=1;j<ny-1;j++) for(let i=1;i<nx-1;i++){ const k=at(i,j), b=biome(k); if(placed>1800 || !isLand(k) || riverCell[k] || cd[k]<1 || !openB(b)) continue;
       const x=i*cs+(rnd()-.5)*cs*1.2, y=j*cs+(rnd()-.5)*cs*1.2, d=fd[k]; if(bil(x,y)<=.02) continue;
       const f=nz(x,y,.0040,811), g=nz(x,y,.0034,823), v=nz(x,y,.0058,835,2), pick=(n)=>(Math.floor(v*n*1.15)+(rnd()<.35?1+Math.floor(rnd()*2):0))%n;      // v picks which kind of flower a drift is mostly made of, with some others mixed in
       if(G.forests>0 && d>=1 && d<=5 && b!=='steppe'){ const near=6-d, r=rnd();      // the edge of the wood: the closer, the denser and the more tree-like
-        if(rnd()>[0,.62,.5,.4,.3,.2][d]) continue; if(!free(x,y,12)) continue;
+        if(rnd()>[0,.62,.5,.4,.3,.2][d]) continue; if(!free(x,y,6)) continue;
         if(d===1) put(r<.45?'thicket':r<.75?'saplings':'ferns',x,y,34+rnd()*12,rnd()<.5?Math.floor(rnd()*4):Math.floor(rnd()*3));
         else if(d===2) put(r<.4?'shrubs':r<.65?'thicket':r<.88?'saplings':'ferns',x,y,30+rnd()*10,Math.floor(rnd()*4));
         else if(d<=4) put(r<.7?'shrubs':r<.88?'saplings':'wildflowers',x,y,28+rnd()*10,r<.7?Math.floor(rnd()*5):pick(8));
         else put('shrubs',x,y,26+rnd()*8,Math.floor(rnd()*5));
         continue; }
-      if(f>.545 && b!=='steppe'){ if(rnd()>.66 || !free(x,y,9)) continue; put('wildflowers',x,y,30+rnd()*12,pick(8)); }      // a drift of wildflowers
-      else if(g>.535 || (b==='steppe' && g>.46)){ if(rnd()>.55 || !free(x,y,9)) continue; put('wildgrass',x,y,28+rnd()*12,pick(4)); }      // wild grass
-      else if(rnd()<.025 && free(x,y,18)) put(rnd()<.6?'tufts':'shrubs',x,y,24+rnd()*10,rnd()<.6?0:Math.floor(rnd()*5)); } }
+      if(f>.545 && b!=='steppe'){ if(rnd()>.66 || !free(x,y,4)) continue; put('wildflowers',x,y,30+rnd()*12,pick(8)); }      // a drift of wildflowers
+      else if(g>.535 || (b==='steppe' && g>.46)){ if(rnd()>.55 || !free(x,y,4)) continue; put('wildgrass',x,y,28+rnd()*12,pick(4)); }      // wild grass
+      else if(rnd()<.025 && free(x,y,9)) put(rnd()<.6?'tufts':'shrubs',x,y,24+rnd()*10,rnd()<.6?0:Math.floor(rnd()*5)); } }
 
   /* names on the map */
   const big=pick(syl[0])+pick(['a','e','i','o','ae','ia'])+pick(['ria','ron','neth','land','mar','ven','dor','this']);
