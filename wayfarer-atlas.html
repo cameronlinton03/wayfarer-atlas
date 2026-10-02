@@ -1801,68 +1801,79 @@ Object.assign(SKETCH_DRAW,{
   runestone(c){ const R=[1,.9,1.05,.88,1,.92], q=R.map((r,i)=>{ const a=i/R.length*Math.PI*2; return [Math.cos(a)*10*r,Math.sin(a)*12*r]; }); const f=mBody(c,q,{sp:.7,thr:.1}); engInk(c,[[EX(-3),-6],[EX(-3),6]],.5,false,{gap:0}); engInk(c,[[EX(-3),-6],[EX(3),-2],[EX(-3),1]],.5,false,{gap:0}); engInk(c,[[EX(2),2],[EX(2),7]],.5,false,{gap:0}); engInk(c,[[EX(-1),4],[EX(5),4]],.5,false,{gap:0}); },
   puddle(c){ const R=[1,.8,1.1,.9,1,.7,1.05,.86], q=R.map((r,i)=>{ const a=i/R.length*Math.PI*2; return [Math.cos(a)*14*r,Math.sin(a)*8*r]; }); const f=engForm(c,q,{flat:1,lw:.45}); engInk(c,f,.5,true,{gap:.15,rough:.3}); for(let k=0;k<3;k++) engInk(c,[[EX(-6+k*2),-2+k*2.2],[EX(-2+k*2),-2.6+k*2.2],[EX(2+k*2),-2+k*2.2]],.26,false,{gap:.15}); },
 });
-/* ---- wildflowers, wild grasses and the edge of the wood. Everything is ink, drawn upright from the ground at y = 14. A swath of them across a meadow is made by the map generator
-   from many small stamps, so each stamp is a loose handful and several of them side by side read as one drift. ---- */
-const wfBase=(c,x,y,dx,h,lw=.48)=>{ engCurve(c,[x,y],[x+dx*.25,y-h*.55],[x+dx,y-h],lw); return [x+dx,y-h]; };      // a stem from the ground, returning where its head goes
-const wfBlades=(c,x,n,rn)=>{ for(let k=0;k<n;k++){ const s=(k%2?1:-1)*(1+rn()*2.4), h=3+rn()*4; engCurve(c,[x+(rn()-.5)*1.2,14.4],[x+s*.5,14-h*.5],[x+s,14-h],.3); } };
-const WF={
-  daisy(c,x,y,rn){ const r=1.5+rn()*.5; engInk(c,engArc(EX(x),y,r,r,0,Math.PI*2,8),.44,true,{gap:.05,rough:.03}); engDot(c,x,y,.5); for(let k=0;k<8;k++){ const a=k/8*Math.PI*2; engInk(c,[[EX(x+Math.cos(a)*(r+.3)),y+Math.sin(a)*(r+.3)],[EX(x+Math.cos(a)*(r+1.4)),y+Math.sin(a)*(r+1.4)]],.28,false,{gap:0}); } },
-  poppy(c,x,y,rn){ engInk(c,[[EX(x-2.2),y-1.8],[EX(x-1.7),y+.5],[EX(x),y+1.5],[EX(x+1.7),y+.5],[EX(x+2.2),y-1.8]],.5,false,{gap:0}); engInk(c,[[EX(x-2.2),y-1.8],[EX(x-.9),y-.5],[EX(x),y-1.9],[EX(x+.9),y-.5],[EX(x+2.2),y-1.8]],.3,false,{gap:0}); engDot(c,x,y-.2,.5); },
-  tulip(c,x,y,rn){ engInk(c,[[EX(x-1.7),y-3],[EX(x-1.9),y-.2],[EX(x),y+1.5],[EX(x+1.9),y-.2],[EX(x+1.7),y-3],[EX(x+.6),y-1.2],[EX(x),y-3.4],[EX(x-.6),y-1.2],[EX(x-1.7),y-3]],.38,false,{gap:0}); engInk(c,[[EX(x),y-1.2],[EX(x),y+1.4]],.25,false,{gap:0}); },
-  thistle(c,x,y,rn){ engInk(c,[[EX(x-1.6),y],[EX(x-1.2),y+1.4],[EX(x+1.2),y+1.4],[EX(x+1.6),y]],.36,false,{gap:0}); for(let k=0;k<9;k++){ const a=-Math.PI*.95+k*Math.PI*.9/8, l=2.2+rn()*1.2; engInk(c,[[EX(x+Math.cos(a)*1.2),y+Math.sin(a)*.8],[EX(x+Math.cos(a)*(1.2+l)),y+Math.sin(a)*(.8+l)]],.28,false,{gap:0}); } engScratch(c,[EX(x-1.2),y+.5],[EX(x+1.2),y+.7],.2); },
-  umbel(c,x,y,rn){ for(let k=0;k<7;k++){ const a=-Math.PI*.92+k*Math.PI*.84/6, r=3.4; engInk(c,[[EX(x),y+.6],[EX(x+Math.cos(a)*r),y+Math.sin(a)*r*.7]],.24,false,{gap:0}); engDot(c,x+Math.cos(a)*r,y+Math.sin(a)*r*.7,.45); } },
-  bell(c,x,y,rn){ for(let k=0;k<3;k++){ const bx=x+k*1.9, by=y+k*1.6+.4; engInk(c,[[EX(bx),by-1.4],[EX(bx-.4),by]],.26,false,{gap:0}); engInk(c,[[EX(bx-.2),by],[EX(bx-1.1),by+2],[EX(bx-1.5),by+3.1],[EX(bx+1.3),by+3.1],[EX(bx+1),by+2],[EX(bx+.2),by],[EX(bx-.2),by]],.34,false,{gap:0}); } },
-  spike(c,x,y,rn,len=8){ for(let k=0;k<9;k++){ const yy=y+k*len/9, s=k%2?1:-1, l=1.9*(1-k*.06); engInk(c,[[EX(x),yy],[EX(x+s*l),yy-.9]],.26,false,{gap:.05}); engInk(c,[[EX(x+s*l),yy-.9],[EX(x+s*l*1.1),yy-1.5]],.2,false,{gap:.1}); } },
+/* ---- wildflowers, wild grass and foliage, redrawn. A stamp is a small clump drawn upright from the ground at y = 14 and filling most of its box; many of them side by side make a drift.
+   Heads have filled, outlined petals with hatching on the right (light is from the left); leaves are lance shapes with a midrib and a hatched right half; blades taper;
+   masses of foliage are shaded forms. Everything goes through EX() so a mirrored one is a real redraw. ---- */
+function plLeaf(c,x,y,a,len,w,o={}){ const dx=Math.sin(a), dy=-Math.cos(a), px=-dy, py=dx, N=7, A=[], B=[], bend=o.bend||0;      // a lance-shaped leaf from (x,y) pointing at angle a (0 = up), with a midrib and the right half hatched
+  for(let i=0;i<=N;i++){ const t=i/N, ww=w*Math.sin(Math.PI*Math.pow(t,.72)), cx=x+dx*len*t+px*bend*t*t*len, cy=y+dy*len*t+py*bend*t*t*len; A.push([cx+px*ww,cy+py*ww,cx,cy]); B.push([cx-px*ww,cy-py*ww,cx,cy]); }
+  engPoly(c,A.map(p=>[p[0],p[1]]).concat(B.slice().reverse().map(p=>[p[0],p[1]])),{j:.05,lw:o.lw||.34});
+  const R=EX(A[3][0])>EX(B[3][0])?A:B; engInk(c,[[EX(x),y],[EX(A[N][2]),A[N][3]]],.2,false,{gap:.1});
+  for(let i=1;i<N;i++){ const q=R[i]; engScratch(c,[EX(q[2]),q[3]],[EX(q[0]),q[1]],.2); if(ENG_K>1.25 && i<N-1){ const r=R[i+1]; engScratch(c,[EX((q[2]+r[2])/2),(q[3]+r[3])/2],[EX((q[0]+r[0])/2),(q[1]+r[1])/2],.2); } } }
+function plStem(c,x,y,topx,topy,lw=.5){ engCurve(c,[x,y],[x+(topx-x)*.15,y+(topy-y)*.55],[topx,topy],lw); }
+function plBlades(c,x,n,rn,len=6,w=.55){ for(let k=0;k<n;k++){ const s=(k%2?1:-1)*(.7+rn()*3), h=len*(.6+rn()*.6); engStroke(c,[[x+(rn()-.5)*2,14.5],[x+s*.5,14-h*.55],[x+s,14-h]],w,.25); } }
+function plPetal(c,x,y,a,len,wid,lw=.28){ const ca=Math.cos(a), sa=Math.sin(a)*.8, nx=-sa, ny=ca, m=[x+ca*len*.58,y+sa*len*.58], tip=[x+ca*len,y+sa*len];      // one petal, a lens from the centre outwards
+  const q=engPoly(c,[[x+ca*len*.1,y+sa*len*.1],[m[0]+nx*wid,m[1]+ny*wid],tip,[m[0]-nx*wid,m[1]-ny*wid]],{j:.03,lw});
+  if(ca>.1) engScratch(c,[EX(m[0]),m[1]],[EX(tip[0]-ca*len*.1),tip[1]],.2); return q; }
+const HEAD={
+  daisy(c,x,y,s,rn){ const n=11+Math.floor(rn()*3), a0=rn()*6; for(let k=0;k<n;k++) plPetal(c,x,y,a0+k/n*6.2832,3.3*s,.85*s); engDot(c,x,y,1.45*s,true); engDot(c,x,y,.8*s); for(let k=0;k<4;k++) engDot(c,x+(rn()-.5)*1.8*s,y+(rn()-.5)*1.5*s,.2); },
+  poppy(c,x,y,s,rn){ const P=[]; for(let k=0;k<=8;k++){ const a=Math.PI+k*Math.PI/8; P.push([x+Math.cos(a)*3.3*s,y-1.2*s+Math.sin(a)*3.2*s]); } P.push([x+1.5*s,y+1.6*s],[x-1.5*s,y+1.6*s]);      // a cupped bloom: a smooth shaded form, a fold, a dark eye and stamens
+    engForm(c,P,{sp:1.5,seg:4,lw:.4,thr:.25,hw:.2}); engInk(c,[[EX(x-.5*s),y-3.5*s],[EX(x),y-1.4*s],[EX(x+.6*s),y-3.5*s]],.26,false,{gap:0}); engInk(c,[[EX(x-2.2*s),y-.2*s],[EX(x-.6*s),y-1.8*s]],.24,false,{gap:0}); engDot(c,x,y-2.3*s,.8*s); for(let k=0;k<6;k++){ const a=k/6*6.28; engDot(c,x+Math.cos(a)*1.4*s,y-2.3*s+Math.sin(a)*1*s,.2); } },
+  tulip(c,x,y,s,rn){ engForm(c,[[x-.5*s,y+1.6*s],[x-1.8*s,y-.4*s],[x-1.6*s,y-3.6*s],[x,y-5.2*s,1],[x+1.6*s,y-3.6*s],[x+1.8*s,y-.4*s],[x+.5*s,y+1.6*s]],{sp:1.7,seg:4,lw:.36,thr:.3,hw:.2});
+    engForm(c,[[x,y+1.8*s],[x-2.5*s,y-.2*s],[x-2.2*s,y-3.9*s],[x-.7*s,y-5.6*s,1],[x,y-2.8*s]],{sp:3,seg:4,lw:.38,thr:.9,hw:.2}); engForm(c,[[x,y+1.8*s],[x+2.5*s,y-.2*s],[x+2.2*s,y-3.9*s],[x+.7*s,y-5.6*s,1],[x,y-2.8*s]],{sp:1.4,seg:4,lw:.38,thr:.2,hw:.2}); },
+  spike(c,x,y,s,rn,len=10){ const n=9; for(let k=n-1;k>=0;k--){ const t=k/(n-1), yy=y-len*s*(1-t), rr=(.6+1.1*t)*s, sg=k%2?1:-1, cx=x+sg*rr*.55;      // a spike of florets, small buds at the top, open bells lower down
+      const P=[]; for(let q=0;q<7;q++){ const a=q/7*6.2832; P.push([cx+Math.cos(a)*rr*1.05,yy+Math.sin(a)*rr*.95]); } engForm(c,P,{sp:1.8,seg:3,lw:.3,thr:.2,hw:.2}); } },
+  bell(c,x,y,s,rn){ for(let k=0;k<4;k++){ const bx=x+k*1.9*s-1.5*s, by=y+k*2.3*s-.5*s; engInk(c,[[EX(bx-.2*s),by-1.8*s],[EX(bx),by]],.26,false,{gap:0});
+      engForm(c,[[bx-.8*s,by],[bx+.8*s,by],[bx+1.7*s,by+2.7*s],[bx+2.4*s,by+4.1*s,1],[bx+.9*s,by+3.6*s],[bx,by+4.5*s,1],[bx-.9*s,by+3.6*s],[bx-2.4*s,by+4.1*s,1],[bx-1.7*s,by+2.7*s]],{sp:1.7,seg:3,lw:.32,thr:.25,hw:.2}); } },
+  umbel(c,x,y,s,rn){ for(let k=0;k<9;k++){ const a=-1.25+k*2.5/8, l=(3.3+Math.cos(a)*1.2)*s, ex=x+Math.sin(a)*l, ey=y-Math.cos(a)*l*.85; engInk(c,[[EX(x),y],[EX(ex),ey]],.24,false,{gap:.05}); engDot(c,ex,ey,.75*s,true); engDot(c,ex,ey,.2); } },
+  thistle(c,x,y,s,rn){ for(let k=0;k<11;k++){ const a=-1.3+k*2.6/10, l=(2.5+rn()*1)*s; engInk(c,[[EX(x),y-.4*s],[EX(x+Math.sin(a)*l*1.1),y-.4*s-Math.cos(a)*l]],.3,false,{gap:.04,rough:.1}); engDot(c,x+Math.sin(a)*l*1.1,y-.4*s-Math.cos(a)*l,.22); }
+    engForm(c,[[x-1.9*s,y],[x-2.3*s,y+1.8*s],[x,y+3.3*s],[x+2.3*s,y+1.8*s],[x+1.9*s,y]],{sp:1.5,seg:4,lw:.36,thr:.15,hw:.2}); },
 };
-const WF_KINDS={
-  0:[['daisy',[5,6,7],9,18]],            // 0: daisies, round heads on straight stems
-  1:[['poppy',[4,5,6],8,16]],            // 1: poppies, cupped
-  2:[['spike',[4,5],10,20]],             // 2: lupines and foxgloves, tall spikes
-  3:[['bell',[3,4],9,15]],               // 3: bluebells, nodding
-  4:[['umbel',[5,6],10,18]],             // 4: cow parsley, flat umbels
-  5:[['thistle',[5,6],8,15]],            // 5: thistles and knapweed
-  6:[['tulip',[5,6],7,13]],              // 6: crocus and wild tulips, closed cups with blades
-  7:null,                                // 7: a mixed meadow of all of them
-};
+const HEAD_PLAN=[['daisy',9,[11,19],1],['poppy',6,[12,20],1.1],['spike',6,[13,22],1],['bell',5,[12,20],1],['umbel',6,[13,21],1],['thistle',5,[12,19],1],['tulip',7,[9,16],1],['mix',8,[10,20],1]];
+function flowerPlant(c,type,x,h,lean,s,rn){ const tx=x+lean, ty=14-h; plStem(c,x,14.4,tx,ty,.5);
+  if(rn()<.8) plLeaf(c,x,13.6,-1.05+(rn()-.5)*.5,4+rn()*3.4,1.1,{bend:.18}); if(rn()<.65) plLeaf(c,x,13.2,1.05+(rn()-.5)*.5,4+rn()*3.4,1.1,{bend:-.18});
+  if(type==='spike') HEAD.spike(c,tx,ty+9*s*.5,s,rn,10); else if(type==='bell'){ const hx=tx-3.5*s; engCurve(c,[tx,ty+1],[tx-1*s,ty-2.6*s],[hx+3.4*s,ty-2.2*s],.45); HEAD.bell(c,hx+1.2*s,ty-1.2*s,s,rn); } else HEAD[type](c,tx,ty,s,rn); }
 Object.assign(SKETCH_DRAW,{
-  wildflowers(c,n){ n%=8; const rn=mulberry(n*131+17), plan=WF_KINDS[n], heads=['daisy','poppy','tulip','thistle','umbel'];
-    const cnt=plan?plan[0][1][Math.floor(rn()*plan[0][1].length)]:8, h0=plan?plan[0][2]:7, h1=plan?plan[0][3]:19;
-    for(let k=0;k<cnt;k++){ const x=-15+k*30/Math.max(1,cnt-1)+(rn()-.5)*2.4, h=h0+rn()*(h1-h0), dx=(rn()-.5)*(n===1?5:3.4), kind=plan?plan[0][0]:heads[Math.floor(rn()*heads.length)];
-      if(n===3){ const t=wfBase(c,x,14,dx-2,h*.9,.46); engCurve(c,[x+dx-2,14-h*.9],[x+dx,14-h-1],[x+dx+2.4,14-h+.5],.3); WF.bell(c,x+dx+1.6,14-h+.8,rn); }
-      else if(kind==='spike'){ const t=wfBase(c,x,14,dx,h,.46); WF.spike(c,t[0],t[1]-.5,rn,Math.min(9,h*.55)); }
-      else { const t=wfBase(c,x,14,dx,h,.46); WF[kind](c,t[0],t[1],rn); }
-      if(n===6 || k%3===0) wfBlades(c,x,2,rn); }
-    wfBlades(c,0,4,rn); },
+  wildflowers(c,n){ n%=8; const rn=mulberry(n*131+17), [kind,cnt,[h0,h1],sc]=HEAD_PLAN[n], types=['daisy','poppy','spike','umbel','thistle','tulip'], P=[];
+    for(let k=0;k<cnt;k++){ const x=-15.5+k*31/Math.max(1,cnt-1)+(rn()-.5)*2.2; P.push({x,h:h0+rn()*(h1-h0),lean:(rn()-.5)*4.2,s:(.9+rn()*.3)*sc,type:kind==='mix'?types[Math.floor(rn()*types.length)]:kind}); }
+    plBlades(c,-8,4,rn,7); plBlades(c,8,4,rn,7); P.sort((a,b)=>b.h-a.h).forEach(p=>flowerPlant(c,p.type,p.x,p.h,p.lean,p.s,rn)); plBlades(c,0,5,rn,5.5,.5); },
   wildgrass(c,n){ n%=4; const rn=mulberry(n*71+9);
-    if(n===0){ for(let k=0;k<9;k++){ const x=-14+k*3.5+(rn()-.5)*2, h=12+rn()*8, lean=(rn()-.35)*5; const t=wfBase(c,x,14.4,lean,h,.46); for(let q=0;q<6;q++){ const yy=t[1]+q*1.5, sx=t[0]+lean*.1*q; engInk(c,[[EX(sx),yy],[EX(sx+1.3),yy+1.5]],.3,false,{gap:0}); engDot(c,sx+1.3,yy+1.5,.35); } } }      // oat-like seed heads, drooping
-    else if(n===1){ for(let k=0;k<7;k++){ const x=-12+k*4+(rn()-.5)*2, h=14+rn()*8, dx=-3-rn()*5; const q=[]; for(let t=0;t<=8;t++){ const u=t/8; q.push([EX(x+dx*u*u),14.4-h*u+Math.sin(u*3)*.6]); } engInk(c,q,.34,false,{gap:0}); for(let t=3;t<=8;t++){ const p=q[t]; for(const s of [-1,1]) engInk(c,[[p[0],p[1]],[p[0]+s*1.3*(ENG_M),p[1]+1.6]],.2,false,{gap:.1}); } } }      // feather grass, arching plumes
-    else if(n===2){ for(let k=0;k<8;k++){ const x=-14+k*3.9+(rn()-.5)*2, h=13+rn()*9; engCurve(c,[x,14.4],[x+(rn()-.5)*1.4,14-h*.5],[x+(rn()-.5)*2,14-h],.36); const tx=x, ty=14-h; for(let q=-4;q<=4;q++){ const a=q*.17, l=4.4-Math.abs(q)*.35; engInk(c,[[EX(tx),ty+1.6],[EX(tx+Math.sin(a)*l*1.1),ty+1.6-Math.cos(a)*l]],.3,false,{gap:.05}); } engInk(c,[[EX(tx-1.6),ty-.4],[EX(tx),ty-3],[EX(tx+1.6),ty-.4]],.22,false,{gap:.2}); } }      // tall stems with pointed plumes
-    else { for(let k=0;k<13;k++){ const x=-10+k*1.7+(rn()-.5)*1.2, h=7+rn()*7, lean=(k-6)*.9+(rn()-.5)*2; engCurve(c,[x*.5,14.4],[x*.5+lean*.2,14-h*.5],[x*.5+lean,14-h],.46); } for(let k=0;k<4;k++) engDot(c,-9+k*5.5+(rn()-.5)*2,13.4,.3); }      // a wind-bent tussock
+    if(n===0){ for(let k=0;k<10;k++){ const x=-15+k*3.3+(rn()-.5)*1.8, h=13+rn()*8, lean=(rn()-.4)*5; const t=[x+lean,14-h]; engStroke(c,[[x,14.5],[x+lean*.3,14-h*.5],t],.55,.35);      // oats: a drooping ear of paired grains with awns
+        for(let q=0;q<6;q++){ const yy=t[1]+q*1.35, sx=t[0]+lean*.06*q, e=engPoly(c,[[sx-.5,yy],[sx+.9,yy+.4],[sx+1.5,yy+1.7],[sx+.2,yy+1.3]],{j:.02,lw:.26}); engInk(c,[[EX(sx+1),yy+.6],[EX(sx+2.4),yy+2]],.18,false,{gap:0}); } }
+      for(let k=0;k<5;k++) plLeaf(c,-12+k*6,14.3,(k%2?.6:-.6)+(rn()-.5)*.4,6+rn()*3,.7,{bend:(k%2?-.2:.2)}); }
+    else if(n===1){ for(let k=0;k<8;k++){ const x=-13+k*3.7+(rn()-.5)*2, h=15+rn()*7, dx=-3-rn()*5, q=[]; for(let t=0;t<=10;t++){ const u=t/10; q.push([x+dx*u*u,14.4-h*u+Math.sin(u*3)*.5]); } engInk(c,q.map(p=>[EX(p[0]),p[1]]),.4,false,{gap:0});      // feather grass: an arching stem with a plume of fine curved bristles
+        for(let t=4;t<=10;t++){ const p=q[t], l=2.6*(1-Math.abs(t-7)/5); for(const s of [-1,1]) engInk(c,[[EX(p[0]),p[1]],[EX(p[0]+s*l*.8-.8),p[1]+l*.9],[EX(p[0]+s*l*1.1-1.4),p[1]+l*1.7]],.17,false,{gap:.04}); } } plBlades(c,0,5,rn,8,.5); }
+    else if(n===2){ for(let k=0;k<8;k++){ const x=-14+k*3.9+(rn()-.5)*2, h=14+rn()*9; engStroke(c,[[x,14.5],[x+(rn()-.5)*1.4,14-h*.5],[x+(rn()-.5)*2,14-h]],.6,.4); const tx=x, ty=14-h;      // pampas: a tall stem and a feathery plume, hatched on the right
+        for(let q=-5;q<=5;q++){ const a=q*.15, l=5.2-Math.abs(q)*.42; engInk(c,[[EX(tx),ty+2.4],[EX(tx+Math.sin(a)*l*1.1),ty+2.4-Math.cos(a)*l]],.22,false,{gap:.03}); } const e=engArc(EX(tx),ty-.2,1.5,3,0,Math.PI*2,10); engShade(c,e,'d',1.4,{clipX:EX(tx),lw:.2}); } plBlades(c,-5,4,rn,9,.55); plBlades(c,6,4,rn,9,.55); }
+    else { for(let k=0;k<15;k++){ const x=-9.5+k*1.4+(rn()-.5)*1.2, h=7+rn()*8, lean=(k-7)*1.05+(rn()-.5)*2; engStroke(c,[[x*.5,14.6],[x*.5+lean*.25,14-h*.55],[x*.5+lean,14-h]],.75,.18); } for(let k=0;k<5;k++) engDot(c,-9+k*4.5+(rn()-.5)*2,13.8,.28); }      // a wind-bent tussock
   },
 });
-const SH=(c,x,y,s,seed,o={})=>engTree(c,x,y,s,{seed,wr:1.6,hr:.7,...o});      // a shrub's crown, wide and low
-const shrubLeaves=(c,x,y,n,rn,r=6)=>{ for(let k=0;k<n;k++){ const a=rn()*6.28, d=Math.sqrt(rn())*r; engScratch(c,[EX(x+Math.cos(a)*d),y+Math.sin(a)*d*.7],[EX(x+Math.cos(a)*d+1.2),y+Math.sin(a)*d*.7-.6],.22); } };
+const SH=(c,x,y,s,seed,o={})=>engTree(c,x,y,s,{seed,wr:1.6,hr:.7,...o});
+function plLump(c,cx,cy,rx,ry,seed,o={}){ const rn=mulberry(seed*97+5), n=o.n||12, P=[]; for(let i=0;i<n*2;i++){ const a=i/(n*2)*6.2832, out=i%2===0, r=(out?1.02:.8)+rn()*.14, sn=Math.sin(a); P.push([cx+Math.cos(a)*rx*r,cy+sn*ry*r*(sn>0?.45:1),out?0:1]); }      // a mass of leaves: a scalloped outline, loosely hatched on the right, with a flat foot
+  const q=engForm(c,P,{sp:1.5,ang:1.15,thr:.35,seg:3,lw:.4,hw:.22,cross:0,...o.form});
+  for(let k=0,m=o.ticks??8;k<m;k++){ const a=-3.1+rn()*2.4, r=.45+rn()*.4, x=cx+Math.cos(a)*rx*r, y=cy+Math.sin(a)*ry*r; plLeaf(c,x,y,(rn()-.5)*2.2,2.4+rn()*1.2,.75,{lw:.24}); } return q; }
+const plGround=(c,x,w,rn)=>{ for(let k=0;k<3;k++) engScratch(c,[EX(x-w+k*1.5),14.6+k*.9],[EX(x+w-k*1.5),14.6+k*.9],.26); };
+function plSapling(c,x,h,kind,seed){ const rn=mulberry(seed*53+7);
+  if(kind==='pine'){ engStroke(c,[[x,14.6],[x,14-h*.2]],.9,1); for(let t=0;t<4;t++){ const yy=14-h*.15-t*h*.2, w=(4-t)*h*.14+1, q=engPoly(c,[[x-w,yy],[x,yy-h*.3],[x+w,yy]],{j:.1,lw:.38}); engShade(c,q,'d',1.3,{clipX:EX(x),lw:.22}); } }
+  else { engStroke(c,[[x,14.6],[x+.3,14-h*.45],[x,14-h*.8]],1.1,.5); plLump(c,x,14-h*.8-h*.1,h*.34,h*.3,seed,{ticks:4,n:9}); } }
 Object.assign(SKETCH_DRAW,{
   shrubs(c,n){ n%=5; const rn=mulberry(n*53+3);
-    if(n===0){ SH(c,-5,13.5,10,71); SH(c,6,14.5,8.5,72); }                                                                                      // two round bushes
-    else if(n===1){ SH(c,0,14,11,73); for(let k=0;k<12;k++){ const a=rn()*6.28, d=Math.sqrt(rn())*6; engDot(c,Math.cos(a)*d,8.4+Math.sin(a)*d*.5,.5,true); } }      // a berry bush
-    else if(n===2){ for(let k=0;k<26;k++){ const a=-Math.PI*.95+rn()*Math.PI*.9, l=6+rn()*8; engInk(c,[[EX(rn()*6-3),14.4],[EX(Math.cos(a)*l*.9),14.4+Math.sin(a)*l]],.3,false,{gap:.05}); } for(let k=0;k<7;k++) engDot(c,(rn()-.5)*18,8+rn()*4,.55); }      // gorse: spiny, with a few flowers
+    if(n===0){ plLump(c,-5.5,10.2,8.5,6.5,71); plLump(c,6,11,7.4,5.6,72); plLump(c,0,8.2,7.6,6.4,73); plGround(c,0,13,rn); }      // a round bush
+    else if(n===1){ plLump(c,-4,10.8,8,6,74); plLump(c,6.5,11.4,7,5.4,75); for(let k=0;k<12;k++){ const a=-3.1+rn()*3.1, r=.3+rn()*.65; engDot(c,-1+Math.cos(a)*r*12,9.6+Math.sin(a)*r*5.5,.7,true); } plGround(c,0,13,rn); }      // a berry bush
+    else if(n===2){ plLump(c,0,9,13,8,76,{spiky:1,n:14,ticks:0}); for(let k=0;k<26;k++){ const a=-3.1+rn()*3.1, r=.4+rn()*.62, x=Math.cos(a)*r*12, y=9.5+Math.sin(a)*r*6.2; engInk(c,[[EX(x),y],[EX(x+(rn()-.5)*3),y-1.8-rn()]],.22,false,{gap:0}); if(k%3===0) engDot(c,x,y-1,.5,true); } plGround(c,0,14,rn); }      // gorse: spiny, with a few flowers
     else if(n===3){ for(let k=0;k<44;k++){ const u=k/43*2-1, bx=u*8.5, top=14.4-(3.6+Math.sqrt(Math.max(0,1-u*u))*6.6)*(.75+rn()*.3), lean=u*3.2+(rn()-.5)*1.4; engInk(c,[[EX(bx*.35),14.4],[EX(bx*.7+lean*.3),(14.4+top)/2],[EX(bx+lean),top]],.3,false,{gap:.05}); engDot(c,bx+lean,top,.38); if(k%3===0) engDot(c,bx+lean+(rn()-.5)*1.6,top+1+rn()*1.5,.28); } engInk(c,[[EX(-10),14.5],[EX(10),14.5]],.3,false,{gap:.4}); }      // heather: a dome of fine stems, tipped with bells
-    else { SH(c,0,15,9,74,{wr:1.5,hr:.55}); for(let k=0;k<11;k++){ const x=-13+k*2.6+(rn()-.5)*1.6, up=8+rn()*8, lean=(rn()-.45)*9; const q=[]; for(let t=0;t<=8;t++){ const u=t/8; q.push([EX(x+lean*u),14.6-up*Math.sin(u*Math.PI*.8)]); } engInk(c,q,.5,false,{gap:.02}); for(let t=1;t<8;t++){ const p=q[t]; engInk(c,[[p[0],p[1]],[p[0]+(t%2?1.4:-1.4),p[1]-1.1]],.3,false,{gap:0}); } if(k%3===0) engDot(c,x+lean*.95,14.6-up*.6,.55,true); } }      // brambles: arching canes with thorns and berries
-    if(n<2) shrubLeaves(c,0,10,10,rn,7); },
+    else { plLump(c,0,12,10,4.4,77,{ticks:4}); for(let k=0;k<10;k++){ const x=-13+k*2.7+(rn()-.5)*1.6, up=8+rn()*8, lean=(rn()-.45)*9, q=[]; for(let t=0;t<=8;t++){ const u=t/8; q.push([EX(x+lean*u),14.6-up*Math.sin(u*Math.PI*.8)]); } engInk(c,q,.5,false,{gap:.02});      // brambles: arching canes with thorns, leaves and berries
+        for(let t=2;t<8;t+=2){ const p=q[t]; engInk(c,[[p[0],p[1]],[p[0]+(t%4?1.3:-1.3),p[1]-1.1]],.3,false,{gap:0}); } if(k%2===0){ const p=q[5]; plLeaf(c,ENG_M*p[0],p[1],(k%4?.9:-.9),3,.9,{lw:.3}); } if(k%3===0) engDot(c,x+lean*.95,14.6-up*.6,.55,true); } } },
   thicket(c,n){ n%=4; const rn=mulberry(n*37+5);
-    if(n===0){ SH(c,-6,14,9,81); SH(c,6,14.6,8,82); for(const x of [-12,-1,11]) engTree(c,x,14.6,10+rn()*3,{seed:83+x,wr:.55,hr:1.1}); }      // hazel: bushes with slim stems rising among them
-    else if(n===1){ for(let k=0;k<8;k++){ const x=-12+k*3.4, up=10+rn()*7, lean=(rn()-.5)*8, q=[]; for(let t=0;t<=6;t++){ const u=t/6; q.push([EX(x+lean*u),14.4-up*Math.sin(u*Math.PI*.7)]); } engInk(c,q,.4,false,{gap:.02}); for(let t=1;t<6;t++){ const p=q[t]; engInk(c,[[p[0],p[1]],[p[0]-1,p[1]-1]],.22,false,{gap:0}); } } engTree(c,6,14.6,13,{seed:86,wr:.6,hr:1}); SH(c,-6,15,7,87); }      // bramble with a sapling coming through
-    else if(n===2){ for(const [x,s] of [[-9,12],[0,15],[8,11]]) engTree(c,x,14.6,s,{con:1,seed:88+x,wr:.7}); SH(c,-3,15.5,6,91,{wr:1.5,hr:.6}); SH(c,12,15,5,92,{wr:1.4,hr:.6}); }      // young pines among scrub
-    else { for(const [x,s] of [[-11,12],[-3,14],[5,11],[12,13]]) engTree(c,x,14.6,s,{seed:93+x,wr:.62,hr:1.05}); SH(c,0,15.6,8,97,{wr:1.6,hr:.55}); } },      // saplings crowding in
-  saplings(c,n){ n%=3; const rn=mulberry(n*41+11);
-    if(n===0){ for(const [x,s] of [[-6,12],[7,10]]) engTree(c,x,14.6,s,{seed:101+x,wr:.7,hr:1}); }
-    else if(n===1){ for(const [x,s] of [[-11,10],[-1,13],[10,9]]) engTree(c,x,14.6,s,{con:1,seed:105+x,wr:.7}); }
-    else { engTree(c,-8,14.6,12,{seed:110,wr:.66,hr:1}); engTree(c,3,14.6,9,{con:1,seed:111,wr:.7}); engTree(c,11,14.6,10,{seed:112,wr:.66,hr:1}); } },
-  ferns(c,n){ n%=3; const rn=mulberry(n*29+7), frond=(x,len,lean,k=1)=>{ const q=[]; for(let t=0;t<=8;t++){ const u=t/8; q.push([x+lean*u*u*k,14.4-len*Math.sin(u*Math.PI*.55)]); } engInk(c,q.map(p=>[EX(p[0]),p[1]]),.5,false,{gap:.02}); for(let t=1;t<8;t++){ const p=q[t], w=(1-t/8)*3.8+.5; for(const s of [-1,1]) engInk(c,[[EX(p[0]),p[1]],[EX(p[0]+s*w),p[1]+w*.55]],.34,false,{gap:.03}); } };
-    if(n===0){ for(const [x,l,ln] of [[-4,13,-7],[0,16,0],[4,13,7],[-8,9,-9],[8,9,9]]) frond(x,l,ln); }
-    else if(n===1){ for(let k=0;k<4;k++) frond(-9+k*4.5,10+rn()*5,(k-1.5)*5); }
-    else { for(const [x,l,ln] of [[-9,10,-9],[-3,15,-3],[3,15,3],[9,10,9],[0,8,0]]) frond(x,l,ln); } },
+    if(n===0){ plLump(c,-6,11,8,6,81); plLump(c,7,11.6,7,5.4,82); for(const [x,h] of [[-12,17],[-1,20],[11,16]]) plSapling(c,x,h,'oak',83+x); plGround(c,0,14,rn); }      // hazel: bushes with slim stems rising among them
+    else if(n===1){ for(let k=0;k<9;k++){ const x=-13+k*3.2+(rn()-.5), up=9+rn()*8, lean=(rn()-.5)*8, q=[]; for(let t=0;t<=7;t++){ const u=t/7; q.push([EX(x+lean*u),14.6-up*Math.sin(u*Math.PI*.7)]); } engInk(c,q,.5,false,{gap:.02}); for(let t=1;t<7;t+=2){ const p=q[t]; engInk(c,[[p[0],p[1]],[p[0]-1.2,p[1]-1]],.28,false,{gap:0}); } } plSapling(c,7,19,'oak',86); plLump(c,-6,12,7,5,87); }      // bramble with a sapling coming through
+    else if(n===2){ for(const [x,h] of [[-10,18],[0,23],[9,17]]) plSapling(c,x,h,'pine',88+x); plLump(c,-4,12.4,6.2,4.4,91,{ticks:5}); plLump(c,12,12,5,3.8,92,{ticks:4}); }      // young pines among scrub
+    else { for(const [x,h] of [[-12,18],[-4,22],[5,17],[12,20]]) plSapling(c,x,h,'oak',93+x); plLump(c,0,12.6,8,4.8,97,{ticks:6}); } },      // saplings crowding in
+  saplings(c,n){ n%=3; if(n===0){ plSapling(c,-7,21,'oak',101); plSapling(c,7,17,'oak',102); } else if(n===1){ plSapling(c,-10,17,'pine',105); plSapling(c,0,22,'pine',106); plSapling(c,10,15,'pine',107); } else { plSapling(c,-9,21,'oak',110); plSapling(c,3,17,'pine',111); plSapling(c,12,18,'oak',112); } },
+  ferns(c,n){ n%=3; const rn=mulberry(n*29+7), frond=(x,len,lean)=>{ const q=[]; for(let t=0;t<=10;t++){ const u=t/10; q.push([x+lean*u*u*1.1,14.4-len*Math.sin(u*Math.PI*.52)]); } engInk(c,q.map(p=>[EX(p[0]),p[1]]),.5,false,{gap:.02});      // a fern frond: an arching rachis with paired leaflets, longest in the middle and tapering to the tip
+      for(let t=1;t<10;t++){ const p=q[t], u=t/10, l=(1-u)*(.55+.45*Math.sin(Math.PI*Math.min(1,u*1.3)))*len*.3+.6, a=Math.atan2(q[t+1][0]-q[t-1][0],-(q[t+1][1]-q[t-1][1])); for(const s of [-1,1]) plLeaf(c,p[0],p[1],a+s*1.15,l,.5,{lw:.28}); } };
+    if(n===0){ for(const [x,l,ln] of [[-4,13,-7],[0,17,0],[4,13,7],[-8,9,-10],[8,9,10]]) frond(x,l,ln); }
+    else if(n===1){ for(let k=0;k<4;k++) frond(-9+k*4.5,11+rn()*5,(k-1.5)*6); }
+    else { for(const [x,l,ln] of [[-9,10,-10],[-3,15,-4],[3,15,4],[9,10,10],[0,8,0]]) frond(x,l,ln); } },
 });
 /* ---- single letters and numbers, to be set down one at a time (a room's number, a key letter on a plan). Variant 2 rings the character. ---- */
 const GLYPHS='0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
