@@ -163,6 +163,7 @@ body.phone .note{top:8px;left:8px;transform:none;max-width:calc(100% - 200px);fo
     <button class="btn" id="redoBtn" title="Ctrl+Shift+Z">Redo</button>
     <button class="btn" id="fitBtn">Fit</button>
     <button class="btn" id="mapsBtn">Maps</button>
+    <button class="btn" id="rerollBtn" hidden title="Make this map again with the same settings and a new seed (Undo brings the last one back)">Reroll</button>
     <button class="btn" id="newBtn">New</button>
     <button class="btn" id="saveBtn">Save map file</button>
     <button class="btn primary" id="pngBtn">Export PNG</button>
@@ -487,7 +488,7 @@ function goTo(i){ const n=undoStack.length; i=Math.max(0,Math.min(n+redoStack.le
 function histHTML(){ const past=undoStack.map(e=>e.label), future=redoStack.slice().reverse().map(e=>e.label), pos=undoStack.length, rows=['Start',...past,...future];
   const lo=Math.max(0,pos-19), hi=Math.min(rows.length,pos+11), esc=t=>String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;');      // the last 20 actions, where you are now, and the next few that could be redone
   return `<div class="hist">${lo>0?'<small>… '+lo+' earlier</small>':''}${rows.slice(lo,hi).map((t,k)=>{ const i=lo+k; return `<button class="chip${i===pos?' now':''}${i>pos?' later':''}" data-hist="${i}" aria-current="${i===pos}">${i===pos?'● ':''}${esc(t)}</button>`; }).join('')}${hi<rows.length?'<small>… '+(rows.length-hi)+' more</small>':''}</div>`; }
-function syncButtons(){ $('undoBtn').disabled=$('fUndo').disabled=!undoStack.length; $('redoBtn').disabled=$('fRedo').disabled=!redoStack.length; const hl=$('histList'); if(hl && opts.historyOpen) hl.innerHTML=histHTML(); }
+function syncButtons(){ const rb=$('rerollBtn'); if(rb) rb.hidden=!(S.gen && S.gen.kind); $('undoBtn').disabled=$('fUndo').disabled=!undoStack.length; $('redoBtn').disabled=$('fRedo').disabled=!redoStack.length; const hl=$('histList'); if(hl && opts.historyOpen) hl.innerHTML=histHTML(); }
 function beginEdit(){ if(!editing){ pushUndo(); editing=true; } }
 function replaceObj(key, oldO, newO){ S[key]=S[key].map(o=>o===oldO?newO:o); if(sel && sel.obj===oldO) sel.obj=newO; return newO; }
 const keyOf = t => ({land:'lands',cliff:'cliffs',line:'lines',stamp:'stamps',label:'labels'})[t];
@@ -531,7 +532,7 @@ function genRef(){      // what the generator knew of this map: its plates, and 
   const h=S.height; if(!h) return null; if(h.pid && h.anc) return {pid:h.pid,pb:h.pb,pa:h.pa,plates:h.plates,anc:h.anc};
   const g=S.gen; if(!g || !GEN_KINDS.includes(g.kind)) return h.pid ? {pid:h.pid,pb:h.pb,pa:h.pa,plates:h.plates,anc:null} : null;
   const key=[g.kind,g.seed,S.w,S.h,h.nx].join(); if(plateCache.key===key) return plateCache.data;
-  let data=null; try{ const st=generateMap(S.w,S.h,g.kind,{seed:g.seed}), q=st.height; if(q && q.pid && q.nx===h.nx && q.ny===h.ny) data={pid:h.pid||q.pid,pb:h.pid?h.pb:q.pb,pa:h.pid?h.pa:q.pa,plates:h.pid?h.plates:q.plates,anc:q.anc||null}; }catch(e){}
+  let data=null; try{ const st=generateMap(S.w,S.h,g.kind,{...g,coast:g.coast ?? 0}), q=st.height; if(q && q.pid && q.nx===h.nx && q.ny===h.ny) data={pid:h.pid||q.pid,pb:h.pid?h.pb:q.pb,pa:h.pid?h.pa:q.pa,plates:h.pid?h.plates:q.plates,anc:q.anc||null}; }catch(e){}
   plateCache={key,data}; return data; }
 const platesFor=()=>{ const r=genRef(); return r && r.pid ? r : null; };
 const landAnchors=lands=>lands.filter(l=>l.mode!=='sea' && l.pts && l.pts.length>2).map(l=>({s:l.seed,a:l.pts[0],b:l.pts[l.pts.length>>1],n:l.pts.length}));
@@ -2346,7 +2347,7 @@ function generateCity(W,H,G={}){ G={size:1,density:1,walls:true,river:true,coast
   if(river){ const k=river.findIndex(p=>p[1]>Math.max(150,C[1]-Rw*1.25)), p=river[Math.max(1,k)], n2=river[Math.max(1,k)+1]||p; st.labels.push({text:'The River '+pick(syl[0])+pick(['e','a','en','ow','ey']),x:p[0]+rw+26,y:p[1],size:19,rot:Math.round(Math.atan2(n2[1]-p[1],n2[0]-p[0])*180/Math.PI),style:'water'}); }
   if(G.coast) st.labels.push({text:pick(['The Roads','The Haven','The Sound','The Bay']),x:W*.5,y:H-70,size:30,rot:0,style:'water',bend:-.15});
   st.stamps.push({kind:'compass',x:150,y:H-170,size:190,rot:0,var:1},{kind:'scalebar',x:W-210,y:H-130,size:200,rot:0});
-  st.frame='line'; st.scale={per100:100,unit:'yards'}; st.gen={kind:'city',seed,size:G.size,density:G.density};
+  st.frame='line'; st.scale={per100:100,unit:'yards'}; st.gen={kind:'city',seed,size:G.size,density:G.density,walls:G.walls,river:G.river,coast:G.coast};
   { const [mc,mx]=mkCanvas(1,1); st.labels.forEach(l=>{ const hw=labelMetrics(mx,l).width/2+34; l.x=Math.round(clamp(l.x,hw,W-hw)); l.y=Math.round(clamp(l.y,l.size+26,H-l.size-26)); }); }
   return st; }
 let measured=null;      // the last route measured, kept on screen until the next one
@@ -2907,11 +2908,15 @@ $('openBtn').onclick=()=>$('fileIn').click();
 $('fileIn').onchange=e=>{ const f=e.target.files[0]; if(!f) return; const r=new FileReader();
   r.onload=()=>{ let d=null; try{ d=JSON.parse(r.result); }catch(err){} if(!validState(d)){ toast('That file is not a Wayfarer Atlas map.'); return; } addMap(d,'select').then(()=>{ $('note').hidden=true; toast('Opened '+f.name+' as a new map in Maps.'); if($('mapsDlg').open) $('mapsDlg').close('cancel'); }); };
   r.readAsText(f); e.target.value=''; };
-const genOpts={land:1,mountains:1,forests:1,rivers:1,towns:1,last:null};
+const genOpts={land:1,coast:1,mountains:1,forests:1,rivers:1,towns:1,last:null};
 function syncGen(){ const kind=document.querySelector('input[name=start]:checked').value, on=kind!=='blank'&&kind!=='dungeon'; $('cityBox').hidden=kind!=='city'; $('genSliders').style.display=kind==='city'||kind==='dungeongen'?'none':'flex'; $('dgSliders').style.display=kind==='dungeongen'?'flex':'none'; $('genBox').querySelector('p').hidden=kind==='city'; $('genBox').querySelector('p').textContent=kind==='dungeongen'?'The dungeon':'How much of each'; $('genBox').style.opacity=on?1:.45; $('genBox').querySelectorAll('input,button').forEach(el=>el.disabled=!on); $('genLast').disabled=!on||genOpts.last===null; }
-$('genSliders').innerHTML=[['land','Land','less','more'],['mountains','Mountains','none','many'],['forests','Forests','none','thick'],['rivers','Rivers','none','many'],['towns','Settlements','none','many']].map(([k,n,a,b])=>`<label style="display:grid;grid-template-columns:7em 2.4em 1fr 2.8em;align-items:center;gap:6px"><span>${n}</span><small style="color:var(--muted);text-align:right">${a}</small><input type="range" id="gen_${k}" aria-label="${n}" min="0" max="2" step="0.1" value="1"><small style="color:var(--muted)">${b}</small></label>`).join('');
-for(const k of ['land','mountains','forests','rivers','towns']) $('gen_'+k).addEventListener('input',e=>genOpts[k]=+e.target.value);
+$('genSliders').innerHTML=[['land','Land','less','more'],['coast','Coastline','smooth','ragged'],['mountains','Mountains','none','many'],['forests','Forests','none','thick'],['rivers','Rivers','none','many'],['towns','Settlements','none','many']].map(([k,n,a,b])=>`<label style="display:grid;grid-template-columns:7em 2.4em 1fr 2.8em;align-items:center;gap:6px"><span>${n}</span><small style="color:var(--muted);text-align:right">${a}</small><input type="range" id="gen_${k}" aria-label="${n}" min="0" max="2" step="0.1" value="1"><small style="color:var(--muted)">${b}</small></label>`).join('');
+for(const k of ['land','coast','mountains','forests','rivers','towns']) $('gen_'+k).addEventListener('input',e=>genOpts[k]=+e.target.value);
 document.querySelectorAll('input[name=start]').forEach(r=>r.addEventListener('change',syncGen)); $('genLast').addEventListener('click',()=>{ if(genOpts.last!==null) $('genSeed').value=genOpts.last; });
+function generateFrom(g,W,H){ const o={...g,seed:rseed()}; return g.kind==='city' ? generateCity(W,H,o) : g.kind==='dungeongen' ? generateDungeon(W,H,o) : generateMap(W,H,g.kind,o); }
+function reroll(){ const g=S.gen; if(!g || !g.kind) return; const made=generateFrom(g,S.w,S.h), hm=S.hm;      // the same kind, size and settings with a new seed, in place of this map; one undo step, so flipping back is Undo
+  pushUndo('Reroll'); const ust=undoStack; loadState(made); undoStack=ust; redoStack=[]; S.hm=hm && !!S.height; genOpts.last=made.gen.seed; setTool('select'); need.compose='full'; invalidate(); syncButtons(); queueSave(); toast('Rerolled: '+S.name+' (seed '+made.gen.seed+').'); }
+$('rerollBtn').onclick=reroll;
 $('newBtn').onclick=()=>{ syncGen(); $('newDlg').showModal(); };
 $('newDlg').addEventListener('close',()=>{ if($('newDlg').returnValue!=='ok') return; const v=document.querySelector('input[name=size]:checked').value.split('x').map(Number);
   const kind=document.querySelector('input[name=start]:checked').value;
@@ -2987,8 +2992,9 @@ function generateDungeon(W,H,G={}){ G={rooms:1,props:1,foes:1,numbers:true,...G}
   const pre=['The Sunken','The Drowned','The Ashen','The Hollow','The Forgotten','The Gilded','The Black','Under','The Weeping'], post=['Crypt','Vault','Catacombs','Warrens','Cellars','Undercroft','Deeps','Barrows','Halls'];
   st.name=pick(pre)+' '+pick(post); { const [mc,mx]=mkCanvas(1,1); let sz=50; while(sz>22 && labelMetrics(mx,{text:st.name,size:sz,style:'title'}).width>W*.5) sz-=2; st.labels.push({text:st.name,x:Math.round(W/2),y:Math.round(C*1.5),size:sz,rot:0,style:'title'},{text:'the lower levels, one square to five feet',x:Math.round(W/2),y:Math.round(C*2.3),size:20,rot:0,style:'note'}); }
   st.stamps.push({kind:'scalebar',x:W-C*4.2,y:H-C*1.3,size:200,rot:0,v:.5});
+  st.gen={kind:'dungeongen',seed,rooms:G.rooms,props:G.props,foes:G.foes,numbers:G.numbers};
   return st; }
-function generateMap(W,H,kind,G={}){ G={land:1,mountains:1,forests:1,rivers:1,towns:1,...G};      // G: how much of each there should be (1 = the usual amount), and optionally the seed to repeat a map
+function generateMap(W,H,kind,G={}){ G={land:1,mountains:1,forests:1,rivers:1,towns:1,coast:1,...G};      // G: how much of each there should be (1 = the usual amount), and optionally the seed to repeat a map
   const seed=Number.isFinite(G.seed)?G.seed:rseed(), rnd=mulberry(seed), cs=20, nx=Math.floor(W/cs)+1, ny=Math.floor(H/cs)+1, N=nx*ny, at=(i,j)=>j*nx+i, pos=k=>[(k%nx)*cs, Math.floor(k/nx)*cs];
   const vn=(x,y,s)=>{ const xi=Math.floor(x), yi=Math.floor(y), fx=x-xi, fy=y-yi, u=fx*fx*(3-2*fx), v=fy*fy*(3-2*fy), a=hash(xi,yi,s), b=hash(xi+1,yi,s), c=hash(xi,yi+1,s), d=hash(xi+1,yi+1,s); return a+(b-a)*u+(c-a)*v+(a-b-c+d)*u*v; };
   const fbm=(x,y,s,o=5)=>{ let t=0,amp=.5,f=1,n=0; for(let k=0;k<o;k++){ t+=vn(x*f,y*f,s+k*17)*amp; n+=amp; amp*=.5; f*=2; } return t/n; };
@@ -3023,10 +3029,16 @@ function generateMap(W,H,kind,G={}){ G={land:1,mountains:1,forests:1,rivers:1,to
   const rawRidge=new Float32Array(N), grav=kind==='island'?.4:kind==='continent'?.12:0, raw=[];
   for(let j=0;j<ny;j++) for(let i=0;i<nx;i++){ const x=i*cs, y=j*cs, k=at(i,j);
     const wx=x+(fbm(x*F*1.4,y*F*1.4,seed+101,3)-.5)*300, wy=y+(fbm(x*F*1.4,y*F*1.4,seed+202,3)-.5)*300, n=fbm(wx*F,wy*F,seed,5);
-    const dx=(x-W/2)/(W/2), dy=(y-H/2)/(H/2), d2=dx*dx+dy*dy, edge=sstep(.78,1,Math.max(Math.abs(dx),Math.abs(dy)))*.7;
+    const dx=(x-W/2)/(W/2), dy=(y-H/2)/(H/2), d2=dx*dx+dy*dy, ex=(wx-W/2)/(W/2), ey=(wy-H/2)/(H/2), edge=sstep(.74,1,Math.max(Math.abs(ex),Math.abs(ey),Math.max(Math.abs(dx),Math.abs(dy))-.06))*.7;      // the falloff to sea at the sheet's edge is bent like the land, so a coast near the edge does not run parallel to it
     elev[k] = n*.4 + plateBase[k] + Math.min(.8,uplift[k]) - Math.min(.6,subs[k]) + (fbm(x*F*2.6,y*F*2.6,seed+909,3)-.5)*.24 + (fbm(x*F*3.4,y*F*3.4,seed+919,2)-.5)*.2*Math.min(1,shear[k]) - grav*d2 - edge;
     if(!(i===0||j===0||i===nx-1||j===ny-1)) raw.push(elev[k]);
     rawRidge[k]=1-Math.min(1,Math.abs(fbm(wx*F*1.5,wy*F*1.5,seed+303,4)-.5)/.2); moist[k]=fbm(x*F*1.3,y*F*1.3,seed+404,4); temp[k]=.84-.66*(y/H)+(fbm(x*F,y*F,seed+505,3)-.5)*.3; }
+  if(G.coast>0){ const frac0=clamp((kind==='continent'?.4:kind==='archipelago'?.25:.3)*(1+(G.land-1)*.7),.06,.8), r0=[...raw].sort((a,b)=>a-b), s0=r0[Math.min(r0.length-1,Math.floor(r0.length*(1-frac0)))]; raw.length=0;      // coast detail: bays, headlands and inlets 40-300 units across (the Coastline slider)
+    const L=105*G.coast, e0=Float32Array.from(elev), gr=new Float32Array(N); for(let j=0;j<ny;j++) for(let i=0;i<nx;i++){ const k=at(i,j), a=e0[at(Math.min(nx-1,i+1),j)]-e0[at(Math.max(0,i-1),j)], b=e0[at(i,Math.min(ny-1,j+1))]-e0[at(i,Math.max(0,j-1))]; gr[k]=Math.max(.0003,Math.hypot(a,b)/(2*cs)); }      // the slope, so the shore moves by about the same distance where the land drops steeply as where it shelves gently
+    for(let j=0;j<ny;j++) for(let i=0;i<nx;i++){ const x=i*cs, y=j*cs, k=at(i,j), near=Math.exp(-(Math.abs(e0[k]-s0)/gr[k])/(2.4*L));      // strongest at the water's edge, so the interior keeps its shape
+      const wx=x+(fbm(x/110,y/110,seed+1301,2)-.5)*120, wy=y+(fbm(x/110,y/110,seed+1302,2)-.5)*120;
+      const d=(fbm(wx/230,wy/230,seed+1311,3)-.5)*2.7 + (fbm(wx/95,wy/95,seed+1321,2)-.5)*1.9 + (fbm(wx/48,wy/48,seed+1331,2)-.5)*1;
+      elev[k]+=d*gr[k]*L*near; if(!(i===0||j===0||i===nx-1||j===ny-1)) raw.push(elev[k]); } }
   { const frac=clamp((kind==='continent'?.4:kind==='archipelago'?.25:.3)*(1+(G.land-1)*.7),.06,.8); raw.sort((a,b)=>a-b); const sea=raw[Math.min(raw.length-1,Math.floor(raw.length*(1-frac)))];      // sea level: the land is this share of the map (the Land slider moves it)
     for(let j=0;j<ny;j++) for(let i=0;i<nx;i++){ const k=at(i,j); elev[k]-=sea+1e-4; if(i===0||j===0||i===nx-1||j===ny-1) elev[k]=Math.min(elev[k],-.3);
       const up=Math.min(1,uplift[k]/.5); ridge[k]=Math.min(1,Math.max(rawRidge[k]*.8*Math.min(1,up*2)+up*.4,up)); } }      // ranges follow the collisions: the noise ridge only shapes them where there is uplift, so no mountains stand away from a collision
@@ -3085,7 +3097,7 @@ function generateMap(W,H,kind,G={}){ G={land:1,mountains:1,forests:1,rivers:1,to
     const sa=pts.reduce((t,v,i)=>{ const w=pts[(i+1)%pts.length]; return t+v[0]*w[1]-w[0]*v[1]; },0);      // land is always on the left of the walk, so a ring with land inside has positive area and a lake (land outside) negative; the point test below can fail on a zero-length first segment
     (Math.abs(sa)>1e-6 ? sa>0 : inPoly(q,pts)) ? lands.push(resample(pts,10,true)) : lakes.push(resample(smooth(pts),10,true)); }
   const st={app:'wayfarer-atlas',...blankState(W,H)};
-  st.lands=[...lands.map(pts=>({mode:'land',pts,rough:.3,seed:(rnd()*1e9)|0})), ...lakes.map(pts=>({mode:'sea',pts,rough:.2,seed:(rnd()*1e9)|0}))];
+  st.lands=[...lands.map(pts=>({mode:'land',pts,rough:+clamp(.12+.24*G.coast,.04,.62).toFixed(2),seed:(rnd()*1e9)|0})), ...lakes.map(pts=>({mode:'sea',pts,rough:.2,seed:(rnd()*1e9)|0}))];
 
   /* ground paint: runs of the same biome along every other grid row become soft brush strokes */
   for(let j=1;j<ny-1;j+=2){ let run=null; const flush=()=>{ if(run) st.paints.push({type:run.b,size:112,hard:.12,op:1,pts:run.x0===run.x1?[[run.x0,j*cs]]:[[run.x0,j*cs],[run.x1,j*cs]]}); run=null; };
@@ -3184,7 +3196,7 @@ function generateMap(W,H,kind,G={}){ G={land:1,mountains:1,forests:1,rivers:1,to
       if(rg.length>=3){ const cx=rg.reduce((a,q)=>a+q[0],0)/rg.length, cy=Math.min(...rg.map(q=>q[1]))-70; st.labels.push({text:name().replace(/(ford|mouth|bridge|ton|by|stead|wick)$/,'')+' '+pick(['Peaks','Mountains','Spine','Heights','Teeth']),x:cx,y:Math.max(40,cy),size:22,rot:0,style:'range',bend:.18}); } } }
   { const [mc,mx]=mkCanvas(1,1); st.labels.forEach(l=>{ const hw=labelMetrics(mx,l).width/2+30; l.x=Math.round(clamp(l.x,hw,W-hw)); l.y=Math.round(clamp(l.y,l.size+20,H-l.size-20)); }); }      // keep every name on the sheet
   st.height={...packHeight(nx,ny,cs,elev,Array.from({length:N},(_,k)=>isLand(k)?0:ocean[k]?1:2)), pid:packBytes(plateId), pb:packBytes(bnd), pa:packBytes(bang), anc:landAnchors(st.lands), plates:plates.map(s=>({x:Math.round(s.x),y:Math.round(s.y),dx:+s.dx.toFixed(2),dy:+s.dy.toFixed(2),c:s.continental?1:0}))};      // what the Heightmap view shows
-  st.gen={kind,seed,land:G.land,mountains:G.mountains,forests:G.forests,rivers:G.rivers,towns:G.towns};
+  st.gen={kind,seed,land:G.land,mountains:G.mountains,forests:G.forests,rivers:G.rivers,towns:G.towns,coast:G.coast};
   st.stamps.forEach(q=>{ q.size=Math.round(q.size*1.15); }); st.labels.forEach(l=>{ if(l.style==='water'){ l.bend=.2; } });      // sizes in step with the stamp tool's defaults
   return st;
 }
