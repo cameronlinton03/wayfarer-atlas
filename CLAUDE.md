@@ -43,6 +43,6 @@ Open `wayfarer-atlas.html` in a browser. That is the whole app. Maps are stored 
 
 - Battle maps are undecided. Dungeons have no lighting or per-room colour, no stairs linking levels, and no way to rotate a room; round and cave rooms get no doors in the generator.
 - A full dungeon compose is ~0.5 s on a software-rendered browser (hatching and textures dominate); dragging uses a cheaper compose.
-- Weakest dungeon art: the top-down humanoids (stylised, they share one figure), `golem`, `wraith` and `hydra`.
+- Dungeon art still to push: the humanoids share one body (`mMan`) and differ by head (`HEADS`), weapon and mantle; `zombie` and `ogre` are the plainest.
 - City district names are not placed to avoid streets.
 - Brush hardness no longer affects washes (they are always soft).
