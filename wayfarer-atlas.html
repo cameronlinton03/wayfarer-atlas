@@ -745,15 +745,27 @@ function rebuildCliffs(){
   }
 }
 function cleanInk(){      // a tuft, pebble or crack that a coast, river bank or cliff edge would slice through is taken out whole, so no mark is ever left cut in half
-  try{ const W=S.w, H=S.h, w=cleanC.width, h=cleanC.height;
-    cnx.save(); cnx.setTransform(1,0,0,1,0,0); cnx.globalAlpha=1; cnx.globalCompositeOperation='copy'; cnx.drawImage(terrainC,0,0); cnx.restore();
-    tc.save(); tc.globalAlpha=1; tc.globalCompositeOperation='source-over'; tc.clearRect(0,0,W,H); tc.fillStyle='#000'; tc.fillRect(0,0,W,H); tc.globalCompositeOperation='destination-out'; tc.drawImage(landMask,0,0,W,H); tc.globalCompositeOperation='source-over'; tc.drawImage(cliffSolidC,0,0,W,H); tc.restore();
-    const im=cnx.getImageData(0,0,w,h), d=im.data, F=tc.getImageData(0,0,w,h).data, seen=new Uint8Array(w*h), cap=Math.round(700*R*R), g=Math.max(1,Math.round(2.5*R)), nb=[]; for(let j=-g;j<=g;j++) for(let i2=-g;i2<=g;i2++) if(i2||j) nb.push(j*w+i2); let cut=0;      // strokes this close together belong to one mark (the blades of a tuft do not touch)
+  /* Only the part of the map that changed is cleaned again. cleanC keeps the previous result; if the lands, the cliffs and the land are as they were and the paint list differs only by strokes added
+     (or taken away, for undo and redo), only the box those strokes touched is redone, and everything else is left as it was. The box is read with a margin so a mark lying across its edge is judged
+     whole, but only the box itself is written, so a mark across the edge is never half restored. */
+  try{ const W=S.w, H=S.h, w=cleanC.width, h=cleanC.height, M=24;
+    let box=[0,0,W,H];      // map units: the part to write
+    const pf=cleanFor && cleanFor.cv===cleanC && cleanFor.l===S.lands && cleanFor.c===S.cliffs && cleanFor.v===landVer ? cleanFor : null;
+    if(pf){ const a=pf.p, b=S.paints, small=a.length<=b.length?a:b, big=a.length<=b.length?b:a;
+      if(small.every((o,i)=>o===big[i])){ let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;
+        for(const q of big.slice(small.length)){ if(q.w) continue; const pad=q.size/2+(1-(q.hard ?? .85))*q.size*.5+M; for(const r of q.pts){ x0=Math.min(x0,r[0]-pad); x1=Math.max(x1,r[0]+pad); y0=Math.min(y0,r[1]-pad); y1=Math.max(y1,r[1]+pad); } }
+        if(x1<x0){ cleanFor={p:S.paints,l:S.lands,c:S.cliffs,v:landVer,cv:cleanC}; return true; }      // nothing that touches the ground changed
+        box=[Math.max(0,x0),Math.max(0,y0),Math.min(W,x1),Math.min(H,y1)]; } }
+    const px=(a,b)=>[Math.max(0,Math.floor(a*R)),Math.max(0,Math.floor(b*R))], [wx0,wy0]=px(box[0],box[1]), wx1=Math.min(w,Math.ceil(box[2]*R)), wy1=Math.min(h,Math.ceil(box[3]*R));      // write box, in pixels
+    const rx0=Math.max(0,wx0-Math.ceil(M*R)), ry0=Math.max(0,wy0-Math.ceil(M*R)), rx1=Math.min(w,wx1+Math.ceil(M*R)), ry1=Math.min(h,wy1+Math.ceil(M*R)), rw=rx1-rx0, rh=ry1-ry0;      // read box: the write box and a margin
+    tc.save(); tc.setTransform(R,0,0,R,0,0); tc.beginPath(); tc.rect(rx0/R,ry0/R,rw/R,rh/R); tc.clip(); tc.globalAlpha=1; tc.globalCompositeOperation='source-over'; tc.clearRect(0,0,W,H); tc.fillStyle='#000'; tc.fillRect(0,0,W,H); tc.globalCompositeOperation='destination-out'; tc.drawImage(landMask,0,0,W,H); tc.globalCompositeOperation='source-over'; tc.drawImage(cliffSolidC,0,0,W,H); tc.restore();
+    const im=tx.getImageData(rx0,ry0,rw,rh), d=im.data, F=tc.getImageData(rx0,ry0,rw,rh).data, seen=new Uint8Array(rw*rh), cap=Math.round(700*R*R), g=Math.max(1,Math.round(2.5*R)), nb=[]; for(let j=-g;j<=g;j++) for(let i2=-g;i2<=g;i2++) if(i2||j) nb.push(j*rw+i2); let cut=0;      // strokes this close together belong to one mark (the blades of a tuft do not touch)
     const m=Math.max(1,Math.round(3*R));      // a mark within a few units of an edge would run under the inked outline, so it counts as touching
-    for(let y=m;y<h-m;y++) for(let x=m,i=y*w+m;x<w-m;x++,i++){ if(d[i*4+3]<=10 || seen[i] || F[i*4+3]>100) continue; if(!(F[(i-m)*4+3]>100 || F[(i+m)*4+3]>100 || F[(i-m*w)*4+3]>100 || F[(i+m*w)*4+3]>100)) continue;
-      const comp=[i]; seen[i]=1; for(let q=0;q<comp.length && comp.length<=cap;q++){ const k=comp[q], kx=k%w; if(kx<g || kx>w-1-g || k<w*g || k>=w*(h-g)) continue; for(const o of nb){ const n=k+o; if(!seen[n] && d[n*4+3]>10){ seen[n]=1; comp.push(n); } } }
+    for(let y=m;y<rh-m;y++) for(let x=m,i=y*rw+m;x<rw-m;x++,i++){ if(d[i*4+3]<=10 || seen[i] || F[i*4+3]>100) continue; if(!(F[(i-m)*4+3]>100 || F[(i+m)*4+3]>100 || F[(i-m*rw)*4+3]>100 || F[(i+m*rw)*4+3]>100)) continue;
+      const comp=[i]; seen[i]=1; for(let q=0;q<comp.length && comp.length<=cap;q++){ const k=comp[q], kx=k%rw; if(kx<g || kx>rw-1-g || k<rw*g || k>=rw*(rh-g)) continue; for(const o of nb){ const n=k+o; if(!seen[n] && d[n*4+3]>10){ seen[n]=1; comp.push(n); } } }
       if(comp.length<=cap){ for(const k of comp) d[k*4+3]=0; cut++; } }
-    if(cut) cnx.putImageData(im,0,0); cleanFor={p:S.paints,l:S.lands,c:S.cliffs,v:landVer,cv:cleanC}; return true; }catch(e){ cleanFor=null; return false; } }
+    cnx.putImageData(im,rx0,ry0,wx0-rx0,wy0-ry0,wx1-wx0,wy1-wy0);      // only the write box goes back; the margin is for judging, not for changing
+    cleanFor={p:S.paints,l:S.lands,c:S.cliffs,v:landVer,cv:cleanC}; return true; }catch(e){ cleanFor=null; return false; } }
 /* ---- The woodland edge. Where open ground (meadow, a grass, a flower field) meets forest, shrubs and saplings straggle out from the trees, thick at the wood and thinning
    to nothing. They are not stamps: they are marks on the ground, worked out from the ground paint itself and laid on their own layer (ecoC) just over the terrain, so they
    follow the paint wherever it is drawn, rubbed out or undone. Each is placed whole, and only where all of its footprint is on land clear of coast, river bank and cliff, so
