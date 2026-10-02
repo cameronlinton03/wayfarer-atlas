@@ -2719,17 +2719,28 @@ async function saveFile(filename, blob){
   const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=filename; document.body.append(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href),4000); toast('Saved '+filename);
 }
 $('saveBtn').onclick=()=>saveFile(slug()+'.json', new Blob([serialize()],{type:'application/json'}));
-const maxScale = () => { let m=1; for(const k of [1.5,2,3,4]) if(S.w*S.h*k*k<=36e6) m=k; return m; };      // keeps each working image under about 36 megapixels
+/* Export draws on about BUFFER_COUNT full-size images at once: 10 full-size canvases (see initBuffers), 8 more at half size each way (a quarter of the area, so 2), and about 3 for the pixel reads
+   that clean up ground marks and place the woodland edge. EXPORT_BUDGET is the most pixels, counted that way, that is offered; the size dialog shows both numbers. */
+const BUFFER_COUNT=15, EXPORT_BUDGET=260e6, exportMP=k=>S.w*S.h*k*k/1e6, MAX_IMAGE_MP=EXPORT_BUDGET/BUFFER_COUNT/1e6;
+const maxScale = () => { let m=1; for(const k of [1.5,2,3,4]) if(S.w*S.h*k*k*BUFFER_COUNT<=EXPORT_BUDGET) m=k; return m; };
 function setDetail(k){ R=k; initBuffers(); rebuildAll(); }
 function exportPNG(scale){
   toast('Drawing the map at '+Math.round(S.w*scale)+' × '+Math.round(S.h*scale)+'…');
   setTimeout(()=>{ const old=R, back=()=>{ R=old; exporting=false; initBuffers(); rebuildAll(); };
-    try{ R=scale; exporting=true; initBuffers(); rebuildLand(true); compose(true); drawVectors(bc,scale);          // redraw everything from scratch at the bigger size, straight into the picture
-      base.toBlob(b=>{ back(); b ? saveFile(slug()+(scale>1?'-'+scale+'x':'')+'.png',b) : toast('That size was too big for this browser. Try a smaller one.'); },'image/png'); }
-    catch(err){ back(); toast('That size was too big for this browser. Try a smaller one.'); } },80);
+    const tooBig=()=>toast('Your browser could not make a '+Math.round(S.w*scale)+' × '+Math.round(S.h*scale)+' picture ('+exportMP(scale).toFixed(1)+' megapixels). Try a smaller size.');
+    try{ R=scale; exporting=true; initBuffers(); if(!buffersOK()) throw new Error('the browser gave smaller canvases than asked for'); rebuildLand(true); compose(true); drawVectors(bc,scale);          // redraw everything from scratch at the bigger size, straight into the picture
+      releaseBuffers();      // the picture is finished: give back everything but it before it is encoded, which needs room of its own
+      base.toBlob(b=>{ back(); b ? saveFile(slug()+(scale>1?'-'+scale+'x':'')+'.png',b) : tooBig(); },'image/png'); }
+    catch(err){ back(); tooBig(); } },80);
 }
+function buffersOK(){      // a browser that cannot allocate a canvas as large as asked quietly gives a smaller or unusable one: look at the ones that matter and draw one pixel on each
+  const want=[Math.round(S.w*R),Math.round(S.h*R)];
+  return [base,terrainC,landMask,cliffC,waterC].every(c=>{ if(!c || c.width!==want[0] || c.height!==want[1]) return false;
+    try{ const x=c.getContext('2d'); x.save(); x.setTransform(1,0,0,1,0,0); x.globalCompositeOperation='copy'; x.fillStyle='#010203'; x.fillRect(0,0,1,1); const d=x.getImageData(0,0,1,1).data; x.clearRect(0,0,1,1); x.restore(); return d[0]===1 && d[1]===2 && d[2]===3; }catch(e){ return false; } }); }
+function releaseBuffers(){      // shrunk, not nulled: the screen may still be redrawn before the export finishes, and drawing a 1 x 1 canvas is harmless where drawing a missing one is not
+  for(const c of [tmpC,invC,innerC,coastC,ringC,halfC,cliffSolidC,cleanC,landMask,landLayer,terrainC,waterC,cliffC,ecoC,tintC,sbC,clipC]) if(c){ c.width=1; c.height=1; } cleanFor=null; ecoFor=null; }
 $('pngBtn').onclick=()=>{ const top=maxScale();
-  $('expSizes').innerHTML=[1,2,3,4].map(k=>`<label><input type="radio" name="exp" value="${k}" id="ex${k}" ${k===Math.min(2,top)?'checked':''} ${k>top?'disabled':''}> ${k===1?'Standard':k+'× size'} (${S.w*k} × ${S.h*k})${k>top?' · too large for this map':''}</label>`).join('');
+  $('expSizes').innerHTML=[1,2,3,4].map(k=>`<label><input type="radio" name="exp" value="${k}" id="ex${k}" ${k===Math.min(2,top)?'checked':''} ${k>top?'disabled':''}> ${k===1?'Standard':k+'× size'} (${S.w*k} × ${S.h*k})${k>top?` · too large for this map (${exportMP(k).toFixed(0)} megapixels; about ${Math.floor(MAX_IMAGE_MP)} is the most it will draw)`:''}</label>`).join('');
   $('expDlg').showModal(); };
 $('expDlg').addEventListener('close',()=>{ if($('expDlg').returnValue==='ok') exportPNG(+document.querySelector('input[name=exp]:checked').value); });
 $('openBtn').onclick=()=>$('fileIn').click();
