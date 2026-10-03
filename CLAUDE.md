@@ -60,7 +60,7 @@ UI
 
 ## Known gaps
 
-- Visual feedback being worked through: ice floes look like bubbles. Monsters are darker with ragged fur (`mBody` defaults, `engForm` `fur`), but the humanoid build (`mMan`: round pack, cylinder body) still reads toy-like and needs a real redraw.
+- Monsters are darker with ragged fur (`mBody` defaults, `engForm` `fur`), but the humanoid build (`mMan`: round pack, cylinder body) still reads toy-like and needs a real redraw.
 - Older reports: roads straight over long runs, city river mouth has a pale fan and no bridges, grid doubles flagstone joints, example map lacks border/compass/cartouche, furniture shading, paddock animals and hedges crude, depth paints barely differ, rhumb lines cross lakes, river sources blunt and tributary banks cross the main river, streets across walls make no gate, hand-drawn walls wobble.
 - Dungeons: no lighting, per-room colour, level links or room rotation; generator gives round/cave rooms no doors. A dungeon drag is ~350 ms on software rendering (a dirty box would not match: hatch jitter runs along whole lines).
 - City district names don't avoid streets. Battle maps undecided.
