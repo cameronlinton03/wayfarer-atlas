@@ -1052,9 +1052,9 @@ function paintsOn(lands){     // the paint strokes that sit on these land shapes
   const ls=lands.filter(l=>l.mode!=='sea'); if(!ls.length) return [];
   return S.paints.filter(p=>{ if(p.w) return false; const m=p.pts[p.pts.length>>1]; return ls.some(l=>inLand(l,m)); }); }
 function ridersOn(lands,cliffs=[]){    // everything sitting on these land shapes: lakes and bays cut into them, paint, rivers, roads, stamps, labels; a raised cliff takes only the stamps and labels on its top
-  const ls=lands.filter(l=>l.mode!=='sea'), cl=cliffs.filter(c=>c.mode==='up' && c.h>0), gs=new Set(selItems().filter(it=>it.type==='line' && it.obj.kind==='realm').map(it=>gidOf(it.obj))); if(!ls.length && !cl.length && !gs.size) return []; const picked=new Set(selItems().map(it=>it.obj)), on=p=>ls.some(l=>inLand(l,p)), onTop=p=>on(p) || cl.some(c=>inLand(c,p)), free=o=>!picked.has(o);      // gs: a territory's other strokes go with the one picked
+  const ls=lands.filter(l=>l.mode!=='sea'), cl=cliffs.filter(c=>c.mode==='up' && c.h>0), gs=new Set(selItems().filter(it=>it.type==='line' && it.obj.kind==='realm').map(it=>pieceKey(it.obj))); if(!ls.length && !cl.length && !gs.size) return []; const picked=new Set(selItems().map(it=>it.obj)), on=p=>ls.some(l=>inLand(l,p)), onTop=p=>on(p) || cl.some(c=>inLand(c,p)), free=o=>!picked.has(o);      // gs: the other lines of the piece picked (the holes in it) go with it; the territory's other pieces stay
   const mid=o=>{ landPath(o); const b=built.get(o).bb; return [(b[0]+b[2])/2,(b[1]+b[3])/2]; };
-  return [['lands',S.lands.filter(o=>o.mode==='sea' && free(o) && on(mid(o)))], ['cliffs',S.cliffs.filter(o=>free(o) && on(mid(o)))], ['paints',paintsOn(lands)], ['lines',S.lines.filter(o=>free(o) && (on(o.pts[o.pts.length>>1]) || (o.kind==='realm' && gs.has(gidOf(o)))))],
+  return [['lands',S.lands.filter(o=>o.mode==='sea' && free(o) && on(mid(o)))], ['cliffs',S.cliffs.filter(o=>free(o) && on(mid(o)))], ['paints',paintsOn(lands)], ['lines',S.lines.filter(o=>free(o) && (on(o.pts[o.pts.length>>1]) || (o.kind==='realm' && gs.has(pieceKey(o)))))],
           ['elev',(S.elev||[]).filter(o=>free(o) && o.pts.length && on(o.pts[o.pts.length>>1]))], ['stamps',S.stamps.filter(o=>free(o) && onTop([o.x,o.y]))], ['labels',S.labels.filter(o=>free(o) && onTop([o.x,o.y]))]].filter(r=>r[1].length); }
 /* Shore decoration, rebuilt only when the land changes: ripple lines and a pale glow in the water, soft shading inside the coast. */
 function rebuildCoast(){
@@ -1122,8 +1122,7 @@ const realmFillOf=l=>({band:'edge'})[l.fill]||l.fill||'edge', realmColOf=l=>REAL
 function fillTerritory(x,lines){ x.fillStyle='#000'; const rp=new Path2D(); let anyRing=false;
   for(const l of lines){ if(l.erase) continue; const pts=realmPoly(l); if(pts.length<3) continue; if(l.ring){ pts.forEach((q,i)=>i?rp.lineTo(q[0],q[1]):rp.moveTo(q[0],q[1])); rp.closePath(); anyRing=true; } else { const P=new Path2D(); pts.forEach((q,i)=>i?P.lineTo(q[0],q[1]):P.moveTo(q[0],q[1])); P.closePath(); x.fill(P); } }
   if(anyRing) x.fill(rp,'evenodd'); }
-/* Erasing: the territory's ground is drawn, the eraser taken out of it, and what is left traced back into rings (marching squares at about 2 units, simplified), which
-   replace the territory's lines. Nothing of the eraser is kept. Returns false if nothing is left. */
+/* Erasing and joining: a piece's ground is drawn, a cut taken out of it or a stroke added, and the result traced back into rings (marching squares at about 2 units, simplified). */
 function traceRings(alpha,gw,gh,c,ox,oy){ const v=(i,j)=>i<0||j<0||i>=gw||j>=gh?0:alpha[j*gw+i]/255, nx=gw+1, adj=new Map(), pos=new Map(), H=(i,j)=>((j+1)*(nx+2)+(i+1))*2, V=(i,j)=>((j+1)*(nx+2)+(i+1))*2+1;      // edge ids; the grid is padded by one cell of nothing, so every ring closes
   const link=(a,b)=>{ (adj.get(a)||adj.set(a,[]).get(a)).push(b); (adj.get(b)||adj.set(b,[]).get(b)).push(a); }, put=(id,x,y)=>{ if(!pos.has(id)) pos.set(id,[ox+x*c,oy+y*c]); };
   for(let j=-1;j<gh;j++) for(let i=-1;i<gw;i++){ const a=v(i,j), b=v(i+1,j), cc=v(i+1,j+1), d=v(i,j+1), k=(a>=.5?8:0)|(b>=.5?4:0)|(cc>=.5?2:0)|(d>=.5?1:0); if(k===0||k===15) continue;
@@ -1133,10 +1132,24 @@ function traceRings(alpha,gw,gh,c,ox,oy){ const v=(i,j)=>i<0||j<0||i>=gw||j>=gh?
   const dp=(pts,tol)=>{ if(pts.length<4) return pts; const keep=new Uint8Array(pts.length); keep[0]=keep[pts.length-1]=1; const st=[[0,pts.length-1]]; while(st.length){ const [s,e]=st.pop(); let md=0, mi=-1; for(let i=s+1;i<e;i++){ const d=segDist(pts[i],pts[s],pts[e]); if(d>md){ md=d; mi=i; } } if(md>tol){ keep[mi]=1; st.push([s,mi],[mi,e]); } } return pts.filter((_,i)=>keep[i]); };
   const area=r=>Math.abs(r.reduce((s,p,i)=>{ const q=r[(i+1)%r.length]; return s+p[0]*q[1]-q[0]*p[1]; },0)/2);
   return rings.map(r=>dp([...r,r[0]],c*.3).slice(0,-1).map(p=>[Math.round(p[0]*10)/10,Math.round(p[1]*10)/10])).filter(r=>r.length>=3 && area(r)>c*c*3); }
-function eraseFromTerritory(t,erPoly){ const polys=t.lines.map(realmPoly).filter(p=>p.length>=3); let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9; for(const p of polys) for(const q of p){ x0=Math.min(x0,q[0]); y0=Math.min(y0,q[1]); x1=Math.max(x1,q[0]); y1=Math.max(y1,q[1]); }
+/* Pieces. A territory may be in several pieces; each moves on its own. A piece is one plain stroke, or a set of ring lines sharing piece (an outline and the holes in it). */
+const lineUidMap=new WeakMap(); let lineUidN=0; const pieceKey=l=>gidOf(l)+'|'+(l.piece || (lineUidMap.get(l) || (lineUidMap.set(l,'s'+(++lineUidN)), lineUidMap.get(l))));
+const newPieceId=()=>'p'+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+function ringsToPieces(rings){ const out=[]; const depth=rings.map((r,i)=>rings.filter((o,j)=>j!==i && ptInPoly(r[0],o)).length), id=rings.map(()=>null);      // an outline at even depth starts a piece; a hole joins the smallest outline round it
+  const area=r=>Math.abs(r.reduce((s,p,i)=>{ const q=r[(i+1)%r.length]; return s+p[0]*q[1]-q[0]*p[1]; },0)/2);
+  rings.forEach((r,i)=>{ if(depth[i]%2===0) id[i]=newPieceId(); });
+  rings.forEach((r,i)=>{ if(depth[i]%2===1){ let best=-1, ba=1e18; rings.forEach((o,j)=>{ if(j!==i && depth[j]===depth[i]-1 && ptInPoly(r[0],o) && area(o)<ba){ ba=area(o); best=j; } }); id[i]=best>=0 ? id[best] : newPieceId(); } });
+  return rings.map((r,i)=>({pts:r,piece:id[i]})); }
+function retrace(lines,extra,cutPoly){ const polys=[...lines.map(realmPoly),...(extra?[realmPoly(extra)]:[]),...(cutPoly?[cutPoly]:[])].filter(p=>p.length>=3); let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9; for(const p of polys) for(const q of p){ x0=Math.min(x0,q[0]); y0=Math.min(y0,q[1]); x1=Math.max(x1,q[0]); y1=Math.max(y1,q[1]); }      // the ground of these lines (plus a stroke added, less a cut), traced into rings
   x0-=6; y0-=6; x1+=6; y1+=6; const c=Math.max(1.5,Math.sqrt((x1-x0)*(y1-y0)/1.2e6)), gw=Math.ceil((x1-x0)/c), gh=Math.ceil((y1-y0)/c), [cv2,cx]=mkCanvas(gw,gh); cx.setTransform(1/c,0,0,1/c,-x0/c,-y0/c);
-  fillTerritory(cx,t.lines); cx.globalCompositeOperation='destination-out'; const E=new Path2D(); erPoly.forEach((q,i)=>i?E.lineTo(q[0],q[1]):E.moveTo(q[0],q[1])); E.closePath(); cx.fill(E);
-  const D=cx.getImageData(0,0,gw,gh).data, al=new Uint8Array(gw*gh); for(let i=0;i<al.length;i++) al[i]=D[i*4+3]; return traceRings(al,gw,gh,c,x0,y0); }
+  fillTerritory(cx,lines); if(extra) fillTerritory(cx,[extra]); if(cutPoly){ cx.globalCompositeOperation='destination-out'; const E=new Path2D(); cutPoly.forEach((q,i)=>i?E.lineTo(q[0],q[1]):E.moveTo(q[0],q[1])); E.closePath(); cx.fill(E); }
+  const D=cx.getImageData(0,0,gw,gh).data, al=new Uint8Array(gw*gh); for(let i=0;i<al.length;i++) al[i]=D[i*4+3]; return ringsToPieces(traceRings(al,gw,gh,c,x0,y0)); }
+const polysMeet=(a,b)=>a.some(q=>ptInPoly(q,b)) || b.some(q=>ptInPoly(q,a));
+function piecesOf(t){ const m=new Map(); for(const l of t.lines){ const k=pieceKey(l); (m.get(k)||m.set(k,[]).get(k)).push(l); } return [...m.values()]; }
+function replaceLines(old,fresh){ const gone=new Set(old), at=Math.min(...old.map(l=>S.lines.indexOf(l)).filter(i=>i>=0)); S.lines=S.lines.filter(o=>!gone.has(o)); S.lines.splice(Number.isFinite(at)?Math.min(at,S.lines.length):S.lines.length,0,...fresh); }      // the new lines take the old ones' place in the order, so carving between territories stays as it was
+const ringLine=(l0,g,r)=>({kind:'realm',ring:true,gid:g,piece:r.piece,tier:l0.tier,name:l0.name,fill:l0.fill,col:l0.col,op:l0.op,width:l0.width,rough:0,seed:l0.seed,...(l0.ly?{ly:l0.ly}:{}),pts:r.pts});
+function mergeStroke(nl){ const t=territories().find(t=>t.gid===gidOf(nl)); if(!t) return; const np=realmPoly(nl), touch=piecesOf(t).filter(ps=>!ps.includes(nl) && ps.some(l=>polysMeet(realmPoly(l),np)));      // a stroke added to a territory and laid over one of its pieces becomes part of that piece
+  if(!touch.length) return; const old=touch.flat(), rings=retrace(old,nl,null), piece=newPieceId(); rings.forEach(r=>r.piece=piece); replaceLines([...old,nl],rings.map(r=>ringLine(nl,gidOf(nl),r))); }
 const realmPolyMap=new WeakMap(), realmPoly=l=>{ let p=realmPolyMap.get(l); if(!p){ p=l.ring ? l.pts : l.brush ? brushOutline({pts:l.pts,size:l.size||160,rough:l.rough||0,seed:l.seed||1}).poly : lineBuilt(l).pts; realmPolyMap.set(l,p); } return p; };
 /* Each territory is worked on a canvas of its own box. A is the ground it holds: its strokes and the eraser strokes of its tier laid down in the order they were made
    (an eraser takes out what was painted before it), less the ground of later territories of the same tier. The border is every outline that could bound it (its own
@@ -2736,17 +2749,16 @@ function endPointer(e){
       S.cliffs=[...S.cliffs,{mode:a.mode,pts:resample(a.pts,10,true),rough:opts.cliffRough,seed:rseed(),h:opts.cliffH,taper:opts.cliffTaper,dir:opts.cliffDir}]; need.compose='full'; }
     else if(a.pts.length>=4 && Math.max(...xs)-Math.min(...xs)>14 && Math.max(...ys)-Math.min(...ys)>14){ pushUndo();
       S.lands=[...S.lands,{mode:a.mode,pts:resample(a.pts,10,true),rough:a.cave?opts.caveRough:opts.landRough,seed:rseed(),t:++S.tick,...(a.cave?{floor:1,tex:opts.roomTex==='flag'?'dirt':opts.roomTex}:{})}]; need.land=true; need.compose='full'; } }
-  else if(a.type==='line'){ if(a.pts.length>=3){ pushUndo(); S.lines=[...S.lines,withLy({kind:a.kind,pts:resample(a.pts,10,a.kind==='realm'),rough:opts.lineRough,width:opts.lineWidth[a.kind],seed:rseed(),...(a.kind==='realm'?territoryProps():{}),...(a.kind==='fence'?{style:opts.fenceStyle}:{})})]; if(a.kind==='river'){ need.land=true; need.compose='full'; } } }
+  else if(a.type==='line'){ if(a.pts.length>=3){ pushUndo(); S.lines=[...S.lines,withLy({kind:a.kind,pts:resample(a.pts,10,a.kind==='realm'),rough:opts.lineRough,width:opts.lineWidth[a.kind],seed:rseed(),...(a.kind==='realm'?territoryProps():{}),...(a.kind==='fence'?{style:opts.fenceStyle}:{})})]; if(a.kind==='realm'){ mergeStroke(S.lines[S.lines.length-1]); need.compose='full'; renderPanel(); } if(a.kind==='river'){ need.land=true; need.compose='full'; } } }
   else if(a.type==='fpaint'){ need.compose='full'; queueSave(); }
   else if(a.type==='paint'){ pushUndo(); S.paints=[...S.paints,{...a.stroke,t:++S.tick}]; need.compose='full'; }
   else if(a.type==='lbrush'){ need.land=true; need.compose='full'; }
   else if(a.type==='cbrush'){ need.compose='full'; }
   else if(a.type==='rbrush' && a.line.erase){ const er=a.line, ep=realmPoly({...er}), tid=er.tier; S.lines=S.lines.filter(o=>o!==er);      // the eraser takes ground out of each territory of this tier it touches, and is not kept
     const hit=territories().filter(t=>tierList()[t.tier].id===tid && t.lines.some(l=>{ const lp=realmPoly(l); return ep.some(q=>ptInPoly(q,lp)) || lp.some(q=>ptInPoly(q,ep)); }));
-    for(const t of hit){ const rings=eraseFromTerritory(t,ep), l0=t.lines[0], g=l0.gid||t.gid, keep={kind:'realm',ring:true,gid:g,tier:l0.tier,name:l0.name,fill:l0.fill,col:l0.col,op:l0.op,width:l0.width,rough:0,seed:l0.seed,...(l0.ly?{ly:l0.ly}:{})}, gone=new Set(t.lines), at=S.lines.indexOf(t.lines[0]);
-      const fresh=rings.map(r=>({...keep,pts:r})); S.lines=S.lines.filter(o=>!gone.has(o) && !(o.erase && o.gid===g)); S.lines.splice(Math.max(0,Math.min(at,S.lines.length)),0,...fresh); }      // the territory's new outline takes its old place in the order, so the carving between territories stays as it was
+    for(const t of hit){ const g=t.lines[0].gid||t.gid, l0=t.lines[0]; for(const ps of piecesOf(t)){ if(!ps.some(l=>polysMeet(realmPoly(l),ep))) continue; replaceLines(ps,retrace(ps,null,ep).map(r=>ringLine(l0,g,r))); } S.lines=S.lines.filter(o=>!(o.erase && o.gid===g)); }      // only the pieces it touched are redrawn
     if(!hit.length){ undoStack.pop(); syncButtons(); } if(opts.realmGid && !territories().some(t=>t.gid===opts.realmGid)) opts.realmGid=null; sel=null; need.compose='full'; renderPanel(); }
-  else if(a.type==='rbrush'){ const nl={...a.line}; S.lines=S.lines.map(o=>o===a.line?nl:o); need.compose='full'; renderPanel(); }
+  else if(a.type==='rbrush'){ const nl={...a.line}; S.lines=S.lines.map(o=>o===a.line?nl:o); mergeStroke(nl); need.compose='full'; renderPanel(); }
   else if(a.type==='elev'){ const ns={...a.stroke}; S.elev=S.elev.map(o=>o===a.stroke?ns:o); need.compose='full'; }
   else if(a.type==='pull'){ if(a.moved){ const n={...a.cur,pts:densify(a.cur.pts,a.key==='lines'?3:4,a.closed)}; S[a.key]=S[a.key].map(o=>o===a.cur?n:o); shapeDirty(a.key,n,true); need.compose='full'; } }
   else if(a.type==='cut'){ if(a.before===S.lines) undoStack.pop(); else { need.land=true; need.compose='full'; } syncButtons(); }
@@ -2791,7 +2803,7 @@ window.addEventListener('keydown',e=>{
 window.addEventListener('keyup',e=>{ if(e.key===' ') spaceDown=false; });
 function deleteSel(){ if(!sel) return; const its=selItems().filter(it=>!it.obj.locked); if(!its.length) return; pushUndo('Delete'); const gone=new Set([...its.map(it=>it.obj),...ridersOn(its.filter(it=>it.type==='land').map(it=>it.obj)).flatMap(r=>r[1]).filter(o=>!o.locked)]); selDirty(true);
   for(const k of ['lands','cliffs','paints','elev','lines','stamps','labels']) S[k]=S[k].filter(o=>!gone.has(o));
-  { const live=new Set(S.lines.filter(l=>l.kind==='realm' && !l.erase).map(gidOf)); S.lines=S.lines.filter(l=>!(l.erase && l.gid && !live.has(l.gid))); }      // a territory's cuts go when the last of it does
+  { const pk=new Set([...gone].filter(o=>o.kind==='realm').map(pieceKey)); S.lines=S.lines.filter(l=>!(l.kind==='realm' && pk.has(pieceKey(l)))); const live=new Set(S.lines.filter(l=>l.kind==='realm' && !l.erase).map(gidOf)); S.lines=S.lines.filter(l=>!(l.erase && l.gid && !live.has(l.gid))); }      // a territory's cuts go when the last of it does
   sel=null; renderPanel(); invalidate(); }
 
 /* ============================================================ tools + inspector */
