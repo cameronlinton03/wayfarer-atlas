@@ -280,7 +280,8 @@ const WATER = {              // water paints: go on the sea and lakes, under the
 };
 const LINES = {
   river: {name:'River',  width:4,   dash:null},
-  road:  {name:'Road',   width:2.5, dash:[9,6]},
+  road:  {name:'Road',   width:3.2, dash:null},      // a thin cased line, an ink edge either side of a paper middle; roads merge where they meet (see drawRoads)
+  trail: {name:'Trail',  width:2.2, dash:[.1,5.5]},      // a dotted track (see drawTrails)
   border:{name:'Border', width:2.5, dash:[14,5,3,5]},
   street:{name:'Street', width:8,   dash:null},      // drawn in two passes so crossings merge (see drawStreets)
   wall:  {name:'Wall',   width:7,   dash:null},      // a town wall with its towers (see drawWalls)
@@ -462,7 +463,7 @@ let S = blankState(2400,1500);
 function blankState(w,h){ return {w,h,kind:'world',hm:false,height:null,dun:{...DUN_DEF},fpaint:[],name:'Untitled map',lands:[],cliffs:[],paints:[],lines:[],stamps:[],labels:[],grid:{type:'none',size:60},tick:0,theme:'sketchp',frame:'none',rhumb:false,scale:{per100:10,unit:'miles'},layers:[{id:'base',name:'Map',v:true,lock:false}],active:'base'}; }
 const layers = { terrain:{name:'Ground & water paint',v:true}, cliffs:{name:'Cliffs',v:true}, lines:{name:'Rivers, roads, borders',v:true,lock:false}, stamps:{name:'Stamps',v:true,lock:false}, labels:{name:'Labels',v:true,lock:false} };
 const opts = { tool:'land', reshape:'pull', reach:160, cliffMode:'outline', cliffBrush:120, cliffRough:.4, cliffH:26, cliffPrimary:'up', paintLayer:'land', water:'deep', landPrimary:'land', hard:.6, bop:1, landMode:'outline', landBrush:140, landRough:0.55, terrain:'grass', brush:110, scatter:60,
-  stampSizes:Object.fromEntries(Object.entries(STAMP_GROUPS).map(([g,v])=>[g,v.size])), lineRough:0.35, lineWidth:{river:4,road:2.5,border:2.5,realm:2.5,street:8,wall:7,fence:3,dwall:5}, fenceStyle:'hedge', realmFill:'band',
+  stampSizes:Object.fromEntries(Object.entries(STAMP_GROUPS).map(([g,v])=>[g,v.size])), lineRough:0.35, lineWidth:{river:4,road:3.2,trail:2.2,border:2.5,realm:2.5,street:8,wall:7,fence:3,dwall:5}, fenceStyle:'hedge', realmFill:'band',
   wallKind:'town', roadMode:false, rotSnap:false, cliffTaper:0, cliffDir:-90, stampOpacity:100, scatterDensity:1, scatterGap:.5, sizeVar:.18, floorMode:'paint', floorTex:'flag', floorBrush:90, settingsOpen:false, historyOpen:false, roomShape:'rect', roomCut:false, roomTex:'flag', corrW:1, snap:true, snapFine:false, caveRough:.55,  stamp:'town', stampRot:0, stampSet:'world', stampFlip:'shuffle', stampMode:'place', fillDensity:1, stampVar:'shuffle', stampTint:{}, labelStyle:'place', labelSize:30 };
 let sel = null;                        // {type:'land'|'line'|'stamp'|'label', obj}
 let undoStack=[], redoStack=[], editing=false;
@@ -1111,7 +1112,7 @@ function drawLine(c,l){
   const b=lineBuilt(l), st=LINES[l.kind]; c.lineCap='round'; c.lineJoin='round';
   if(l.kind==='dwall'){ c.save(); c.lineCap='square'; c.lineJoin='miter'; c.strokeStyle=INK; c.lineWidth=l.width; c.stroke(b.path); c.restore(); return; }
   if(l.kind==='fence'){ drawFence(c,l,b.pts); return; }
-  if(l.kind==='river' || l.kind==='realm' || l.kind==='street' || l.kind==='wall' || l.kind==='road') return;      // roads are drawn together so that they join (see drawRoads)
+  if(l.kind==='river' || l.kind==='realm' || l.kind==='street' || l.kind==='wall' || l.kind==='road' || l.kind==='trail') return;      // roads and trails are drawn together so that they join (see drawRoads, drawTrails)
      // rivers and realms are drawn with the land (see riverPath, drawRealms)
   if(l.kind==='river'){ c.setLineDash([]); c.strokeStyle=MAP.riverEdge; c.lineWidth=l.width+1.8; c.stroke(b.path); c.strokeStyle=MAP.river; c.lineWidth=l.width; c.stroke(b.path); }
   else { c.setLineDash(st.dash.map(d=>d*l.width/2.5)); c.strokeStyle=INK; c.lineWidth=l.width; c.globalAlpha=l.kind==='border'?.85:1; c.stroke(b.path); c.globalAlpha=1; c.setLineDash([]); }
@@ -2095,7 +2096,13 @@ function faceHidden(){      // stamps standing on a cliff face, its edge or in a
   const boxes=S.cliffs.map(c=>{ landPath(c); return built.get(c).bb; }).filter(b=>b);
   for(const st of S.stamps){ if(boxes.some(b=>st.x>b[0]-60 && st.x<b[2]+60 && st.y>b[1]-60 && st.y<b[3]+60)){ const px=Math.round(st.x*R), py=Math.round(st.y*R); if(px<0||py<0||px>=csx.canvas.width||py>=csx.canvas.height) continue; if(csx.getImageData(px,py,1,1).data[3]>128) faceSet.add(st); } }
   return faceSet; }
-function coverHidden(){ if(coverFor===S.stamps) return coverSet; coverFor=S.stamps; const ms=S.stamps.filter(s=>MTN_BODY[s.kind]); coverSet=new Set(); if(ms.length) for(const s of S.stamps) if(!MTN_BODY[s.kind] && COVER_GROUPS.has(groupOf(s.kind)) && inMountain(ms,s.x,s.y)) coverSet.add(s); return coverSet; }
+function spriteAlpha(s,p){      // how solid a stamp's drawing is at map point p (0-255), read from its sprite the way the selection hit-test reads it (rotation and mirroring included, the faded foot counts as clear)
+  const a=-s.rot*Math.PI/180, dx=p[0]-s.x, dy=p[1]-s.y, lx=dx*Math.cos(a)-dy*Math.sin(a), ly=dx*Math.sin(a)+dy*Math.cos(a), full=s.size*sprSide(s.kind); if(Math.abs(lx)>full/2 || Math.abs(ly)>full/2) return 0;
+  const sp=sprite(s,96), side=sp.width; let d=hitMaps.get(sp); if(!d){ d=sp.getContext('2d').getImageData(0,0,side,side).data; hitMaps.set(sp,d); }
+  const u=Math.round((lx/full+.5)*side), v=Math.round((ly/full+.5)*side); return u>=0 && v>=0 && u<side && v<side ? d[(v*side+u)*4+3] : 0; }
+function coverHidden(){ if(coverFor===S.stamps) return coverSet; coverFor=S.stamps; const ms=S.stamps.filter(s=>MTN_BODY[s.kind]); coverSet=new Set();      // a tree or plant is hidden only where its foot stands on the mountain's drawing itself; the ellipse is just a quick first test
+  if(ms.length) for(const s of S.stamps){ if(MTN_BODY[s.kind] || !COVER_GROUPS.has(groupOf(s.kind))) continue; const foot=[s.x,s.y+s.size*.3]; if(!inMountain(ms,foot[0],foot[1])) continue; for(const m of ms) if(spriteAlpha(m,foot)>150 && spriteAlpha(m,[s.x,s.y])>150){ coverSet.add(s); break; } }
+  return coverSet; }
 function stampsSorted(){ if(sortedFor!==S.stamps){ sortedFor=S.stamps; sorted=S.stamps.slice().sort((a,b)=>((a.z||0)-(b.z||0)) || a.y-b.y); } return sorted; }   // order first, then lower on the sheet in front
 function labelMetrics(c,l){ const st=LABEL_STYLES[l.style]||LABEL_STYLES.place; c.font=`${st.italic?'italic ':''}${l.size}px ${st.font}`; const gap=l.size*(l.spacing ?? st.spacing), lh=l.size*1.12;      // a label may run to several lines and may be bent along an arc
   const lines=String(l.text).split('\n').map(t=>{ const text=[...(st.caps?t.toUpperCase():t)], ws=text.map(ch=>c.measureText(ch).width); return {text, ws, width:ws.reduce((a,b)=>a+b,0)+gap*Math.max(0,ws.length-1)}; });
@@ -2132,7 +2139,7 @@ function drawVectors(c,k,vp){      // vp: the part of the map in view [x0,y0,x1,
   if(S.frame!=='none') drawFrame(c);
   const one=S.layers.length===1, ss=layers.stamps.v?stampsSorted():[];
   for(const L of S.layers){ if(L.v===false) continue; const mine=o=>one || layerOf(o)===L;      // each layer in turn, bottom first: its lines, then its stamps, then its lettering
-    if(layers.lines.v){ const ls=one?S.lines:S.lines.filter(mine); drawWalls(c,ls); drawStreets(c,ls); drawRoads(c,ls); for(const l of ls) drawLine(c,l); }
+    if(layers.lines.v){ const ls=one?S.lines:S.lines.filter(mine); drawWalls(c,ls); drawStreets(c,ls); drawRoads(c,ls); drawTrails(c,ls); for(const l of ls) drawLine(c,l); }
     const hid=coverHidden(), fh=faceHidden(); if(!S.hm) for(const st of ss) if(mine(st) && !hid.has(st) && !fh.has(st) && (!vp || (st.x+st.size>vp[0] && st.x-st.size<vp[2] && st.y+st.size>vp[1] && st.y-st.size<vp[3]))) drawStamp(c,st,k);
     if(layers.labels.v) for(const l of S.labels) if(mine(l) && (!vp || (l.x>vp[0]-600 && l.x<vp[2]+600 && l.y>vp[1]-400 && l.y<vp[3]+400))) drawLabel(c,l); }
   if(!S.hm){ c.globalAlpha=1; c.globalCompositeOperation='multiply'; c.drawImage(tintC,0,0,S.w,S.h); c.globalCompositeOperation='source-over'; }
@@ -2248,26 +2255,11 @@ function drawFence(c,l,pts){ const w=l.width||3, style=l.style||'hedge', rn=mulb
   c.restore(); }
 /* Roads join. Where one road crosses another, or ends on it (within a hand's slip, SNAP units), the road is cut at that point and each piece is dashed on its own, with the
    dashes fitted so every arm begins with a dash right at the junction; a small blot ties them together. Drawn only: the roads in the map file are not changed. */
-let roadNetKey=null, roadNetVal=null;
-function roadNet(rs){ if(roadNetKey && roadNetKey.length===rs.length && rs.every((l,i)=>l===roadNetKey[i])) return roadNetVal;
-  const SNAP=12, P=rs.map(l=>lineBuilt(l).pts.map(p=>[p[0],p[1]])), J=rs.map(()=>[]);
-  const nearest=(pts,q)=>{ let best={d:1e9,x:0,y:0,s:0}, acc=0; for(let i=1;i<pts.length;i++){ const a=pts[i-1], b=pts[i], dx=b[0]-a[0], dy=b[1]-a[1], L2=dx*dx+dy*dy, L=Math.sqrt(L2), t=L2?clamp(((q[0]-a[0])*dx+(q[1]-a[1])*dy)/L2,0,1):0, x=a[0]+dx*t, y=a[1]+dy*t, d=Math.hypot(q[0]-x,q[1]-y); if(d<best.d) best={d,x,y,s:acc+t*L}; acc+=L; } return best; };
-  const ends=[]; P.forEach((pts,i)=>{ if(pts.length<2) return; for(const end of [0,1]){ const q=end?pts[pts.length-1]:pts[0]; let hit=null, hj=-1; P.forEach((o,j)=>{ if(j===i||o.length<2) return; const n=nearest(o,q); if(n.d<SNAP && (!hit||n.d<hit.d)){ hit=n; hj=j; } }); if(hit) ends.push({i,end,hit,hj}); } });
-  for(const e of ends){ const pts=P[e.i], q=[e.hit.x,e.hit.y]; if(e.hit.d>.5){ if(e.end) pts.push(q); else pts.unshift(q); } J[e.hj].push(q); J[e.i].push(q); }
-  const bb=P.map(pts=>{ let x0=1e9,x1=-1e9,y0=1e9,y1=-1e9; for(const p of pts){ x0=Math.min(x0,p[0]); x1=Math.max(x1,p[0]); y0=Math.min(y0,p[1]); y1=Math.max(y1,p[1]); } return [x0,y0,x1,y1]; });
-  for(let i=0;i<P.length;i++) for(let j=i+1;j<P.length;j++){ const A=bb[i], B=bb[j]; if(A[2]<B[0]||B[2]<A[0]||A[3]<B[1]||B[3]<A[1]) continue;
-    for(let a=1;a<P[i].length;a++) for(let b=1;b<P[j].length;b++){ const p=P[i][a-1], q=P[i][a], r=P[j][b-1], u=P[j][b], d=(q[0]-p[0])*(u[1]-r[1])-(q[1]-p[1])*(u[0]-r[0]); if(Math.abs(d)<1e-9) continue;
-      const t=((r[0]-p[0])*(u[1]-r[1])-(r[1]-p[1])*(u[0]-r[0]))/d, v=((r[0]-p[0])*(q[1]-p[1])-(r[1]-p[1])*(q[0]-p[0]))/d; if(t>0&&t<1&&v>0&&v<1){ const x=p[0]+(q[0]-p[0])*t, y=p[1]+(q[1]-p[1])*t; J[i].push([x,y]); J[j].push([x,y]); } } }
-  const pieces=[], dots=[];
-  P.forEach((pts,i)=>{ if(pts.length<2) return; const cum=[0]; for(let k=1;k<pts.length;k++) cum.push(cum[k-1]+dist(pts[k-1],pts[k])); const total=cum[cum.length-1];
-    const cuts=[...new Set(J[i].map(q=>Math.round(nearest(pts,q).s*4)/4))].sort((a,b)=>a-b).filter(v=>v>2&&v<total-2); const sl=[]; for(const v of cuts) if(!sl.length||v-sl[sl.length-1]>4) sl.push(v);
-    const at=sv=>{ let k=1; while(k<cum.length-1&&cum[k]<sv) k++; const f=(sv-cum[k-1])/((cum[k]-cum[k-1])||1); return [pts[k-1][0]+(pts[k][0]-pts[k-1][0])*f,pts[k-1][1]+(pts[k][1]-pts[k-1][1])*f]; };
-    const marks=[0,...sl,total]; for(let m=1;m<marks.length;m++){ const s0=marks[m-1], s1=marks[m], seg=[at(s0)]; for(let k=1;k<cum.length-1;k++) if(cum[k]>s0&&cum[k]<s1) seg.push(pts[k]); seg.push(at(s1)); pieces.push({i,pts:seg,len:s1-s0}); }
-    for(const v of sl) dots.push({i,p:at(v)}); });
-  roadNetKey=rs.slice(); return roadNetVal={pieces,dots}; }
-function drawRoads(c,ls){ const rs=ls.filter(l=>l.kind==='road'); if(!rs.length) return; const net=roadNet(rs); c.save(); c.lineCap='round'; c.lineJoin='round'; c.strokeStyle=c.fillStyle=INK;
-  for(const pc of net.pieces){ const w=rs[pc.i].width||2.5, k=w/2.5, D=9*k, G=6*k, n=Math.max(1,Math.round((pc.len+G)/(D+G))), d=(pc.len-(n-1)*G)/n; c.lineWidth=w; c.setLineDash(n===1?[]:[d,G]); c.stroke(toPath(pc.pts,false)); }
-  c.setLineDash([]); for(const dt of net.dots){ c.beginPath(); c.arc(dt.p[0],dt.p[1],(rs[dt.i].width||2.5)*.62,0,7); c.fill(); } c.restore(); }
+function drawRoads(c,ls){ const rs=ls.filter(l=>l.kind==='road'); if(!rs.length) return; c.save(); c.lineCap='round'; c.lineJoin='round'; c.setLineDash([]);      // all the ink edges first, then all the paper middles, so where roads meet or cross they run into one another; a road over a river covers it like a bridge
+  c.strokeStyle=INK; for(const l of rs){ const w=l.width||3.2; c.lineWidth=w+Math.max(1.3,w*.5); c.stroke(lineBuilt(l).path); }
+  c.strokeStyle=STREET_FILL; for(const l of rs){ c.lineWidth=l.width||3.2; c.stroke(lineBuilt(l).path); } c.restore(); }
+function drawTrails(c,ls){ const ts=ls.filter(l=>l.kind==='trail'); if(!ts.length) return; c.save(); c.lineCap='round'; c.lineJoin='round'; c.strokeStyle=INK;      // a row of round dots: zero-length dashes with round caps
+  for(const l of ts){ const w=l.width||2.2; c.lineWidth=w; c.setLineDash([.01,w*2.5]); c.stroke(lineBuilt(l).path); } c.restore(); }
 function drawStreets(c,ls){ const st=ls.filter(l=>l.kind==='street'); if(!st.length) return; c.save(); c.lineCap='round'; c.lineJoin='round'; c.setLineDash([]);
   c.strokeStyle=INK; for(const l of st){ c.lineWidth=l.width+1.9; c.stroke(lineBuilt(l).path); }
   c.strokeStyle=STREET_FILL; for(const l of st){ c.lineWidth=l.width; c.stroke(lineBuilt(l).path); } c.restore(); }
@@ -2686,9 +2678,10 @@ const TOOLS = [      // m: 'w' world maps only, 'd' dungeons only, 'x' not offer
   {id:'label', name:'Label', key:'a', hint:'Click where the name should go, then type it.'},
   {id:'cliff', m:'x', name:'Cliffs', key:'', hint:'Left-drag raises the land into a plateau with cliffs. Right-drag lowers it again.'},
   {id:'road', m:'x', name:'Road', key:'', hint:'Draw a road between places.'},
+  {id:'trail', m:'x', name:'Trail', key:'', hint:'Draw a dotted trail.'},
   {id:'fence', m:'x', name:'Fence', key:'', hint:'Draw a hedge, fence, field wall or palisade, for plots and outworks.'},
 ];
-const etool = () => opts.tool==='paint' && opts.paintLayer==='cliff' ? 'cliff' : opts.tool==='wall' && opts.wallKind!=='town' ? 'fence' : opts.tool==='street' && opts.roadMode ? 'road' : opts.tool;      // some tools do several jobs: the one being done right now
+const etool = () => opts.tool==='paint' && opts.paintLayer==='cliff' ? 'cliff' : opts.tool==='wall' && opts.wallKind!=='town' ? 'fence' : opts.tool==='street' && opts.roadMode ? (opts.roadMode==='trail' ? 'trail' : 'road') : opts.tool;      // some tools do several jobs: the one being done right now
 
 let railBound=false;
 function buildRail(){ const mode=S.kind==='dungeon'?'d':'w'; let pend=null, h='';      // world tools and dungeon tools are offered by map kind; a hidden tool hands its heading to the next one shown
@@ -2779,7 +2772,7 @@ function renderPanel(){
     ${groups.map(g=>`<p class="grp">${g}</p><div class="chips">${Object.entries(INKS).filter(([k,v])=>v.g===g).map(([k,v])=>`<button class="chip" data-terr="${k}" aria-pressed="${k===cur||DEF[cur]?.tex===v.tex}">${v.name}</button>`).join('')}</div>`).join('')}
     <div class="chips"><button class="chip" data-terr="erase" aria-pressed="${cur==='erase'}"><i style="background:${water?MAP.water:MAP.land}"></i>Eraser</button></div>${slider('brush','Brush',16,400,2,opts.brush,num)}${slider('hard','Hardness',0,1,.01,opts.hard,pct)}<div class="ends"><span>soft edge</span><span>hard edge</span></div>${slider('bop','Opacity',.05,1,.01,opts.bop,pct)}
     <p>${water?'Water paint goes on the sea and lakes. Land always sits on top of it.':'Ground paint goes onto the land.'}</p></section>`; }
-  if(LINES[t] && t!=='dwall') h+=`<section><h2>${t==='wall'||t==='fence'?'Walls &amp; fences':t==='street'||t==='road'?'Streets &amp; roads':LINES[t].name}</h2>${slider('lineRough','Wander',0,1,.01,opts.lineRough,pct)}<div class="ends"><span>straight</span><span>winding</span></div>${slider('lineWidth','Width',1,60,.5,opts.lineWidth[t],v=>v)}${t==='wall'||t==='fence'?wallKindChips():''}${t==='street'||t==='road'?`<p class="grp">Kind</p><div class="chips" id="streetKind">${[[5,'Lane'],[8,'Street'],[12,'Avenue'],[46,'Square']].map(([w,n])=>`<button class="chip" data-sw="${w}" aria-pressed="${!opts.roadMode && opts.lineWidth.street===w}">${n}</button>`).join('')}<button class="chip" data-road="1" aria-pressed="${opts.roadMode}">Country road</button></div><p>${opts.roadMode?'A dashed road between places.':'Streets are drawn solid and join at crossings. For a square, pick Square and make a very short stroke, then fill it with buildings from Stamps, City.'}</p>`:''}${t==='realm'?`<p class="grp">Marked by</p><div class="chips three" id="realmFill">${[['band','Fringe'],['hatch','Hatching'],['dots','Stipple']].map(([k,n])=>`<button class="chip" data-rfill="${k}" aria-pressed="${(opts.realmFill)===k}">${n}</button>`).join('')}</div><p>Draw right round the territory; the loop closes itself. Anything over the sea is left out.</p>`:''}</section>`;
+  if(LINES[t] && t!=='dwall') h+=`<section><h2>${t==='wall'||t==='fence'?'Walls &amp; fences':t==='street'||t==='road'||t==='trail'?'Streets &amp; roads':LINES[t].name}</h2>${slider('lineRough','Wander',0,1,.01,opts.lineRough,pct)}<div class="ends"><span>straight</span><span>winding</span></div>${slider('lineWidth','Width',1,60,.5,opts.lineWidth[t],v=>v)}${t==='wall'||t==='fence'?wallKindChips():''}${t==='street'||t==='road'||t==='trail'?`<p class="grp">Kind</p><div class="chips" id="streetKind">${[[5,'Lane'],[8,'Street'],[12,'Avenue'],[46,'Square']].map(([w,n])=>`<button class="chip" data-sw="${w}" aria-pressed="${!opts.roadMode && opts.lineWidth.street===w}">${n}</button>`).join('')}<button class="chip" data-road="road" aria-pressed="${!!opts.roadMode && opts.roadMode!=='trail'}">Road</button><button class="chip" data-road="trail" aria-pressed="${opts.roadMode==='trail'}">Trail</button></div><p>${opts.roadMode==='trail'?'A dotted trail: a track or footpath between places.':opts.roadMode?'A road between places, drawn as a thin cased line. Roads run into one another where they meet.':'Streets are drawn solid and join at crossings. For a square, pick Square and make a very short stroke, then fill it with buildings from Stamps, City.'}</p>`:''}${t==='realm'?`<p class="grp">Marked by</p><div class="chips three" id="realmFill">${[['band','Fringe'],['hatch','Hatching'],['dots','Stipple']].map(([k,n])=>`<button class="chip" data-rfill="${k}" aria-pressed="${(opts.realmFill)===k}">${n}</button>`).join('')}</div><p>Draw right round the territory; the loop closes itself. Anything over the sea is left out.</p>`:''}</section>`;
   if(t==='stamp'){ const g=groupOf(opts.stamp), sc=scatterOf(opts.stamp), set=STAMP_SETS[opts.stampSet];
     if(set.groups.length){ const nv=VARIANTS[opts.stamp]||1;
       h+=`<section class="placebar"><div class="placerow"><canvas id="pendPrev" width="120" height="120" title="What the next click places"></canvas><div class="placectl"><b>${opts.stamp.startsWith('ch_')?opts.stamp.slice(3):opts.stamp}</b><small id="pendLabel"></small>${nv>1?`<div class="stepper"><button class="btn" id="shapePrev" title="Previous shape ([)">&#8249;</button><button class="chip" id="shapeShuf" aria-pressed="${opts.stampVar==='shuffle'}" title="Pick a shape at random each time">Shuffle</button><button class="btn" id="shapeNext" title="Next shape (])">&#8250;</button></div>`:''}</div></div>${slider('stampSize','Size',14,400,1,opts.stampSizes[g],num)}${slider('stampRot','Rotation',-180,180,1,opts.stampRot,deg)}${slider('stampOpacity','Opacity',0,100,1,opts.stampOpacity,v=>Math.round(v)+'%')}<div class="chips three" id="flipPick">${[['off','Not mirrored'],['on','Mirrored'],['shuffle','Random']].map(([k,n])=>`<button class="chip" data-flipmode="${k}" aria-pressed="${opts.stampFlip===k}">${n}</button>`).join('')}</div></section>`; }
@@ -2833,7 +2826,7 @@ function renderPanel(){
   $('scaleN')?.addEventListener('change',e=>{ const v=+e.target.value; if(v>0){ pushUndo(); S.scale={...S.scale,per100:v}; sprites.clear(); queueSave(); renderPanel(); invalidate(); } });
   $('scaleU')?.addEventListener('change',e=>{ pushUndo(); S.scale={...S.scale,unit:e.target.value}; queueSave(); renderPanel(); invalidate(); });
   $('selFence')?.addEventListener('click',e=>{ const b=e.target.closest('[data-fstyle]'); if(b && sel){ pushUndo(); editSel(o=>o.kind==='fence'?{...o,style:b.dataset.fstyle}:o); renderPanel(); invalidate(); queueSave(); } });
-  $('streetKind')?.addEventListener('click',e=>{ const b=e.target.closest('[data-sw],[data-road]'); if(!b) return; if(b.dataset.road){ opts.roadMode=true; } else { opts.roadMode=false; opts.lineWidth.street=+b.dataset.sw; if(opts.lineRough>.15) opts.lineRough=.08; } renderPanel(); });
+  $('streetKind')?.addEventListener('click',e=>{ const b=e.target.closest('[data-sw],[data-road]'); if(!b) return; if(b.dataset.road){ opts.roadMode=b.dataset.road; if(opts.lineRough<.2) opts.lineRough=.35; } else { opts.roadMode=false; opts.lineWidth.street=+b.dataset.sw; if(opts.lineRough>.15) opts.lineRough=.08; } renderPanel(); });
   $('realmFill')?.addEventListener('click',e=>{ const b=e.target.closest('[data-rfill]'); if(b){ opts.realmFill=b.dataset.rfill; renderPanel(); } });
   $('selFill')?.addEventListener('click',e=>{ const b=e.target.closest('[data-rfill]'); if(b && sel){ pushUndo(); editSel(o=>o.kind==='realm'?{...o,fill:b.dataset.rfill}:o); renderPanel(); invalidate(); queueSave(); } });
   $('frameType').addEventListener('change',e=>{ pushUndo(); S.frame=e.target.value; queueSave(); invalidate(); });
@@ -3160,12 +3153,34 @@ function generateMap(W,H,kind,G={}){ G={land:1,mountains:1,forests:1,rivers:1,to
     const r=sites.slice(Math.floor(sites.length*.5)).find(([k])=>far(k,towns.map(t=>t.k),220)); if(r){ const [x,y]=pos(r[0]); towns.push({k:r[0],kind:'ruins'}); st.stamps.push({kind:'ruins',x,y,size:36,rot:0,v:.5}); } }
   const clear=(x,y,r)=>towns.every(t=>{ const q=pos(t.k); return Math.hypot(q[0]-x,q[1]-y)>r; });
 
-  /* roads: shortest way over open land from the city to each town and the castle, joining roads already laid */
-  { const city=towns.find(t=>t.kind==='city'); if(city){ const par=new Int32Array(N).fill(-1), q=[city.k]; par[city.k]=city.k;
-      for(let h=0;h<q.length;h++) for(const m of nb8(q[h])) if(par[m]<0 && isLand(m) && !mtn(m)){ par[m]=q[h]; q.push(m); }
-      const roadCell=new Uint8Array(N); for(const t of towns){ if(t.kind!=='town' && t.kind!=='castle') continue; if(par[t.k]<0) continue; const path=[t.k]; let k=t.k;
-        while(k!==city.k && !roadCell[k] && path.length<600){ k=par[k]; path.push(k); } path.forEach(m=>roadCell[m]=1); if(path.length<3) continue;
-        st.lines.push({kind:'road',pts:resample(path.filter((m,i)=>i%2===0||i===path.length-1).map(pos),10,false),rough:.3,width:2.5,seed:(rnd()*1e9)|0}); } } }
+  /* Roads and trails. Each route is the cheapest way over the land, not the shortest: climbing, marsh, forest and fording a river all cost more, a road already laid costs less
+     (so routes share it and branch off it), and a faint noise keeps two routes from running ruler-parallel. Moves go in 16 directions, so a route is not a staircase of
+     diagonals and right angles; then it is smoothed and given a gentle wander that dies away at its ends. Towns and the castle get roads back to the city; villages get trails
+     to the nearest road, trail or town. Their own random stream, so nothing made after them is reshuffled. */
+  { const RR=mulberry(seed+1601), city=towns.find(t=>t.kind==='city'); if(city){
+      const MV=[[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1],[1,2],[2,1],[-1,2],[-2,1],[1,-2],[2,-1],[-1,-2],[-2,-1]], net=new Uint8Array(N), laid=[];      // net: 1 road, 2 trail
+      const terr=k=>{ const b=biome(k); return b==='marsh'?1.4:b==='forest'?.55:(b==='snow'||b==='stone'||b==='rock')?1.8:(b==='sand'||b==='redsand')?.35:0; };
+      const wob=k=>{ const [x,y]=pos(k); return fbm(x/260,y/260,seed+1611,2); };
+      const route=(from,isGoal,trail)=>{ const D=new Float64Array(N).fill(1e30), P=new Int32Array(N).fill(-1), H=[]; const push=(k,d)=>{ H.push([d,k]); let i=H.length-1; while(i>0){ const p=(i-1)>>1; if(H[p][0]<=H[i][0]) break; [H[p],H[i]]=[H[i],H[p]]; i=p; } };
+        const pop=()=>{ const top=H[0], last=H.pop(); if(H.length){ H[0]=last; let i=0; for(;;){ const l=i*2+1, r=l+1; let m=i; if(l<H.length&&H[l][0]<H[m][0]) m=l; if(r<H.length&&H[r][0]<H[m][0]) m=r; if(m===i) break; [H[m],H[i]]=[H[i],H[m]]; i=m; } } return top; };
+        D[from]=0; push(from,0); while(H.length){ const [d,k]=pop(); if(d>D[k]) continue; if(k!==from && isGoal(k)){ const path=[k]; let q=k; while(q!==from){ q=P[q]; path.push(q); } return path.reverse(); }
+          const i=k%nx, j=(k-i)/nx; for(const [a,b] of MV){ const ii=i+a, jj=j+b; if(ii<1||jj<1||ii>=nx-1||jj>=ny-1) continue; const m=jj*nx+ii; if(!isLand(m) || mtn(m)) continue;
+            if(Math.abs(a)+Math.abs(b)===3 && (!isLand(at(i+Math.sign(a),j+Math.sign(b))) || !isLand(at(i+(Math.abs(a)===2?Math.sign(a):0),j+(Math.abs(b)===2?Math.sign(b):0))))) continue;      // a long step must not cut across water
+            const len=Math.hypot(a,b), climb=Math.abs(elev[m]-elev[k])/len, ford=riverCell[m]&&!riverCell[k]?(trail?2.5:4):0, reuse=net[m]===1?.3:net[m]===2?(trail?.45:.8):1;
+            const c=len*((1+climb*(trail?35:70)+terr(m)*(trail?.6:1))*(.8+wob(m)*.45)*reuse)+ford*reuse, nd=d+c; if(nd<D[m]){ D[m]=nd; P[m]=k; push(m,nd); } } } return null; };
+      const nearOn=(q,maxD)=>{ let best=null, bd=maxD; for(const l of laid) for(const p of l.pts){ const dd=Math.hypot(p[0]-q[0],p[1]-q[1]); if(dd<bd){ bd=dd; best=p; } } return best; };
+      const shape=(path,trail,ends)=>{ let pts=path.filter((k,i)=>i%2===0||i===path.length-1).map(pos); if(pts.length<2) return null; pts=chaikin(pts,3,false);
+        const A=trail?9:15, cum=[0]; for(let i=1;i<pts.length;i++) cum.push(cum[i-1]+dist(pts[i-1],pts[i])); const L=cum[cum.length-1], ph=RR()*1000;
+        pts=pts.map((p,i)=>{ if(i===0||i===pts.length-1) return p; const a=pts[Math.max(0,i-1)], b=pts[Math.min(pts.length-1,i+1)], dl=dist(a,b)||1, nxv=-(b[1]-a[1])/dl, nyv=(b[0]-a[0])/dl, fade=Math.min(1,cum[i]/90,(L-cum[i])/90);
+          for(const k of [1,.5,0]){ const off=(fbm(cum[i]/150+ph,ph,seed+1621,2)-.5)*2*A*fade*k, q=[p[0]+nxv*off,p[1]+nyv*off]; if(isLand(at(clamp(Math.round(q[0]/cs),0,nx-1),clamp(Math.round(q[1]/cs),0,ny-1)))) return q; } return p; });      // the wander; a point it would push into the water stays nearer the line
+        pts=resample(pts,10,false); if(ends){ const e=nearOn(pts[pts.length-1],45); if(e) pts[pts.length-1]=[e[0],e[1]]; }      // meet the road it joins exactly, so the two run into one another
+        return pts; };
+      net[city.k]=1; const goals=towns.filter(t=>t.kind==='town'||t.kind==='castle').sort((a,b)=>dist(pos(a.k),pos(city.k))-dist(pos(b.k),pos(city.k)));
+      for(const t of goals){ const path=route(t.k,k=>net[k]===1,false); if(!path || path.length<3) continue; const joins=path[path.length-1]!==city.k; path.forEach(m=>{ if(!net[m]) net[m]=1; }); const pts=shape(path,false,joins); if(!pts) continue;
+        const l={kind:'road',pts,rough:.12,width:3.2,seed:(RR()*1e9)|0}; st.lines.push(l); laid.push(l); }
+      const townCell=new Set(towns.filter(t=>t.kind!=='ruins').map(t=>t.k));
+      for(const t of towns.filter(t=>t.kind==='village')){ const path=route(t.k,k=>net[k]>0 || (townCell.has(k) && k!==t.k),true); if(!path || path.length<3 || path.length>90) continue; path.forEach(m=>{ if(!net[m]) net[m]=2; }); const pts=shape(path,true,net[path[path.length-1]]>0); if(!pts) continue;
+        const l={kind:'trail',pts,rough:.15,width:2.2,seed:(RR()*1e9)|0}; st.lines.push(l); laid.push(l); } } }
 
   /* mountains along the ridges, hills on their flanks, forests where it is wet enough */
   const mtn2=k=>isLand(k) && cd[k]>=(kind==='archipelago'?2:3) && ridge[k]>mT-.085 && elev[k]>.05, range=new Set(); { const seen=new Uint8Array(N), comps=[];      // join the ridge cells into lines, and keep only the longest few: those are the mountain ranges, and nothing is scattered outside them
@@ -3179,7 +3194,7 @@ function generateMap(W,H,kind,G={}){ G={land:1,mountains:1,forests:1,rivers:1,to
   if(G.mountains>0){ const want=Math.max(1,Math.round((kind==='continent'?4:3)*clamp(G.mountains,.5,1.3))), ms=st.stamps.filter(s=>s.kind==='mountain'||s.kind==='snowpeak');      // the highest peak of each range: a few much larger mountains, on the thickest part of a range
     const score=s=>ms.reduce((a,o)=>a+(Math.hypot(o.x-s.x,o.y-s.y)<170?1:0),0)+ridge[at(clamp(Math.round(s.x/cs),0,nx-1),clamp(Math.round(s.y/cs),0,ny-1))]*3, done=[]; let vi=Math.floor(rnd()*4);
     // a high peak needs its whole broad foot on land (the art reaches almost a full size from its middle) and no river or road running through it
-    for(const s of ms.slice().sort((a,b)=>score(b)-score(a))){ if(done.length>=want) break; const sz=Math.round(150+rnd()*50), land=(dx,dy=0)=>isLand(at(clamp(Math.round((s.x+dx)/cs),0,nx-1),clamp(Math.round((s.y+dy)/cs),0,ny-1))), wide=[-.5,-.25,0,.25,.5].every(f=>land(f*sz*1.15)&&land(f*sz*1.15,sz*.4)), cut=st.lines.some(l=>(l.kind==='river'||l.kind==='road')&&l.pts.some(q=>Math.abs(q[0]-s.x)<sz*.69&&q[1]>s.y-sz*.86&&q[1]<s.y+sz*.46));
+    for(const s of ms.slice().sort((a,b)=>score(b)-score(a))){ if(done.length>=want) break; const sz=Math.round(150+rnd()*50), land=(dx,dy=0)=>isLand(at(clamp(Math.round((s.x+dx)/cs),0,nx-1),clamp(Math.round((s.y+dy)/cs),0,ny-1))), wide=[-.5,-.25,0,.25,.5].every(f=>land(f*sz*1.15)&&land(f*sz*1.15,sz*.4)), cut=st.lines.some(l=>(l.kind==='river'||l.kind==='road'||l.kind==='trail')&&l.pts.some(q=>Math.abs(q[0]-s.x)<sz*.69&&q[1]>s.y-sz*.86&&q[1]<s.y+sz*.46));
       if(s.x<150||s.y<140||s.x>W-150||s.y>H-110 || !wide || cut || done.some(d=>Math.hypot(d.x-s.x,d.y-s.y)<300)) continue; if(st.stamps.some(o=>o.kind!=='mountain'&&o.kind!=='snowpeak'&&Math.hypot(o.x-s.x,o.y-s.y)<110)) continue;
       st.stamps=st.stamps.filter(o=>!((o.kind==='mountain'||o.kind==='snowpeak')&&Math.hypot(o.x-s.x,o.y-s.y)<100)); st.stamps.push({kind:'highpeak',x:s.x,y:s.y+8,size:sz,rot:0,v:rnd(),var:(vi++)%4,flip:rnd()<.5}); done.push(s); }
     peaks.length=0; for(const s of st.stamps) if(s.kind==='mountain'||s.kind==='snowpeak'||s.kind==='highpeak') peaks.push([s.x,s.y]); }
@@ -3205,7 +3220,7 @@ function generateMap(W,H,kind,G={}){ G={land:1,mountains:1,forests:1,rivers:1,to
     const fits=(pts,margin)=>{ const xs=pts.map(p=>p[0]), ys=pts.map(p=>p[1]); if(Math.min(...xs)<60||Math.min(...ys)<60||Math.max(...xs)>W-60||Math.max(...ys)>H-60) return false;
       for(const p of pts){ if(!isLand(at(clamp(Math.round(p[0]/cs),0,nx-1),clamp(Math.round(p[1]/cs),0,ny-1)))) return false; }      // the whole outline on land
       for(const o of st.stamps){ if(OPEN.has(o.kind)) continue; const q=[o.x,o.y]; if(inPolyG(q,pts) || edgeD(q,pts)<margin+o.size*.5) return false; }      // no town, mountain or other landmark on or by it
-      for(const l of st.lines){ if(l.kind!=='river'&&l.kind!=='road') continue; for(const q of l.pts) if(inPolyG(q,pts) || edgeD(q,pts)<margin) return false; }
+      for(const l of st.lines){ if(l.kind!=='river'&&l.kind!=='road'&&l.kind!=='trail') continue; for(const q of l.pts) if(inPolyG(q,pts) || edgeD(q,pts)<margin) return false; }
       for(const o of placed) for(const q of o) if(inPolyG(q,pts) || edgeD(q,pts)<margin*2) return false; return true; };
     const star=(cx,cy,inside,rmax)=>{ const out=[]; for(let a=0;a<36;a++){ const t=a/36*Math.PI*2; let r=cs*.5; while(r<rmax && inside(cx+Math.cos(t)*(r+cs*.5),cy+Math.sin(t)*(r+cs*.5))) r+=cs*.5; out.push([cx+Math.cos(t)*r,cy+Math.sin(t)*r]); } return chaikin(out,2,true); };      // the blob's outline as seen from its middle
     const want=Math.round((kind==='continent'?3:2)*G.cliffs), mask=new Uint8Array(N), seen=new Uint8Array(N), comps=[];
@@ -3215,12 +3230,22 @@ function generateMap(W,H,kind,G={}){ G={land:1,mountains:1,forests:1,rivers:1,to
     for(const c of comps){ if(made>=want) break; const set=new Set(c); let cx=0, cy=0; for(const k of c){ const [x,y]=pos(k); cx+=x; cy+=y; } cx/=c.length; cy/=c.length;
       const pts=resample(star(cx,cy,(x,y)=>set.has(at(clamp(Math.round(x/cs),0,nx-1),clamp(Math.round(y/cs),0,ny-1))),420),10,true); if(pts.length<8 || !fits(pts,26)) continue;
       let gx=0, gy=0; for(const k of c){ const [x,y]=pos(k); gx+=(x-cx)*elev[k]; gy+=(y-cy)*elev[k]; }      // which way the ground rises across it
-      const tap=CR()<.4 ? +(.55+CR()*.35).toFixed(2) : 0; st.cliffs.push({mode:'up',pts,rough:.35,seed:(CR()*1e9)|0,h:Math.round(18+CR()*18),taper:tap,dir:Math.round(Math.atan2(gy,gx)*180/Math.PI)}); placed.push(pts); made++; }
+      const tap=CR()<.4 ? +(.55+CR()*.35).toFixed(2) : 0; const hr=CR(), ph=hr<.55 ? 10+CR()*12 : hr<.9 ? 22+CR()*18 : 45+CR()*35;      // mostly low tables, some taller, now and then a high mesa
+      st.cliffs.push({mode:'up',pts,rough:.35,seed:(CR()*1e9)|0,h:Math.round(ph),taper:tap,dir:Math.round(Math.atan2(gy,gx)*180/Math.PI)}); placed.push(pts); made++; }
     const TREES=new Set(['conifer','deciduous']); for(const pl of placed) st.stamps=st.stamps.filter(o=>!(TREES.has(o.kind) && edgeD([o.x,o.y],pl)<o.size*.45+8));      // no tree straddling a cliff's edge
-    const craters=(CR()<.45*G.cliffs?1:0)+(G.cliffs>1.4 && CR()<.5?1:0);
-    for(let n=0,tries=0;n<craters && tries<200;tries++){ const k=Math.floor(CR()*N); if(!isLand(k) || cd[k]<5 || riverCell[k] || mtn(k)) continue; const [x0,y0]=pos(k), r=32+CR()*36, sq=.85+CR()*.25;
-      const pts=resample(chaikin(Array.from({length:16},(_,a)=>{ const t=a/16*Math.PI*2, rr=r*(1+(hash(a,n,seed+1511)-.5)*.1); return [x0+Math.cos(t)*rr,y0+Math.sin(t)*rr*sq]; }),3,true),8,true).map(p=>[Math.round(p[0]),Math.round(p[1])]);
-      if(!fits(pts,30)) continue; st.cliffs.push({mode:'up',pts,rough:.12,seed:(CR()*1e9)|0,h:-Math.round(28+CR()*26),taper:0,dir:-90,crater:1}); st.stamps=st.stamps.filter(o=>!(TREES.has(o.kind) && (inPolyG([o.x,o.y],pts) || edgeD([o.x,o.y],pts)<o.size*.45+8))); placed.push(pts); n++; } }
+    /* Hollows: mostly ravines (a winding cleft, widest in the middle and pinched to a point at each end), sometimes an irregular sinkhole, now and then a roundish crater.
+       Most are a modest drop; rarely one is a deep black pit. */
+    const nHol=Math.round((CR()<.6?1:0)+(CR()<.45?1:0)+(G.cliffs>1.3?CR()*2:0));
+    const ravine=(x0,y0)=>{ const len=140+CR()*220, ang=CR()*Math.PI*2, W=16+CR()*26, ph=CR()*100, n=Math.max(8,Math.round(len/12)), mid=[];
+      let a=ang, x=x0-Math.cos(ang)*len/2, y=y0-Math.sin(ang)*len/2; for(let i=0;i<=n;i++){ mid.push([x,y]); a=ang+(fbm(i*.11+ph,ph,seed+1521,2)-.5)*2.2; x+=Math.cos(a)*len/n; y+=Math.sin(a)*len/n; }
+      const L=[], Rt=[]; for(let i=0;i<=n;i++){ const t=i/n, p=mid[i], q=mid[Math.min(n,i+1)], o=mid[Math.max(0,i-1)], dl=dist(o,q)||1, nx2=-(q[1]-o[1])/dl, ny2=(q[0]-o[0])/dl, w=W*Math.pow(Math.sin(Math.PI*t),.7)*(.7+.6*fbm(i*.23+ph,3,seed+1531,2))/2+.5;
+        L.push([p[0]+nx2*w,p[1]+ny2*w]); Rt.push([p[0]-nx2*w,p[1]-ny2*w]); } return [...L,...Rt.reverse()]; };
+    const sinkhole=(x0,y0)=>{ const r=26+CR()*40, ph=CR()*100, sq=.6+CR()*.5, rot=CR()*Math.PI; return Array.from({length:14},(_,a)=>{ const t=a/14*Math.PI*2, rr=r*(.55+.8*fbm(Math.cos(t)*1.3+ph,Math.sin(t)*1.3+ph,seed+1541,2)), lx=Math.cos(t)*rr, ly=Math.sin(t)*rr*sq; return [x0+lx*Math.cos(rot)-ly*Math.sin(rot),y0+lx*Math.sin(rot)+ly*Math.cos(rot)]; }); };
+    const crater=(x0,y0)=>{ const r=30+CR()*34, sq=.82+CR()*.25; return Array.from({length:16},(_,a)=>{ const t=a/16*Math.PI*2, rr=r*(1+(hash(a,x0|0,seed+1511)-.5)*.22); return [x0+Math.cos(t)*rr,y0+Math.sin(t)*rr*sq]; }); };
+    for(let n=0,tries=0;n<nHol && tries<260;tries++){ const k=Math.floor(CR()*N); if(!isLand(k) || cd[k]<4 || riverCell[k] || mtn(k)) continue; const [x0,y0]=pos(k), kind2=CR(), shapeK=kind2<.7?'ravine':kind2<.9?'sinkhole':'crater';
+      const raw=shapeK==='ravine'?ravine(x0,y0):shapeK==='sinkhole'?sinkhole(x0,y0):crater(x0,y0), pts=resample(chaikin(raw,shapeK==='ravine'?1:3,true),8,true).map(p=>[Math.round(p[0]),Math.round(p[1])]);
+      if(pts.length<6 || !fits(pts,shapeK==='ravine'?22:30)) continue; const deep=CR()<.1, h=deep ? -Math.round(120+CR()*90) : -Math.round(14+Math.pow(CR(),1.6)*46);      // a deep black pit is rare
+      st.cliffs.push({mode:'up',pts,rough:shapeK==='ravine'?.3:shapeK==='sinkhole'?.35:.12,seed:(CR()*1e9)|0,h,taper:0,dir:-90,hollow:shapeK}); st.stamps=st.stamps.filter(o=>!(TREES.has(o.kind) && (inPolyG([o.x,o.y],pts) || edgeD([o.x,o.y],pts)<o.size*.45+8))); placed.push(pts); n++; } }
 
   /* names on the map */
   const big=pick(syl[0])+pick(['a','e','i','o','ae','ia'])+pick(['ria','ron','neth','land','mar','ven','dor','this']);
