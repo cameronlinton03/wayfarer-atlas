@@ -461,11 +461,11 @@ function lineBuilt(l){ let b=built.get(l); if(!b){ const pts=linePoints(l); b={p
 /* ============================================================ state */
 const DUN_DEF = {hatch:1, shadow:true};      // dungeon sheet settings: how far the rock is hatched, and the shadow along the left of each wall
 let S = blankState(2400,1500);
-function blankState(w,h){ return {w,h,kind:'world',hm:false,height:null,dun:{...DUN_DEF},fpaint:[],name:'Untitled map',lands:[],cliffs:[],paints:[],lines:[],stamps:[],labels:[],grid:{type:'none',size:60},tick:0,theme:'sketchp',frame:'none',rhumb:false,scale:{per100:10,unit:'miles'},layers:[{id:'base',name:'Map',v:true,lock:false}],active:'base'}; }
+function blankState(w,h){ return {w,h,kind:'world',hm:false,height:null,relief:1,elev:[],dun:{...DUN_DEF},fpaint:[],name:'Untitled map',lands:[],cliffs:[],paints:[],lines:[],stamps:[],labels:[],grid:{type:'none',size:60},tick:0,theme:'sketchp',frame:'none',rhumb:false,scale:{per100:10,unit:'miles'},layers:[{id:'base',name:'Map',v:true,lock:false}],active:'base'}; }
 const layers = { terrain:{name:'Ground & water paint',v:true}, cliffs:{name:'Cliffs',v:true}, lines:{name:'Rivers, roads, borders',v:true,lock:false}, stamps:{name:'Stamps',v:true,lock:false}, labels:{name:'Labels',v:true,lock:false} };
 const opts = { tool:'land', reshape:'pull', reach:160, cliffMode:'outline', cliffBrush:120, cliffRough:.4, cliffH:26, cliffPrimary:'up', paintLayer:'land', water:'deep', landPrimary:'land', hard:.6, bop:1, landMode:'outline', landBrush:140, landRough:0.55, terrain:'grass', brush:110, scatter:60,
   stampSizes:Object.fromEntries(Object.entries(STAMP_GROUPS).map(([g,v])=>[g,v.size])), lineRough:0.35, lineWidth:{river:4,road:3.2,trail:2.2,border:2.5,realm:2.5,street:8,wall:7,fence:3,dwall:5}, fenceStyle:'hedge', realmFill:'band',
-  wallKind:'town', roadMode:false, rotSnap:false, cliffTaper:0, cliffDir:-90, stampOpacity:100, scatterDensity:1, scatterGap:.5, sizeVar:.18, floorMode:'paint', floorTex:'flag', floorBrush:90, settingsOpen:false, historyOpen:false, roomShape:'rect', roomCut:false, roomTex:'flag', corrW:1, snap:true, snapFine:false, caveRough:.55,  stamp:'town', stampRot:0, stampSet:'world', stampFlip:'shuffle', stampMode:'place', fillDensity:1, stampVar:'shuffle', stampTint:{}, labelStyle:'place', labelSize:30 };
+  wallKind:'town', roadMode:false, rotSnap:false, cliffTaper:0, cliffDir:-90, elevBrush:240, elevAmt:.22, stampOpacity:100, scatterDensity:1, scatterGap:.5, sizeVar:.18, floorMode:'paint', floorTex:'flag', floorBrush:90, settingsOpen:false, historyOpen:false, roomShape:'rect', roomCut:false, roomTex:'flag', corrW:1, snap:true, snapFine:false, caveRough:.55,  stamp:'town', stampRot:0, stampSet:'world', stampFlip:'shuffle', stampMode:'place', fillDensity:1, stampVar:'shuffle', stampTint:{}, labelStyle:'place', labelSize:30 };
 let sel = null;                        // {type:'land'|'line'|'stamp'|'label', obj}
 let undoStack=[], redoStack=[], editing=false;
 /* Layers: rivers, roads, borders, realms, stamps and labels each sit on one layer (S.layers, bottom first). A layer can be hidden, locked,
@@ -473,10 +473,10 @@ let undoStack=[], redoStack=[], editing=false;
 const lyOf = o => o.ly || 'base', layerOf = o => S.layers.find(L=>L.id===lyOf(o)) || S.layers[0];
 const lyVisible = o => layerOf(o).v!==false, lyPickable = o => { const L=layerOf(o); return L.v!==false && !L.lock; };
 const withLy = o => (S.active && S.active!=='base' && S.layers.some(L=>L.id===S.active)) ? {...o,ly:S.active} : o;
-const snap = () => ({gen:S.gen,w:S.w,h:S.h,kind:S.kind,dun:S.dun,fpaint:S.fpaint,name:S.name,cliffs:S.cliffs,lands:S.lands,paints:S.paints,lines:S.lines,stamps:S.stamps,labels:S.labels,grid:{...S.grid},tick:S.tick,theme:S.theme,frame:S.frame,rhumb:S.rhumb,scale:{...S.scale},layers:S.layers,active:S.active,height:S.height,hm:S.hm});   // lists are never changed in place, so sharing them is safe
+const snap = () => ({gen:S.gen,relief:S.relief,elev:S.elev,w:S.w,h:S.h,kind:S.kind,dun:S.dun,fpaint:S.fpaint,name:S.name,cliffs:S.cliffs,lands:S.lands,paints:S.paints,lines:S.lines,stamps:S.stamps,labels:S.labels,grid:{...S.grid},tick:S.tick,theme:S.theme,frame:S.frame,rhumb:S.rhumb,scale:{...S.scale},layers:S.layers,active:S.active,height:S.height,hm:S.hm});   // lists are never changed in place, so sharing them is safe
 /* History. undoStack is the past and redoStack the future, each entry {state, label}: the state is the picture as it was before the action named by the label (for the future, as it was after it), so the label
    travels with the action as it is undone and redone. pushUndo is called just before a change, so its default label comes from the tool and the selection; the call sites that know better pass one. */
-const UNDO_TOOL={land:'Draw land',cliff:'Draw cliff',river:'Draw river',street:'Draw street',road:'Draw road',wall:'Draw wall',fence:'Draw fence',realm:'Draw realm',label:'Add label',room:'Draw room',corridor:'Draw corridor',dwall:'Draw inner wall',floor:'Paint floor',reshape:'Reshape'};
+const UNDO_TOOL={land:'Draw land',cliff:'Draw cliff',river:'Draw river',street:'Draw street',road:'Draw road',trail:'Draw trail',elev:'Shape the land',wall:'Draw wall',fence:'Draw fence',realm:'Draw realm',label:'Add label',room:'Draw room',corridor:'Draw corridor',dwall:'Draw inner wall',floor:'Paint floor',reshape:'Reshape'};
 function undoLabel(){ const t=etool(); if(t==='select') return sel ? 'Change '+(sel.type==='multi' ? selItems().length+' things' : ({land:'landmass',cliff:'cliff',line:'line',stamp:'stamp',label:'label'})[sel.type]||'selection') : 'Change map';
   if(t==='paint') return opts.paintLayer==='water' ? 'Paint water' : 'Paint '+(TERRAIN[opts.terrain] ? TERRAIN[opts.terrain].name.toLowerCase() : 'ground'); if(t==='stamp') return 'Place '+kindLabel(opts.stamp); return UNDO_TOOL[t]||'Edit'; }
 function pushUndo(label){ undoStack.push({state:snap(),label:label||undoLabel()}); if(undoStack.length>60) undoStack.shift(); redoStack=[]; syncButtons(); queueSave(); }
@@ -548,9 +548,14 @@ function chamfer(nx,ny,from){      // distance in cells from the cells where fro
   for(let j=0;j<ny;j++) for(let i=0;i<nx;i++){ const k=j*nx+i; let v=d[k]; if(i>0) v=Math.min(v,d[k-1]+1); if(j>0){ v=Math.min(v,d[k-nx]+1); if(i>0) v=Math.min(v,d[k-nx-1]+1.414); if(i<nx-1) v=Math.min(v,d[k-nx+1]+1.414); } d[k]=v; }
   for(let j=ny-1;j>=0;j--) for(let i=nx-1;i>=0;i--){ const k=j*nx+i; let v=d[k]; if(i<nx-1) v=Math.min(v,d[k+1]+1); if(j<ny-1){ v=Math.min(v,d[k+nx]+1); if(i<nx-1) v=Math.min(v,d[k+nx+1]+1.414); if(i>0) v=Math.min(v,d[k+nx-1]+1.414); } d[k]=v; } return d; }
 function blurSides(e,land,nx,ny,passes){ for(let pass=0;pass<passes;pass++){ const t=Float32Array.from(e); for(let j=1;j<ny-1;j++) for(let i=1;i<nx-1;i++){ const k=j*nx+i; if(land[k]===land[k-1] && land[k]===land[k+1] && land[k]===land[k-nx] && land[k]===land[k+nx]) e[k]=(t[k]*4+t[k-1]+t[k+1]+t[k-nx]+t[k+nx])/8; } } }      // a little blur, kept to the same side of the coast
+function elevStrokes(e,er,nx,ny,cs,land){      // the Elevation brush: each stroke raises (amt > 0) or lowers the land along its path, full in the middle of the brush and easing to nothing at its edge
+  for(const st of S.elev||[]){ const p=st.pts; if(!p || !p.length) continue; const r=st.size/2, xs=p.map(q=>q[0]), ys=p.map(q=>q[1]);
+    for(let j=Math.max(0,Math.floor((Math.min(...ys)-r)/cs));j<=Math.min(ny-1,Math.ceil((Math.max(...ys)+r)/cs));j++) for(let i=Math.max(0,Math.floor((Math.min(...xs)-r)/cs));i<=Math.min(nx-1,Math.ceil((Math.max(...xs)+r)/cs));i++){ const k=j*nx+i; if(!land[k]) continue;
+      const q=[i*cs,j*cs]; let d=p.length===1?dist(q,p[0]):1e9; for(let t=1;t<p.length;t++) d=Math.min(d,segDist(q,p[t-1],p[t])); if(d>=r) continue; const f=1-d/r, w=f*f*(3-2*f)*st.amt; e[k]=Math.max(.012,e[k]+w); er[k]=Math.max(.012,er[k]+w); } } }
 function heightGrid(){      // {nx,ny,cs,e (heights),m (0 land, 1 sea, 2 lake), est, and the plates when known}. Always follows the map as it is now: the coast, the cliffs and the mountains
-  const key=[S.w,S.h,landVer].join(); if(heightCache.src===S.height && heightCache.key===key && heightCache.grid.fs===S.stamps && heightCache.grid.fc===S.cliffs && heightCache.grid.fl===S.lands) return heightCache.grid;
+  const key=[S.w,S.h,landVer].join(); if(heightCache.src===S.height && heightCache.key===key && heightCache.grid.fs===S.stamps && heightCache.grid.fc===S.cliffs && heightCache.grid.fl===S.lands && heightCache.grid.fe===S.elev) return heightCache.grid;
   const cs=20, nx=Math.floor(S.w/cs)+1, ny=Math.floor(S.h/cs)+1, N=nx*ny, E=estimateHeights(nx,ny,cs), land=E.land, m=new Uint8Array(N); let e=E.e, ref=null, est=true;
+  const FLAT=k=>land[k]?.06:-.1; let er=Float32Array.from({length:N},(_,k)=>FLAT(k));      // er: the ground the map's relief is drawn from. The estimate's rise from the coast is only a guess for the height view, so where nothing is known the ground is flat
   if(S.height){      // the generator's heights, kept where the land is still where it was, carried along with a landmass that has been moved, and blended into the estimate where the coast has been redrawn
     const h=S.height, H0=Float32Array.from(new Int8Array(unpackBytes(h.v).buffer),v=>v/100), M0=unpackBytes(h.m); ref=genRef(); est=false;
     const srcE=new Float32Array(N), srcM=new Uint8Array(N).fill(255);      // 255: nothing stored here
@@ -562,14 +567,15 @@ function heightGrid(){      // {nx,ny,cs,e (heights),m (0 land, 1 sea, 2 lake), 
         landPath(l); const b=built.get(l).bb; for(let j=Math.max(0,Math.floor(b[1]/cs));j<=Math.min(ny-1,Math.ceil(b[3]/cs));j++) for(let i=Math.max(0,Math.floor(b[0]/cs));i<=Math.min(nx-1,Math.ceil(b[2]/cs));i++) if(inLand(l,[i*cs,j*cs])) take(j*nx+i,i*cs-dx,j*cs-dy); } }
     const mis=new Uint8Array(N), out=new Float32Array(N);
     for(let k=0;k<N;k++){ const was=srcM[k]===0, gone=srcM[k]===255; if(gone || was!==!!land[k]){ mis[k]=1; out[k]=E.e[k]; } else out[k]=srcE[k]; m[k]=land[k]?0:(!gone && srcM[k]===2 ? 2 : 1); }
-    const dm=chamfer(nx,ny,k=>mis[k]), SEAM=4; for(let k=0;k<N;k++) if(!mis[k] && dm[k]<SEAM){ const w=dm[k]/SEAM; out[k]=E.e[k]*(1-w)+out[k]*w; }      // near a redrawn coast the kept heights ease into the estimate, so there is no step
-    e=out; blurSides(e,land,nx,ny,1); }
+    const ro=Float32Array.from(out,(v,k)=>mis[k]?FLAT(k):v);
+    const dm=chamfer(nx,ny,k=>mis[k]), SEAM=4; for(let k=0;k<N;k++) if(!mis[k] && dm[k]<SEAM){ const w=dm[k]/SEAM; out[k]=E.e[k]*(1-w)+out[k]*w; ro[k]=FLAT(k)*(1-w)+ro[k]*w; }      // near a redrawn coast the kept heights ease into the estimate (into flat ground, for the relief), so there is no step
+    e=out; blurSides(e,land,nx,ny,1); er=ro; blurSides(er,land,nx,ny,1); }
   else { for(let k=0;k<N;k++) if(!land[k]) m[k]=1; blurSides(e,land,nx,ny,3); }
-  featureBumps(e,nx,ny,cs,land); if(S.height) blurSides(e,land,nx,ny,1);
+  elevStrokes(e,er,nx,ny,cs,land); featureBumps(e,nx,ny,cs,land); if(S.height) blurSides(e,land,nx,ny,1);
   const es=Float32Array.from(e); { const t=es; for(let j=0;j<ny;j++) for(let i=0;i<nx;i++){ const k=j*nx+i; if(land[k]) continue; let sum=0, n=0; for(let b=-1;b<=1;b++) for(let a=-1;a<=1;a++){ const ii=i+a, jj=j+b; if(ii<0||jj<0||ii>=nx||jj>=ny) continue; const q=jj*nx+ii; if(land[q]){ sum+=t[q]; n++; } } if(n) e[k]=sum/n*.8; } }      // water cells on the shore take the height of the land beside them, so a land pixel that falls in such a cell is not dragged down to sea level (the view takes land and sea per pixel; the sea there is drawn flat)
   const pl=ref && ref.pid ? {pid:unpackBytes(ref.pid),pb:unpackBytes(ref.pb),pa:ref.pa?unpackBytes(ref.pa):null,plates:ref.plates} : {pid:null,pb:null,pa:null,plates:null};
   if(pl.pid && S.height && (S.height.nx!==nx || S.height.ny!==ny)){ pl.pid=null; }      // the sheet was resized: the plates no longer line up
-  heightCache={src:S.height,key,grid:{nx,ny,cs,e,es,m,est,...pl,fs:S.stamps,fc:S.cliffs,fl:S.lands}}; return heightCache.grid; }
+  heightCache={src:S.height,key,grid:{nx,ny,cs,e,es,er,m,est,...pl,fs:S.stamps,fc:S.cliffs,fl:S.lands,fe:S.elev}}; return heightCache.grid; }
 function landSampler(){ const W=landMask.width, H=landMask.height, D=lm.getImageData(0,0,W,H).data; return (x,y)=>D[(Math.min(H-1,Math.max(0,Math.round(y*R)))*W+Math.min(W-1,Math.max(0,Math.round(x*R))))*4+3]>128; }      // the coast exactly as drawn, not as the 20-unit height grid has it
 const PLATE_NAMES=['Aldra','Brennor','Caul','Dravos','Eskar','Fenwick','Gorm','Halvet','Iskeld','Jorund','Kesh','Lorne','Maren','Norvik'];
 function composePlates(g){      // each plate in its own faint colour (warm for continental crust, cool for oceanic), where they meet marked by how they meet, with the way each one drifts
@@ -591,6 +597,37 @@ function composePlates(g){      // each plate in its own faint colour (warm for 
   [[1,'Closing: mountains, trenches'],[2,'Drifting apart: rift'],[3,'Sliding past: rough ground']].forEach(([ty,t],i)=>{ bc.fillStyle=BC[ty]; bc.beginPath(); bc.arc(lx+fs*.4,ly+i*fs*1.4,fs*.35,0,7); bc.fill(); bc.fillStyle='rgba(30,24,18,.9)'; bc.fillText(t,lx+fs*1.2,ly+i*fs*1.4); });
   bc.fillStyle='rgba(30,24,18,.9)'; bc.fillText('Arrows: how the two plates move, relative to each other',lx,ly+3*fs*1.4-fs*.2);
   bc.restore(); }
+/* Relief on the map: the lie of the land, engraved. Hachures (short strokes running downhill) where the ground slopes, more and heavier on slopes turned away from the light
+   (it comes from the left), none on the flat; and where land rises steeply from the sea, a dense band of short heavy hachures along the shore, which is how an engraver drew a
+   coastal cliff. Drawn from the relief ground (er: the generator's heights, the Elevation brush, flat where nothing is known), never inside a mountain stamp's drawing, on its own
+   layer laid over the ground paint and cut to the land. S.relief (Map settings) sets how strong. */
+let reliefC,rfx, reliefFor=null;
+function rebuildRelief(){ const g=heightGrid(), k=S.relief ?? 1, o=reliefC.getContext('2d'); reliefFor={g,k,cv:reliefC};
+  o.save(); o.setTransform(1,0,0,1,0,0); o.clearRect(0,0,reliefC.width,reliefC.height); o.restore(); if(!(k>0) || !g.er) return;
+  const W=S.w, H=S.h, er=g.er, at=(x,y)=>{ const gx=Math.max(0,Math.min(g.nx-1.001,x/g.cs)), gy=Math.max(0,Math.min(g.ny-1.001,y/g.cs)), i=Math.floor(gx), j=Math.floor(gy), fx=gx-i, fy=gy-j, E=(a,b)=>er[b*g.nx+a]; return E(i,j)*(1-fx)*(1-fy)+E(i+1,j)*fx*(1-fy)+E(i,j+1)*(1-fx)*fy+E(i+1,j+1)*fx*fy; };
+  const onLand=landSampler(), ms=S.stamps.filter(s=>MTN_BODY[s.kind]), inMtn=(x,y)=>ms.length && inMountain(ms,x,y+6), seed=7331;
+  o.save(); o.strokeStyle=INK; o.lineCap='round';
+  const coastal=new Set(), SP=4, DIRS=Array.from({length:12},(_,a)=>[Math.cos(a/12*Math.PI*2),Math.sin(a/12*Math.PI*2)]);
+  for(let y=SP/2;y<H;y+=SP) for(let x=SP/2;x<W;x+=SP){ if(!onLand(x,y)) continue; let sx=0, sy=0, n=0; for(const [dx,dy] of DIRS) if(!onLand(x+dx*8,y+dy*8)){ sx+=dx; sy+=dy; n++; } if(!n) continue;      // a point by the shore: which way the sea lies
+    coastal.add(Math.floor(x/12)+','+Math.floor(y/12)); const l=Math.hypot(sx,sy); if(l<1e-6) continue; const ux=sx/l, uy=sy/l, sea=g.m[Math.min(g.ny-1,Math.max(0,Math.round((y+uy*10)/g.cs)))*g.nx+Math.min(g.nx-1,Math.max(0,Math.round((x+ux*10)/g.cs)))]; if(sea===2) continue;      // a lake shore is not a sea cliff
+    const hIn=Math.max(at(x-ux*30,y-uy*30),at(x-ux*50,y-uy*50)), c=clamp((hIn-.24)/.3,0,1)*Math.min(1.4,k);
+    if(c<=0 || inMtn(x,y)) continue; const shade=.45+.55*Math.max(0,ux), jit=hash(Math.round(x),Math.round(y),seed); if(jit>c*(.55+.45*shade)) continue;
+    const len=(5+9*c)*(.8+.4*hash(Math.round(y),Math.round(x),seed+1)); o.lineWidth=.5+.5*shade*c; o.beginPath(); o.moveTo(x-ux*len,y-uy*len); o.lineTo(x+ux*3,y+uy*3); o.stroke(); }      // a cliff: strokes from the top of the face down to the water
+  /* hachures the engraver's way: contour lines at even steps of height, strokes set evenly along each one and run downhill to the next, so they stand in rows
+     that follow the hillside. A steep slope gives short close strokes, a gentle one long strokes, and a nearly flat one none. */
+  const DH=.065/Math.max(.5,Math.min(1.6,k)), SPc=7, nxg=g.nx, nyg=g.ny, cs=g.cs; let lo=1e9, hi=-1e9; for(const v of er){ if(v>hi) hi=v; if(v<lo) lo=v; }
+  const grad=(x,y)=>[(at(x+10,y)-at(x-10,y))/20,(at(x,y+10)-at(x,y-10))/20];
+  for(let L=Math.ceil(Math.max(.03,lo)/DH)*DH; L<hi; L+=DH){ let acc=hash(Math.round(L*1000),1,seed)*SPc;
+    for(let j=0;j<nyg-1;j++) for(let i=0;i<nxg-1;i++){ const a=er[j*nxg+i], b=er[j*nxg+i+1], c=er[(j+1)*nxg+i+1], d=er[(j+1)*nxg+i], pts=[];      // where the level crosses this cell's edges
+      const edge=(p,q,P,Q)=>{ if((p<L)!==(q<L)){ const t=(L-p)/(q-p); pts.push([(P[0]+(Q[0]-P[0])*t)*cs,(P[1]+(Q[1]-P[1])*t)*cs]); } };
+      edge(a,b,[i,j],[i+1,j]); edge(b,c,[i+1,j],[i+1,j+1]); edge(c,d,[i+1,j+1],[i,j+1]); edge(d,a,[i,j+1],[i,j]); if(pts.length<2) continue;
+      for(let s2=0;s2+1<pts.length;s2+=2){ const P=pts[s2], Q=pts[s2+1], len=dist(P,Q); for(let t=(SPc-((acc)%SPc))%SPc; t<len; t+=SPc){ const x=P[0]+(Q[0]-P[0])*t/len, y=P[1]+(Q[1]-P[1])*t/len;
+          if(!onLand(x,y) || coastal.has(Math.floor(x/12)+','+Math.floor(y/12)) || inMtn(x,y)) continue; const [gx,gy]=grad(x,y), sl=Math.hypot(gx,gy); if(sl<.0009) continue;
+          const ux=-gx/sl, uy=-gy/sl, shade=.15+.85*Math.max(0,ux), run=Math.min(15,DH/sl*.9); if(run<2.5) continue;
+          if(shade<.45 && hash(Math.round(x),Math.round(y),seed+5)<.6) continue;      // the lit side is lighter: fewer strokes
+          if(!onLand(x+ux*run,y+uy*run)) continue; o.lineWidth=(.32+.48*shade)*Math.min(1.15,.6+sl*160); o.beginPath(); o.moveTo(x,y); o.lineTo(x+ux*run,y+uy*run); o.stroke(); }
+        acc+=len; } } }
+  o.restore(); }
 const CLIFF_K=.012;      // height-map units per unit of cliff height
 let cliffRelCache={cliffs:null,ow:0,oh:0,lv:-1,data:null,max:0};
 function cliffRelief(ow,oh,u){      // the height every cliff adds at each pixel of the height view: a plateau raises its top (a taper ramps from H x (1 - taper) to H along its arrow), a pit or crater sinks it, a lowered area cuts a plateau back down. Drawn at the view's own resolution, so a cliff keeps a sharp edge
@@ -634,7 +671,7 @@ function migrate(d){   // maps saved before trees and mountains became stamps
   d.lands=d.lands.map(l=>!l.brush && !l.sharp && sparse(l.pts,true) ? {...l,pts:resample(l.pts,10,true)} : l); d.lines=d.lines.map(l=>sparse(l.pts,false) ? {...l,pts:resample(l.pts,10,false)} : l);
   if(!d.tick){ let n=0; d.lands=d.lands.map(l=>({...l,t:++n})); d.paints=d.paints.map(p=>({...p,t:++n})); d.tick=n; }   // t = the order things were made in
   return d; }
-function loadState(d){ d=migrate(d); S={gen:d.gen||null,w:d.w,h:d.h,kind:d.kind==='dungeon'?'dungeon':'world',dun:{...DUN_DEF,...(d.dun||{})},fpaint:Array.isArray(d.fpaint)?d.fpaint:[],name:d.name||'Untitled map',cliffs:Array.isArray(d.cliffs)?d.cliffs:[],lands:d.lands,paints:d.paints,lines:d.lines,stamps:d.stamps,labels:d.labels,grid:d.grid||{type:'none',size:60},tick:d.tick||0,theme:'sketchp',frame:['line','graduated'].includes(d.frame)?d.frame:'none',rhumb:!!d.rhumb,height:d.height && d.height.v ? d.height : null,hm:!!d.hm,scale:d.scale && d.scale.per100>0 ? {per100:+d.scale.per100,unit:String(d.scale.unit||'miles')} : {per100:10,unit:'miles'},
+function loadState(d){ d=migrate(d); S={gen:d.gen||null,relief:Number.isFinite(d.relief)?d.relief:1,elev:Array.isArray(d.elev)?d.elev:[],w:d.w,h:d.h,kind:d.kind==='dungeon'?'dungeon':'world',dun:{...DUN_DEF,...(d.dun||{})},fpaint:Array.isArray(d.fpaint)?d.fpaint:[],name:d.name||'Untitled map',cliffs:Array.isArray(d.cliffs)?d.cliffs:[],lands:d.lands,paints:d.paints,lines:d.lines,stamps:d.stamps,labels:d.labels,grid:d.grid||{type:'none',size:60},tick:d.tick||0,theme:'sketchp',frame:['line','graduated'].includes(d.frame)?d.frame:'none',rhumb:!!d.rhumb,height:d.height && d.height.v ? d.height : null,hm:!!d.hm,scale:d.scale && d.scale.per100>0 ? {per100:+d.scale.per100,unit:String(d.scale.unit||'miles')} : {per100:10,unit:'miles'},
     layers:Array.isArray(d.layers) && d.layers.length && d.layers.some(L=>L.id==='base') ? d.layers.map(L=>({id:String(L.id),name:String(L.name||'Layer'),v:L.v!==false,lock:!!L.lock})) : [{id:'base',name:'Map',v:true,lock:false}], active:'base'};
   if(S.layers.some(L=>L.id===d.active)) S.active=d.active;
   undoStack=[]; redoStack=[]; sel=null; draft=null; $('mapName').value=S.name; initBuffers(); buildRail(); if(!TOOLS.some(t=>t.id===opts.tool && (!t.m || t.m===(S.kind==='dungeon'?'d':'w')))) opts.tool=S.kind==='dungeon'?'room':'land'; if(S.kind==='dungeon' && opts.stampSet!=='dungeon'){ opts.stampSet='dungeon'; opts.stamp='door'; opts.stampSizes['Doors']=dungSize('door'); } else if(S.kind!=='dungeon' && opts.stampSet==='dungeon'){ opts.stampSet='world'; opts.stamp='town'; }
@@ -720,7 +757,7 @@ function initBuffers(){
   [coastC,cc]=mkCanvas(W*R/2,H*R/2); [ringC,rc]=mkCanvas(W*R/2,H*R/2); [halfC,hc]=mkCanvas(W*R/2,H*R/2);
   [waterC,wx]=full();                           // water paint strokes; sits on the sea, under the coast and the land
   [tintC,tnx]=half();      // every colour wash, land and sea, as one layer laid over the finished drawing (see buildTint)
-  [cliffSolidC,csx]=full(); [cleanC,cnx]=full(); cleanFor=null; [ecoC,ecx]=full(); ecoFor=null;      // the woodland edge (see rebuildEco)      // where cliff faces and edges are; and the ground marks with the cut ones taken out
+  [cliffSolidC,csx]=full(); [cleanC,cnx]=full(); cleanFor=null; [ecoC,ecx]=full(); ecoFor=null; [reliefC,rfx]=full(); reliefFor=null;      // the woodland edge (see rebuildEco)      // where cliff faces and edges are; and the ground marks with the cut ones taken out
   [cliffC,cf]=full(); cliffBuilt={cliffs:null,landVer:-1};   // cliff faces, drawn over the land
   { const mk=()=>{ const a=mkCanvas(W*WASH_SCALE,H*WASH_SCALE); a[1].setTransform(WASH_SCALE,0,0,WASH_SCALE,0,0); return a; }; [washLand,wtx]=mk(); [washSea,wwx]=mk(); [washTmp,wtt]=mk(); }
   [terrainC,tx]=full();                         // every ground paint stroke, already textured, in the order it was painted
@@ -992,7 +1029,7 @@ function ridersOn(lands,cliffs=[]){    // everything sitting on these land shape
   const ls=lands.filter(l=>l.mode!=='sea'), cl=cliffs.filter(c=>c.mode==='up' && c.h>0); if(!ls.length && !cl.length) return []; const picked=new Set(selItems().map(it=>it.obj)), on=p=>ls.some(l=>inLand(l,p)), onTop=p=>on(p) || cl.some(c=>inLand(c,p)), free=o=>!picked.has(o);
   const mid=o=>{ landPath(o); const b=built.get(o).bb; return [(b[0]+b[2])/2,(b[1]+b[3])/2]; };
   return [['lands',S.lands.filter(o=>o.mode==='sea' && free(o) && on(mid(o)))], ['cliffs',S.cliffs.filter(o=>free(o) && on(mid(o)))], ['paints',paintsOn(lands)], ['lines',S.lines.filter(o=>free(o) && on(o.pts[o.pts.length>>1]))],
-          ['stamps',S.stamps.filter(o=>free(o) && onTop([o.x,o.y]))], ['labels',S.labels.filter(o=>free(o) && onTop([o.x,o.y]))]].filter(r=>r[1].length); }
+          ['elev',(S.elev||[]).filter(o=>free(o) && o.pts.length && on(o.pts[o.pts.length>>1]))], ['stamps',S.stamps.filter(o=>free(o) && onTop([o.x,o.y]))], ['labels',S.labels.filter(o=>free(o) && onTop([o.x,o.y]))]].filter(r=>r[1].length); }
 /* Shore decoration, rebuilt only when the land changes: ripple lines and a pale glow in the water, soft shading inside the coast. */
 function rebuildCoast(){
   const w=coastC.width, h=coastC.height;
@@ -1019,6 +1056,7 @@ function compose(full){
   const inkOK=cleanFor && cleanFor.p===S.paints && cleanFor.l===S.lands && cleanFor.c===S.cliffs && cleanFor.v===landVer && cleanFor.cv===cleanC;
   if(layers.terrain.v) drawLayer(lc,(inkOK || (full && !live && cleanInk())) ? cleanC : terrainC,live && !live.w ? live : null);
   if(layers.terrain.v){ if(full && !(ecoFor && ecoFor.p===S.paints && ecoFor.l===S.lands && ecoFor.c===S.cliffs && ecoFor.v===landVer && ecoFor.cv===ecoC && ecoFor.cl===layers.cliffs.v && ecoFor.ln===layers.lines.v)) rebuildEco(); lc.drawImage(ecoC,0,0,W,H); }      // the woodland edge, over the ground
+  if((full || (act && act.type==='elev')) && !(reliefFor && reliefFor.cv===reliefC && reliefFor.k===(S.relief ?? 1) && reliefFor.g===heightGrid())) rebuildRelief(); lc.globalAlpha=.8; lc.drawImage(reliefC,0,0,W,H); lc.globalAlpha=1;      // the lie of the land
   lc.globalCompositeOperation='destination-in'; lc.drawImage(landMask,0,0,W,H);
   if(!coastDirty){ lc.globalCompositeOperation='source-atop'; lc.drawImage(innerC,0,0,W,H); }
   lc.globalCompositeOperation='source-over';
@@ -2181,7 +2219,7 @@ function draw(){
   if(act && (act.type==='shape'||act.type==='line'||act.type==='fill') && act.pts.length>1){ ctx.beginPath(); act.pts.forEach((p,i)=>i?ctx.lineTo(p[0],p[1]):ctx.moveTo(p[0],p[1]));
     if(act.type==='shape'||act.type==='fill'){ ctx.closePath(); ctx.fillStyle = act.type==='fill'?'rgba(31,111,122,.14)':act.mode==='sea'?'rgba(120,170,180,.45)':'rgba(234,223,191,.6)'; ctx.fill(); }
     ctx.strokeStyle=MAP.ink; ctx.lineWidth=2*px; ctx.setLineDash([6*px,5*px]); ctx.stroke(); ctx.setLineDash([]); }
-  const ring = opts.tool==='reshape' ? (opts.reshape==='cut' ? cutR()*2 : 44*px) : etool()==='cliff' ? (opts.cliffMode==='brush'?opts.cliffBrush:0) : opts.tool==='paint' ? opts.brush : opts.tool==='floor' && opts.floorMode!=='fill' ? opts.floorBrush : landBrushOn() ? opts.landBrush : 0 ? 0 : opts.tool==='stamp' && opts.stampMode!=='fill' && scatterOf(opts.stamp) && opts.scatter>20 ? opts.scatter : 0;
+  const ring = opts.tool==='reshape' ? (opts.reshape==='cut' ? cutR()*2 : 44*px) : etool()==='cliff' ? (opts.cliffMode==='brush'?opts.cliffBrush:0) : etool()==='elev' ? opts.elevBrush : opts.tool==='paint' ? opts.brush : opts.tool==='floor' && opts.floorMode!=='fill' ? opts.floorBrush : landBrushOn() ? opts.landBrush : 0 ? 0 : opts.tool==='stamp' && opts.stampMode!=='fill' && scatterOf(opts.stamp) && opts.scatter>20 ? opts.scatter : 0;
   if(ring && hover){ ctx.beginPath(); ctx.arc(hover[0],hover[1],ring/2,0,7); ctx.strokeStyle='rgba(20,30,30,.8)'; ctx.lineWidth=1.5*px; ctx.stroke(); }
   drawMeasure(ctx,px);
   if(DUNG()){ const cell=cellSz(), tool=opts.tool, dtool=tool==='room'||tool==='corridor'||tool==='dwall';
@@ -2466,7 +2504,7 @@ function unlockAll(){ let n=0; const un=o=>{ if(!o.locked) return o; n++; const 
 const lockedCount=()=>['lands','cliffs','lines','stamps','labels'].reduce((a,k)=>a+S[k].filter(o=>o.locked).length,0);
 function moveItems(items,dx,dy){ const sh=o=>o.pts?{...o,pts:o.pts.map(q=>[q[0]+dx,q[1]+dy])}:{...o,x:o.x+dx,y:o.y+dy}, m=new Map(items.map(it=>[it.obj,sh(it.obj)]));      // shift these by the same amount; a landmass takes what is on it
   for(const [,objs] of ridersOn(items.filter(it=>it.type==='land').map(it=>it.obj),items.filter(it=>it.type==='cliff').map(it=>it.obj))) for(const q of objs) m.set(q,sh(q));
-  for(const k of ['lands','cliffs','paints','lines','stamps','labels']) S[k]=S[k].map(q=>m.get(q)||q); return m; }
+  for(const k of ['lands','cliffs','paints','elev','lines','stamps','labels']) S[k]=S[k].map(q=>m.get(q)||q); return m; }
 function alignSel(mode){ const its=selItems(); if(its.length<2 || anyLocked()) return; const boxes=its.map(objBox), U=selBox(), n=its.length; let moves;
   if(mode==='H'||mode==='V'){ if(n<3) return; const a=mode==='H'?0:1, ctr=boxes.map(b=>(b[a]+b[a+2])/2), order=its.map((_,i)=>i).sort((x,y)=>ctr[x]-ctr[y]), lo=ctr[order[0]], hi=ctr[order[n-1]];      // the two outermost stay put and the ones between are spaced evenly by their centres
     moves=its.map((_,i)=>{ const d=lo+(hi-lo)*order.indexOf(i)/(n-1)-ctr[i]; return a===0?[d,0]:[0,d]; }); }
@@ -2490,7 +2528,7 @@ function xfApply(p){ const a=act, c=a.c; if(!a.moved){ pushUndo(a.mode==='rot'?'
   const tf=o=>{ if(o.pts){ const n={...o,pts:o.pts.map(P)}; if(o.size) n.size=o.size*f; if('dir' in o) n.dir=turn(o.dir); return n; }
     const q=P([o.x,o.y]); return {...o,x:q[0],y:q[1],size:Math.max(4,o.size*f),rot:turn(o.rot)}; };
   const m=new Map(); a.entries.forEach(en=>{ const n=tf(en.orig); m.set(en.cur,n); en.cur=n; });
-  for(const k of ['lands','cliffs','paints','lines','stamps','labels']) S[k]=S[k].map(o=>m.get(o)||o); remapSel(m); selDirty(false); }
+  for(const k of ['lands','cliffs','paints','elev','lines','stamps','labels']) S[k]=S[k].map(o=>m.get(o)||o); remapSel(m); selDirty(false); }
 function nudgeSel(dx,dy){ if(anyLocked()) return; pushUndo('Nudge'); const sh=o=>o.pts?{...o,pts:o.pts.map(q=>[q[0]+dx,q[1]+dy])}:{...o,x:o.x+dx,y:o.y+dy}, riders=ridersOn(selLands(),selCliffs());
   editSel(sh); riders.forEach(([k,objs])=>{ const m=new Map(objs.map(q=>[q,sh(q)])); S[k]=S[k].map(q=>m.get(q)||q); }); selDirty(true); invalidate(); queueSave(); }
 function hitTest(p,withLocked){
@@ -2514,8 +2552,9 @@ cv.addEventListener('pointerdown',e=>{
   const p=toWorld(e), t=etool();
   if(e.button===1 || t==='pan' || spaceDown){ act={type:'pan',sx:e.clientX,sy:e.clientY,vx:view.x,vy:view.y}; return; }
   if(DUNG() && (t==='corridor'||t==='dwall'||(t==='room'&&opts.roomShape==='poly'))){ if(e.button===2){ if(draft){ draft.pts.pop(); if(!draft.pts.length) draft=null; invalidate(); } return; } draftClick(p,opts.roomCut&&t!=='dwall'); return; }
-  if(e.button===2 && t!=='land' && t!=='cliff' && t!=='room' && t!=='floor') return;
+  if(e.button===2 && t!=='land' && t!=='cliff' && t!=='elev' && t!=='room' && t!=='floor') return;
   const lmode = (e.button===2)!==(opts.landPrimary==='sea') ? 'sea' : 'land';   // right button does the opposite of the left
+  if(t==='elev'){ pushUndo('Shape the land'); const st={size:Math.round(opts.elevBrush),amt:+((e.button===2?-1:1)*opts.elevAmt).toFixed(3),pts:[]}; act={type:'elev',stroke:st,pts:st.pts,pushed:true,t:0}; addPoint(act,p,0); S.elev=[...(S.elev||[]),st]; need.compose='fast'; return; }      // the Elevation brush: left raises, right lowers
   if(t==='cliff'){ const cm = (e.button===2)!==(opts.cliffPrimary==='down') ? 'down' : 'up';
     if(opts.cliffMode==='brush'){ pushUndo(); const c={mode:cm,brush:true,pts:[],size:opts.cliffBrush,rough:opts.cliffRough,seed:rseed(),h:opts.cliffH,taper:opts.cliffTaper,dir:opts.cliffDir}; act={type:'cbrush',pts:c.pts,cliff:c,pushed:true}; addPoint(act,p,0); S.cliffs=[...S.cliffs,c]; need.compose='fast'; }
     else { act={type:'shape',mode:cm,cliff:true,pts:[]}; addPoint(act,p,0); } }
@@ -2558,6 +2597,7 @@ cv.addEventListener('pointermove',e=>{
   else if(act.type==='box') act.b=p;
   else if(act.type==='drect') act.b=gsnap(p);
   else if(act.type==='shape'||act.type==='line'||act.type==='fill'||act.type==='measure') addPoint(act,p,5);
+  else if(act.type==='elev'){ if(addPoint(act,p,8)){ const now=performance.now(); if(now-act.t>140){ act.t=now; const ns={...act.stroke}; S.elev=S.elev.map(o=>o===act.stroke?ns:o); act.stroke=ns; need.compose='fast'; } } }      // the relief is redrawn a few times a second while painting, and fully at the end
   else if(act.type==='cbrush'){ if(addPoint(act,p,6)){ const nc={...act.cliff}; S.cliffs=S.cliffs.map(o=>o===act.cliff?nc:o); act.cliff=nc; need.compose='fast'; } }
   else if(act.type==='cheight' && sel){ if(!act.moved){ pushUndo(); act.moved=true; }   // drag up for a plateau, down past level for a pit
     const h=clamp(Math.round(act.h0-(p[1]-act.y0)),-220,140); editSel(o=>({...o,h})); need.compose='fast'; }
@@ -2608,6 +2648,7 @@ function endPointer(e){
   else if(a.type==='paint'){ pushUndo(); S.paints=[...S.paints,{...a.stroke,t:++S.tick}]; need.compose='full'; }
   else if(a.type==='lbrush'){ need.land=true; need.compose='full'; }
   else if(a.type==='cbrush'){ need.compose='full'; }
+  else if(a.type==='elev'){ const ns={...a.stroke}; S.elev=S.elev.map(o=>o===a.stroke?ns:o); need.compose='full'; }
   else if(a.type==='pull'){ if(a.moved){ const n={...a.cur,pts:densify(a.cur.pts,a.key==='lines'?3:4,a.closed)}; S[a.key]=S[a.key].map(o=>o===a.cur?n:o); shapeDirty(a.key,n,true); need.compose='full'; } }
   else if(a.type==='cut'){ if(a.before===S.lines) undoStack.pop(); else { need.land=true; need.compose='full'; } syncButtons(); }
   else if(a.type==='xf'){ if(a.moved){ selDirty(true); renderPanel(); } }
@@ -2649,7 +2690,7 @@ window.addEventListener('keydown',e=>{
 });
 window.addEventListener('keyup',e=>{ if(e.key===' ') spaceDown=false; });
 function deleteSel(){ if(!sel) return; const its=selItems().filter(it=>!it.obj.locked); if(!its.length) return; pushUndo('Delete'); const gone=new Set([...its.map(it=>it.obj),...ridersOn(its.filter(it=>it.type==='land').map(it=>it.obj)).flatMap(r=>r[1]).filter(o=>!o.locked)]); selDirty(true);
-  for(const k of ['lands','cliffs','paints','lines','stamps','labels']) S[k]=S[k].filter(o=>!gone.has(o)); sel=null; renderPanel(); invalidate(); }
+  for(const k of ['lands','cliffs','paints','elev','lines','stamps','labels']) S[k]=S[k].filter(o=>!gone.has(o)); sel=null; renderPanel(); invalidate(); }
 
 /* ============================================================ tools + inspector */
 const ICON = {
@@ -2680,9 +2721,10 @@ const TOOLS = [      // m: 'w' world maps only, 'd' dungeons only, 'x' not offer
   {id:'cliff', m:'x', name:'Cliffs', key:'', hint:'Left-drag raises the land into a plateau with cliffs. Right-drag lowers it again.'},
   {id:'road', m:'x', name:'Road', key:'', hint:'Draw a road between places.'},
   {id:'trail', m:'x', name:'Trail', key:'', hint:'Draw a dotted trail.'},
+  {id:'elev', m:'x', name:'Elevation', key:'', hint:'Left-drag raises the land, right-drag lowers it. The relief on the map and the height view follow.'},
   {id:'fence', m:'x', name:'Fence', key:'', hint:'Draw a hedge, fence, field wall or palisade, for plots and outworks.'},
 ];
-const etool = () => opts.tool==='paint' && opts.paintLayer==='cliff' ? 'cliff' : opts.tool==='wall' && opts.wallKind!=='town' ? 'fence' : opts.tool==='street' && opts.roadMode ? (opts.roadMode==='trail' ? 'trail' : 'road') : opts.tool;      // some tools do several jobs: the one being done right now
+const etool = () => opts.tool==='paint' && opts.paintLayer==='cliff' ? 'cliff' : opts.tool==='paint' && opts.paintLayer==='elev' ? 'elev' : opts.tool==='wall' && opts.wallKind!=='town' ? 'fence' : opts.tool==='street' && opts.roadMode ? (opts.roadMode==='trail' ? 'trail' : 'road') : opts.tool;      // some tools do several jobs: the one being done right now
 
 let railBound=false;
 function buildRail(){ const mode=S.kind==='dungeon'?'d':'w'; let pend=null, h='';      // world tools and dungeon tools are offered by map kind; a hidden tool hands its heading to the next one shown
@@ -2744,7 +2786,7 @@ function dungToolPanel(t){ const chips=(id,items,cur,attr)=>`<div class="chips" 
 function dungSelPanel(o){ return `<section><h2>${o.mode==='sea'?'Hole in the floor':o.brush?'Corridor':o.sharp?'Room':'Cave or round room'}</h2>${o.mode==='sea'?'':`<p class="grp">Floor</p><div class="chips" id="selTex">${FLOORS.map(([k,n])=>`<button class="chip" data-tex="${k}" aria-pressed="${(o.tex||'none')===k}">${n}</button>`).join('')}</div>`}${o.brush?slider('selBrush','Width',20,600,2,o.size,num):''}${!o.sharp?slider('selRough','Edge',0,1,.01,o.rough,pct)+'<div class="ends"><span>smooth</span><span>rough</span></div>':''}</section>`; }
 function renderPanel(){
   const t=etool();
-  const TERR_MODES=[['land','Ground'],['water','Water'],['cliff','Cliffs']], modeChips=()=>`<div class="chips" id="paintLayer">${TERR_MODES.map(([k,n])=>`<button class="chip" data-layer="${k}" aria-pressed="${opts.paintLayer===k}">${n}</button>`).join('')}</div>`;      // Terrain does four jobs, picked here
+  const TERR_MODES=[['land','Ground'],['water','Water'],['cliff','Cliffs'],['elev','Elevation']], modeChips=()=>`<div class="chips" id="paintLayer">${TERR_MODES.map(([k,n])=>`<button class="chip" data-layer="${k}" aria-pressed="${opts.paintLayer===k}">${n}</button>`).join('')}</div>`;      // Terrain does four jobs, picked here
   const wallKindChips=()=>`<p class="grp">Kind</p><div class="chips" id="wallKind">${[['town','Town wall'],['hedge','Hedge'],['fence','Fence'],['wall','Field wall'],['palisade','Palisade']].map(([k,n])=>`<button class="chip" data-wk="${k}" aria-pressed="${opts.wallKind===k}">${n}</button>`).join('')}</div>`; let h = PHONE ? '<button class="btn" id="drawerX">Close settings</button>' : '';
   if(t==='select'){
     if(!sel) h+=`<section><h2>Select</h2><p>${DUNG()?'Click a room, corridor, wall, stamp or label to change it. Drag to move it.':'Click a landmass, river, road, settlement or label to change it.'} Shift adds to the selection.</p></section>`+(lockedCount()?`<section><h2>Locked</h2><p>${lockedCount()} locked ${lockedCount()===1?'object is':'objects are'} skipped by clicking. Alt-click picks one.</p><div class="btnrow"><button class="btn" id="unlockAll">Unlock all</button></div></section>`:'');
@@ -2773,6 +2815,7 @@ function renderPanel(){
     ${opts.landMode==='brush'?slider('landBrush','Brush',20,600,2,opts.landBrush,num):''}${slider('landRough','Coastline',0,1,.01,opts.landRough,pct)}<div class="ends"><span>smooth</span><span>jagged</span></div>
     <p class="grp">Left button draws</p><div class="chips" id="landPrimary"><button class="chip" data-prim="land" aria-pressed="${opts.landPrimary==='land'}">Land</button><button class="chip" data-prim="sea" aria-pressed="${opts.landPrimary==='sea'}">Sea</button></div>
     <p>Right button does the opposite. On a touch screen, swap with these.</p></section>`;
+  if(t==='elev') h+=`<section id="terrChips"><h2>Terrain</h2>${modeChips()}${slider('elevBrush','Brush',40,900,5,opts.elevBrush,num)}${slider('elevAmt','Strength',2,100,1,Math.round(opts.elevAmt*100),v=>Math.round(v))}<div class="ends"><span>a rise</span><span>a great height</span></div><p>Left-drag raises the land, right-drag lowers it; go over a place again to build it up. Hills show as hachures on the map, and land raised to the shore becomes a sea cliff. Relief strength is in Map settings.</p>${(S.elev||[]).length?`<button class="btn" id="elevClear">Flatten all (${S.elev.length} strokes)</button>`:''}</section>`;
   if(t==='cliff') h+=`<section id="terrChips"><h2>Terrain</h2>${modeChips()}<p class="grp">Brush type</p><div class="chips" id="cliffModes"><button class="chip" data-cmode="outline" aria-pressed="${opts.cliffMode==='outline'}">Outline</button><button class="chip" data-cmode="brush" aria-pressed="${opts.cliffMode==='brush'}">Brush</button></div>
     ${opts.cliffMode==='brush'?slider('cliffBrush','Brush',20,600,2,opts.cliffBrush,num):''}${slider('cliffH','Height',-220,140,1,opts.cliffH,num)}<div class="ends"><span>deep pit</span><span>high cliff</span></div>${slider('cliffTaper','Taper',0,1,.01,opts.cliffTaper,pct)}<div class="ends"><span>even</span><span>ramps to nothing</span></div>${slider('cliffDir','Direction',-180,180,1,opts.cliffDir,deg)}<div class="ends"><span>the ramp runs towards</span><span></span></div>${slider('cliffRough','Edge',0,1,.01,opts.cliffRough,pct)}<div class="ends"><span>smooth</span><span>jagged</span></div>
     <p class="grp">Left button</p><div class="chips" id="cliffPrimary"><button class="chip" data-cprim="up" aria-pressed="${opts.cliffPrimary==='up'}">Raises</button><button class="chip" data-cprim="down" aria-pressed="${opts.cliffPrimary==='down'}">Lowers</button></div>
@@ -2795,6 +2838,7 @@ function renderPanel(){
   if(t==='measure') h+=`<section><h2>Measure</h2><p style="font-size:17px;margin:0">${measured?'<b>'+fmtDist(pathLen(measured))+'</b> along the route':'Drag along a route on the map.'}</p><p class="grp">Map scale</p><label class="row wide" for="scaleN">100 map units =<input type="number" id="scaleN" min="0.01" step="any" value="${S.scale.per100}" style="width:5.5em"></label><label class="row wide" for="scaleU">Unit<select id="scaleU">${['miles','leagues','km','days','yards','feet','paces'].map(u=>`<option${u===S.scale.unit?' selected':''}>${u}</option>`).join('')}</select></label><p>A grid cell (${S.grid.size}) is ${fmtDist(S.grid.size)}. The whole sheet is ${fmtDist(S.w)} across. Scale bar stamps show this scale.</p></section>`;
   if(t==='pan') h+=`<section><h2>Pan</h2><p>Hold Space with any tool to pan without switching.</p></section>`;
   const setDetail=`<section><h2>Detail</h2>${PHONE?'<p>Phone mode draws at reduced detail.</p>':`<div class="chips" id="detailPick"><button class="chip" data-detail="1" aria-pressed="${R===1}">Normal</button><button class="chip" data-detail="${Math.min(2,maxScale())}" aria-pressed="${R>1}">High</button></div><p>High stays sharp when you zoom in, but painting and undo are slower.</p>`}</section>`;
+  const setRelief=`<section><h2>Relief</h2>${slider('reliefK','Strength',0,2,.05,S.relief ?? 1,pct)}<div class="ends"><span>none</span><span>strong</span></div><p>Hachures where the land slopes, and cliffs where it rises steeply from the sea. Shape the land with Terrain, Elevation.</p></section>`;
   const setHm=`<section><h2>Heightmap</h2><div class="layer"><span>Show heights</span><label><input type="checkbox" id="hmOn" ${S.hm?'checked':''}>on</label></div>${S.height&&(S.height.pid||(S.gen&&['island','continent','archipelago'].includes(S.gen.kind)))?`<div class="chips"><button class="chip" data-hmv="relief" aria-pressed="${opts.hmView!=='plates'}">Relief</button><button class="chip" data-hmv="plates" aria-pressed="${opts.hmView==='plates'}">Tectonic plates</button></div>`:S.height?'<p>The tectonic plates were not kept with this map (it was made before they were saved), so only the relief can be shown. A newly generated map keeps them.</p>':''}<p>${S.height?'Draws the heights this map was generated from, as a shaded grey relief: sea level is mid-grey, lakes are tinted blue. Rivers and names stay.':'This map has no stored heights, so the view is estimated from its coast, cliffs and mountains.'}</p></section>`;
   const setRot=`<section><h2>Rotation</h2><div class="layer"><span>Snap to 15°</span><label><input type="checkbox" id="rotSnap" ${opts.rotSnap?'checked':''}>on</label></div><p>Applies to the rotation sliders and the turn handle. Hold Shift while turning with the handle to snap just that once.</p></section>`;
   const setGrid=`<section><h2>Grid</h2><label class="row wide" for="gridType">Type<select id="gridType"><option value="none">None</option><option value="hex">Hex</option><option value="square">Square</option></select></label>${slider('gridSize','Cell',20,200,2,S.grid.size,num)}</section>
@@ -2804,7 +2848,7 @@ function renderPanel(){
     <div class="btnrow"><button class="btn" id="lyAdd">Add layer</button></div><p>New rivers, roads, stamps and labels go on the chosen layer. Hidden layers are left out of the exported picture.</p></section>`;
   const setVis=`<section><h2>Show by kind</h2>${Object.entries(layers).map(([k,l])=>`<div class="layer"><span>${l.name}</span><label><input type="checkbox" id="lv_${k}" ${l.v?'checked':''}>show</label>${'lock' in l?`<label><input type="checkbox" id="ll_${k}" ${l.lock?'checked':''}>lock</label>`:'<span></span>'}</div>`).join('')}</section>`;
   h+=`<hr><details id="history" class="settings"${opts.historyOpen?' open':''}><summary>History</summary><div id="histList">${histHTML()}</div></details>`;
-  h+=`<hr><details id="mapSettings" class="settings"${opts.settingsOpen?' open':''}><summary>Map settings</summary>${setDetail}<hr>${setHm}<hr>${setRot}<hr>${setGrid}<hr>${setVis}</details>`;
+  h+=`<hr><details id="mapSettings" class="settings"${opts.settingsOpen?' open':''}><summary>Map settings</summary>${setDetail}<hr>${setRelief}<hr>${setHm}<hr>${setRot}<hr>${setGrid}<hr>${setVis}</details>`;
   $('side').innerHTML=h; $('mapSettings')?.addEventListener('toggle',e=>opts.settingsOpen=e.target.open); $('history')?.addEventListener('toggle',e=>{ opts.historyOpen=e.target.open; if(opts.historyOpen) $('histList').innerHTML=histHTML(); }); $('histList')?.addEventListener('click',e=>{ const b=e.target.closest('[data-hist]'); if(b) goTo(+b.dataset.hist); }); stampThumbs(); $('drawerX')?.addEventListener('click',()=>document.body.classList.remove('drawer-open')); $('gridType').value=S.grid.type; $('frameType').value=S.frame;
 
   bind('landRough',pct,v=>opts.landRough=v); bind('brush',num,v=>opts.brush=v); bind('lineRough',pct,v=>opts.lineRough=v); bind('lineWidth',v=>v,v=>opts.lineWidth[t]=v);
@@ -2848,6 +2892,8 @@ function renderPanel(){
   bind('floorBrush',num,v=>opts.floorBrush=v); pick('floorTex','ftex',v=>opts.floorTex=v); pick('floorMode','fmode',v=>opts.floorMode=v);
   pick('roomShape','shape',v=>{ opts.roomShape=v; draft=null; }); pick('corrW','cw',v=>opts.corrW=+v); pick('roomCut','cut',v=>opts.roomCut=v==='1'); pick('roomTex','tex',v=>opts.roomTex=v);
   document.querySelectorAll('[data-hmv]').forEach(b=>b.addEventListener('click',()=>{ opts.hmView=b.dataset.hmv; if(!S.hm) S.hm=true; need.compose='full'; invalidate(); renderPanel(); }));
+  bind('reliefK',pct,v=>{ S.relief=v; need.compose='full'; }); bind('elevBrush',num,v=>opts.elevBrush=v); bind('elevAmt',v=>Math.round(v),v=>opts.elevAmt=v/100);
+  $('elevClear')?.addEventListener('click',()=>{ pushUndo('Flatten the land'); S.elev=[]; need.compose='full'; invalidate(); renderPanel(); });
   $('hmOn')?.addEventListener('change',e=>{ S.hm=e.target.checked; need.compose='full'; invalidate(); queueSave(); }); $('rotSnap')?.addEventListener('change',e=>opts.rotSnap=e.target.checked); $('snapOn')?.addEventListener('change',e=>opts.snap=e.target.checked); $('snapFine')?.addEventListener('change',e=>opts.snapFine=e.target.checked); bind('dwallW',v=>v,v=>opts.lineWidth.dwall=v);
   $('selTex')?.addEventListener('click',e=>{ const b=e.target.closest('[data-tex]'); if(!b) return; pushUndo(); editSel(o=>({...o,tex:b.dataset.tex})); selDirty(true); renderPanel(); invalidate(); });
   const lyChanged=()=>{ need.land=true; need.compose='full'; sel=null; renderPanel(); invalidate(); queueSave(); };
@@ -2897,7 +2943,7 @@ async function saveFile(filename, blob){
 $('saveBtn').onclick=()=>saveFile(slug()+'.json', new Blob([serialize()],{type:'application/json'}));
 /* Export draws on about BUFFER_COUNT full-size images at once: 10 full-size canvases (see initBuffers), 8 more at half size each way (a quarter of the area, so 2), and about 3 for the pixel reads
    that clean up ground marks and place the woodland edge. EXPORT_BUDGET is the most pixels, counted that way, that is offered; the size dialog shows both numbers. */
-const BUFFER_COUNT=15, EXPORT_BUDGET=260e6, exportMP=k=>S.w*S.h*k*k/1e6, MAX_IMAGE_MP=EXPORT_BUDGET/BUFFER_COUNT/1e6;
+const BUFFER_COUNT=16, EXPORT_BUDGET=260e6, exportMP=k=>S.w*S.h*k*k/1e6, MAX_IMAGE_MP=EXPORT_BUDGET/BUFFER_COUNT/1e6;
 const maxScale = () => { let m=1; for(const k of [1.5,2,3,4]) if(S.w*S.h*k*k*BUFFER_COUNT<=EXPORT_BUDGET) m=k; return m; };
 function setDetail(k){ R=k; initBuffers(); rebuildAll(); }
 function exportPNG(scale){
@@ -2914,7 +2960,7 @@ function buffersOK(){      // a browser that cannot allocate a canvas as large a
   return [base,terrainC,landMask,cliffC,waterC].every(c=>{ if(!c || c.width!==want[0] || c.height!==want[1]) return false;
     try{ const x=c.getContext('2d'); x.save(); x.setTransform(1,0,0,1,0,0); x.globalCompositeOperation='copy'; x.fillStyle='#010203'; x.fillRect(0,0,1,1); const d=x.getImageData(0,0,1,1).data; x.clearRect(0,0,1,1); x.restore(); return d[0]===1 && d[1]===2 && d[2]===3; }catch(e){ return false; } }); }
 function releaseBuffers(){      // shrunk, not nulled: the screen may still be redrawn before the export finishes, and drawing a 1 x 1 canvas is harmless where drawing a missing one is not
-  for(const c of [tmpC,invC,innerC,coastC,ringC,halfC,cliffSolidC,cleanC,landMask,landLayer,terrainC,waterC,cliffC,ecoC,tintC,sbC,clipC]) if(c){ c.width=1; c.height=1; } cleanFor=null; ecoFor=null; }
+  for(const c of [tmpC,invC,innerC,coastC,ringC,halfC,cliffSolidC,cleanC,landMask,landLayer,terrainC,waterC,cliffC,ecoC,reliefC,tintC,sbC,clipC]) if(c){ c.width=1; c.height=1; } cleanFor=null; ecoFor=null; reliefFor=null; }
 $('pngBtn').onclick=()=>{ const top=maxScale();
   $('expSizes').innerHTML=[1,2,3,4].map(k=>`<label><input type="radio" name="exp" value="${k}" id="ex${k}" ${k===Math.min(2,top)?'checked':''} ${k>top?'disabled':''}> ${k===1?'Standard':k+'× size'} (${S.w*k} × ${S.h*k})${k>top?` · too large for this map (${exportMP(k).toFixed(0)} megapixels; about ${Math.floor(MAX_IMAGE_MP)} is the most it will draw)`:''}</label>`).join('');
   $('expDlg').showModal(); };
