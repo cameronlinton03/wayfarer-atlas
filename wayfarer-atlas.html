@@ -597,36 +597,31 @@ function composePlates(g){      // each plate in its own faint colour (warm for 
   [[1,'Closing: mountains, trenches'],[2,'Drifting apart: rift'],[3,'Sliding past: rough ground']].forEach(([ty,t],i)=>{ bc.fillStyle=BC[ty]; bc.beginPath(); bc.arc(lx+fs*.4,ly+i*fs*1.4,fs*.35,0,7); bc.fill(); bc.fillStyle='rgba(30,24,18,.9)'; bc.fillText(t,lx+fs*1.2,ly+i*fs*1.4); });
   bc.fillStyle='rgba(30,24,18,.9)'; bc.fillText('Arrows: how the two plates move, relative to each other',lx,ly+3*fs*1.4-fs*.2);
   bc.restore(); }
-/* Relief on the map: the lie of the land, engraved. Hachures (short strokes running downhill) where the ground slopes, more and heavier on slopes turned away from the light
-   (it comes from the left), none on the flat; and where land rises steeply from the sea, a dense band of short heavy hachures along the shore, which is how an engraver drew a
-   coastal cliff. Drawn from the relief ground (er: the generator's heights, the Elevation brush, flat where nothing is known), never inside a mountain stamp's drawing, on its own
+/* Relief on the map: the lie of the land, engraved as diagonal hatching (top left to bottom right, the same hand as the other shading) on the slopes turned away from the light
+   (it comes from the left), closer and heavier the steeper they are, none on the flat; and where land rises steeply from the sea, a dark band of the same hatching along the
+   shore for a sea cliff. Drawn from the relief ground (er: the generator's heights, the Elevation brush, flat where nothing is known), never inside a mountain stamp's drawing, on its own
    layer laid over the ground paint and cut to the land. S.relief (Map settings) sets how strong. */
 let reliefC,rfx, reliefFor=null;
 function rebuildRelief(){ const g=heightGrid(), k=S.relief ?? 1, o=reliefC.getContext('2d'); reliefFor={g,k,cv:reliefC};
   o.save(); o.setTransform(1,0,0,1,0,0); o.clearRect(0,0,reliefC.width,reliefC.height); o.restore(); if(!(k>0) || !g.er) return;
   const W=S.w, H=S.h, er=g.er, at=(x,y)=>{ const gx=Math.max(0,Math.min(g.nx-1.001,x/g.cs)), gy=Math.max(0,Math.min(g.ny-1.001,y/g.cs)), i=Math.floor(gx), j=Math.floor(gy), fx=gx-i, fy=gy-j, E=(a,b)=>er[b*g.nx+a]; return E(i,j)*(1-fx)*(1-fy)+E(i+1,j)*fx*(1-fy)+E(i,j+1)*(1-fx)*fy+E(i+1,j+1)*fx*fy; };
   const onLand=landSampler(), ms=S.stamps.filter(s=>MTN_BODY[s.kind]), inMtn=(x,y)=>ms.length && inMountain(ms,x,y+6), seed=7331;
-  o.save(); o.strokeStyle=INK; o.lineCap='round';
-  const coastal=new Set(), SP=4, DIRS=Array.from({length:12},(_,a)=>[Math.cos(a/12*Math.PI*2),Math.sin(a/12*Math.PI*2)]);
+  /* Everything is laid as one tone and then hatched in one direction, top left to bottom right, like the shading on cliffs and stamps: a tone grid (TC units a cell) holds
+     how dark each place is, and parallel diagonal lines are drawn through it, more of them (closer together) and heavier where it is darker. */
+  const TC=5, tw=Math.ceil(W/TC)+1, th=Math.ceil(H/TC)+1, tone=new Float32Array(tw*th), ti=(x,y)=>Math.round(y/TC)*tw+Math.round(x/TC);
+  for(let y=0;y<th;y++) for(let x=0;x<tw;x++){ const X=x*TC, Y=y*TC; if(!onLand(X,Y) || inMtn(X,Y)) { tone[y*tw+x]=-1; continue; }      // -1: no hatching here at all
+    const gx=(at(X+10,Y)-at(X-10,Y))/20, gy=(at(X,Y+10)-at(X,Y-10))/20, sl=Math.hypot(gx,gy); if(sl<.0008) continue;
+    const ux=-gx/sl, steep=clamp((sl-.0008)/.0035,0,1); tone[y*tw+x]=steep*(.1+.9*Math.max(0,ux))*k; }      // slopes turned to the right (downhill that way) are in shadow; the lit ones stay almost clear
+  const SP=4, DIRS=Array.from({length:12},(_,a)=>[Math.cos(a/12*Math.PI*2),Math.sin(a/12*Math.PI*2)]);
   for(let y=SP/2;y<H;y+=SP) for(let x=SP/2;x<W;x+=SP){ if(!onLand(x,y)) continue; let sx=0, sy=0, n=0; for(const [dx,dy] of DIRS) if(!onLand(x+dx*8,y+dy*8)){ sx+=dx; sy+=dy; n++; } if(!n) continue;      // a point by the shore: which way the sea lies
-    coastal.add(Math.floor(x/12)+','+Math.floor(y/12)); const l=Math.hypot(sx,sy); if(l<1e-6) continue; const ux=sx/l, uy=sy/l, sea=g.m[Math.min(g.ny-1,Math.max(0,Math.round((y+uy*10)/g.cs)))*g.nx+Math.min(g.nx-1,Math.max(0,Math.round((x+ux*10)/g.cs)))]; if(sea===2) continue;      // a lake shore is not a sea cliff
-    const hIn=Math.max(at(x-ux*30,y-uy*30),at(x-ux*50,y-uy*50)), c=clamp((hIn-.24)/.3,0,1)*Math.min(1.4,k);
-    if(c<=0 || inMtn(x,y)) continue; const shade=.45+.55*Math.max(0,ux), jit=hash(Math.round(x),Math.round(y),seed); if(jit>c*(.55+.45*shade)) continue;
-    const len=(5+9*c)*(.8+.4*hash(Math.round(y),Math.round(x),seed+1)); o.lineWidth=.5+.5*shade*c; o.beginPath(); o.moveTo(x-ux*len,y-uy*len); o.lineTo(x+ux*3,y+uy*3); o.stroke(); }      // a cliff: strokes from the top of the face down to the water
-  /* hachures the engraver's way: contour lines at even steps of height, strokes set evenly along each one and run downhill to the next, so they stand in rows
-     that follow the hillside. A steep slope gives short close strokes, a gentle one long strokes, and a nearly flat one none. */
-  const DH=.065/Math.max(.5,Math.min(1.6,k)), SPc=7, nxg=g.nx, nyg=g.ny, cs=g.cs; let lo=1e9, hi=-1e9; for(const v of er){ if(v>hi) hi=v; if(v<lo) lo=v; }
-  const grad=(x,y)=>[(at(x+10,y)-at(x-10,y))/20,(at(x,y+10)-at(x,y-10))/20];
-  for(let L=Math.ceil(Math.max(.03,lo)/DH)*DH; L<hi; L+=DH){ let acc=hash(Math.round(L*1000),1,seed)*SPc;
-    for(let j=0;j<nyg-1;j++) for(let i=0;i<nxg-1;i++){ const a=er[j*nxg+i], b=er[j*nxg+i+1], c=er[(j+1)*nxg+i+1], d=er[(j+1)*nxg+i], pts=[];      // where the level crosses this cell's edges
-      const edge=(p,q,P,Q)=>{ if((p<L)!==(q<L)){ const t=(L-p)/(q-p); pts.push([(P[0]+(Q[0]-P[0])*t)*cs,(P[1]+(Q[1]-P[1])*t)*cs]); } };
-      edge(a,b,[i,j],[i+1,j]); edge(b,c,[i+1,j],[i+1,j+1]); edge(c,d,[i+1,j+1],[i,j+1]); edge(d,a,[i,j+1],[i,j]); if(pts.length<2) continue;
-      for(let s2=0;s2+1<pts.length;s2+=2){ const P=pts[s2], Q=pts[s2+1], len=dist(P,Q); for(let t=(SPc-((acc)%SPc))%SPc; t<len; t+=SPc){ const x=P[0]+(Q[0]-P[0])*t/len, y=P[1]+(Q[1]-P[1])*t/len;
-          if(!onLand(x,y) || coastal.has(Math.floor(x/12)+','+Math.floor(y/12)) || inMtn(x,y)) continue; const [gx,gy]=grad(x,y), sl=Math.hypot(gx,gy); if(sl<.0009) continue;
-          const ux=-gx/sl, uy=-gy/sl, shade=.15+.85*Math.max(0,ux), run=Math.min(15,DH/sl*.9); if(run<2.5) continue;
-          if(shade<.45 && hash(Math.round(x),Math.round(y),seed+5)<.6) continue;      // the lit side is lighter: fewer strokes
-          if(!onLand(x+ux*run,y+uy*run)) continue; o.lineWidth=(.32+.48*shade)*Math.min(1.15,.6+sl*160); o.beginPath(); o.moveTo(x,y); o.lineTo(x+ux*run,y+uy*run); o.stroke(); }
-        acc+=len; } } }
+    const l=Math.hypot(sx,sy); if(l<1e-6) continue; const ux=sx/l, uy=sy/l, sea=g.m[Math.min(g.ny-1,Math.max(0,Math.round((y+uy*10)/g.cs)))*g.nx+Math.min(g.nx-1,Math.max(0,Math.round((x+ux*10)/g.cs)))]; if(sea===2) continue;      // a lake shore is not a sea cliff
+    const hIn=Math.max(at(x-ux*30,y-uy*30),at(x-ux*50,y-uy*50)), c=clamp((hIn-.19)/.25,0,1)*Math.min(1.4,k); if(c<=0) continue;
+    const band=6+10*c; for(let d=0;d<=band;d+=TC*.6){ const q=ti(x-ux*d,y-uy*d); if(q>=0 && q<tone.length && tone[q]>=0) tone[q]=Math.max(tone[q],c*(1-d/band*.35)); } }      // a sea cliff: a dark band from the shore up to the top of the face
+  const T=(x,y)=>{ const X=Math.round(x/TC), Y=Math.round(y/TC); return X<0||Y<0||X>=tw||Y>=th ? -1 : tone[Y*tw+X]; };
+  o.save(); o.strokeStyle=INK; o.lineCap='round'; const STEP=2.2, HS=5.2;
+  for(let n=Math.floor(-H/HS); n*HS<W; n++){ const c0=n*HS, lvl=(n%4===0)?.1:(n%2===0)?.36:.62, x0=Math.max(0,c0), x1=Math.min(W,H+c0); if(x1<=x0) continue;      // lines x - y = c0; every fourth line takes a light tone, every second a middle one, all of them the darkest
+    let run=null, wsum=0, cnt=0; const flush=()=>{ if(run && run.length>1){ o.lineWidth=.3+.38*Math.min(1,wsum/cnt); o.beginPath(); run.forEach((p,i)=>i?o.lineTo(p[0],p[1]):o.moveTo(p[0],p[1])); o.stroke(); } run=null; wsum=0; cnt=0; };
+    for(let x=x0;x<=x1;x+=STEP){ const y=x-c0, v=T(x,y), on=v>lvl+(hash(Math.round(x),n,seed)-.5)*.08; if(on){ if(!run) run=[]; run.push([x,y]); wsum+=v; cnt++; } else flush(); } flush(); }
   o.restore(); }
 const CLIFF_K=.012;      // height-map units per unit of cliff height
 let cliffRelCache={cliffs:null,ow:0,oh:0,lv:-1,data:null,max:0};
