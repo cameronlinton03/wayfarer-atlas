@@ -1124,11 +1124,11 @@ const realmPolyMap=new WeakMap(), realmPoly=l=>{ let p=realmPolyMap.get(l); if(!
    leaves no line inside, and a cut made by the eraser or by a neighbour gets a border of its own. */
 function drawRealms(W,H){ const all=layers.lines.v ? S.lines.filter(l=>l.kind==='realm' && lyVisible(l)) : []; realmSig=all; if(!all.length) return;
   const idx=new Map(S.lines.map((l,i)=>[l,i])), pathOf=new Map(); for(const l of all){ const pts=realmPoly(l); if(pts.length<3) continue; const P=new Path2D(); pts.forEach((q,i)=>i?P.lineTo(q[0],q[1]):P.moveTo(q[0],q[1])); P.closePath(); let x0=1e9,x1=-1e9,y0=1e9,y1=-1e9; for(const q of pts){ x0=Math.min(x0,q[0]); x1=Math.max(x1,q[0]); y0=Math.min(y0,q[1]); y1=Math.max(y1,q[1]); } pathOf.set(l,{P,bb:[x0,y0,x1,y1]}); }
-  const vis=new Set(all.filter(l=>pathOf.has(l))), erasers=all.filter(l=>l.erase && vis.has(l)).map(l=>({l,i:idx.get(l),tier:tierIdxOf(l.tier),...pathOf.get(l)}));
+  const vis=new Set(all.filter(l=>pathOf.has(l))), erasers=all.filter(l=>l.erase && vis.has(l)).map(l=>({l,i:idx.get(l),tier:tierIdxOf(l.tier),gid:l.gid,...pathOf.get(l)}));
   const TT=territories().map(t=>({...t,lines:t.lines.filter(l=>vis.has(l))})).filter(t=>t.lines.length).sort((a,b)=>a.tier-b.tier || a.first-b.first);      // highest tier first (drawn beneath), and within a tier in the order drawn
   const over=(a,b)=>!(a[2]<b[0]||b[2]<a[0]||a[3]<b[1]||b[3]<a[1]);
   for(const t of TT){ let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9; for(const l of t.lines){ const b=pathOf.get(l).bb; x0=Math.min(x0,b[0]); y0=Math.min(y0,b[1]); x1=Math.max(x1,b[2]); y1=Math.max(y1,b[3]); } t.bb=[x0,y0,x1,y1]; t.l0=t.lines[0];
-    t.carve=TT.filter(o=>o!==t && o.tier===t.tier && o.first>t.first).flatMap(o=>o.lines.map(l=>pathOf.get(l))).filter(q=>over(q.bb,t.bb)); t.er=erasers.filter(e=>e.tier===t.tier && over(e.bb,t.bb)); }
+    t.carve=TT.filter(o=>o!==t && o.tier===t.tier && o.first>t.first).flatMap(o=>o.lines.map(l=>pathOf.get(l))).filter(q=>over(q.bb,t.bb)); t.er=erasers.filter(e=>(e.gid ? e.gid===t.gid : e.tier===t.tier) && over(e.bb,t.bb)); }
   const cut=()=>{ tc.globalAlpha=1; tc.globalCompositeOperation='destination-in'; tc.drawImage(landMask,0,0,W,H); tc.globalCompositeOperation='source-over'; };
   const MK=(t,pad)=>{ const b=[Math.floor(t.bb[0]-pad),Math.floor(t.bb[1]-pad),Math.ceil(t.bb[2]+pad),Math.ceil(t.bb[3]+pad)], q=mkCanvas(Math.max(1,Math.round((b[2]-b[0])*R)),Math.max(1,Math.round((b[3]-b[1])*R))); q[1].setTransform(R,0,0,R,-b[0]*R,-b[1]*R); return [...q,b]; };
   const clone=(src)=>{ const [c,x]=mkCanvas(src.width,src.height); x.drawImage(src,0,0); return [c,x]; };
@@ -2721,6 +2721,9 @@ function endPointer(e){
   else if(a.type==='paint'){ pushUndo(); S.paints=[...S.paints,{...a.stroke,t:++S.tick}]; need.compose='full'; }
   else if(a.type==='lbrush'){ need.land=true; need.compose='full'; }
   else if(a.type==='cbrush'){ need.compose='full'; }
+  else if(a.type==='rbrush' && a.line.erase){ const er=a.line, ep=realmPoly({...er}), tid=er.tier, hit=territories().filter(t=>tierList()[t.tier].id===tid && t.lines.some(l=>{ const lp=realmPoly(l); return ep.some(q=>ptInPoly(q,lp)) || lp.some(q=>ptInPoly(q,ep)); }));
+    const parts=hit.map(t=>{ const g=t.lines[0].gid || t.gid; return {...er,gid:g}; }); const named=new Set(hit.filter(t=>!t.lines[0].gid).map(t=>t.lines[0]));      // the cut becomes part of each territory it touches, so it moves, copies and goes with it
+    S.lines=S.lines.flatMap(o=>o===er ? parts : named.has(o) ? [{...o,gid:gidOf(o)}] : [o]); if(!parts.length){ undoStack.pop(); syncButtons(); } need.compose='full'; renderPanel(); }
   else if(a.type==='rbrush'){ const nl={...a.line}; S.lines=S.lines.map(o=>o===a.line?nl:o); need.compose='full'; renderPanel(); }
   else if(a.type==='elev'){ const ns={...a.stroke}; S.elev=S.elev.map(o=>o===a.stroke?ns:o); need.compose='full'; }
   else if(a.type==='pull'){ if(a.moved){ const n={...a.cur,pts:densify(a.cur.pts,a.key==='lines'?3:4,a.closed)}; S[a.key]=S[a.key].map(o=>o===a.cur?n:o); shapeDirty(a.key,n,true); need.compose='full'; } }
@@ -2765,7 +2768,9 @@ window.addEventListener('keydown',e=>{
 });
 window.addEventListener('keyup',e=>{ if(e.key===' ') spaceDown=false; });
 function deleteSel(){ if(!sel) return; const its=selItems().filter(it=>!it.obj.locked); if(!its.length) return; pushUndo('Delete'); const gone=new Set([...its.map(it=>it.obj),...ridersOn(its.filter(it=>it.type==='land').map(it=>it.obj)).flatMap(r=>r[1]).filter(o=>!o.locked)]); selDirty(true);
-  for(const k of ['lands','cliffs','paints','elev','lines','stamps','labels']) S[k]=S[k].filter(o=>!gone.has(o)); sel=null; renderPanel(); invalidate(); }
+  for(const k of ['lands','cliffs','paints','elev','lines','stamps','labels']) S[k]=S[k].filter(o=>!gone.has(o));
+  { const live=new Set(S.lines.filter(l=>l.kind==='realm' && !l.erase).map(gidOf)); S.lines=S.lines.filter(l=>!(l.erase && l.gid && !live.has(l.gid))); }      // a territory's cuts go when the last of it does
+  sel=null; renderPanel(); invalidate(); }
 
 /* ============================================================ tools + inspector */
 const ICON = {
