@@ -61,12 +61,13 @@ button{cursor:pointer}
 .side details.settings>summary::before{content:'\25B8  ';color:var(--muted)}
 .side details.settings[open]>summary::before{content:'\25BE  '}
 .side p{margin:0;color:var(--muted);font-size:13.5px}
-.row{display:grid;grid-template-columns:78px minmax(0,1fr) 34px;align-items:center;gap:8px;font-size:14px}
-.row output{font-variant-numeric:tabular-nums;text-align:right;color:var(--muted);font-size:13px}
-.row input[type=range]{width:100%;accent-color:var(--accent);min-width:0}
+.row{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:0 8px;font-size:14px}
+.row input.val[type=text]{grid-column:2;justify-self:end;width:4.6em;min-width:0;font:inherit;font-size:13px;font-variant-numeric:tabular-nums;text-align:right;color:var(--ink,inherit);background:transparent;border:1px solid transparent;border-radius:4px;padding:1px 4px}
+.row input.val[type=text]:hover,.row input.val[type=text]:focus{border-color:var(--muted);outline:none;background:rgba(255,255,255,.5)}
+.row input[type=range]{grid-column:1/-1;width:100%;accent-color:var(--accent);min-width:0;margin:2px 0 4px}
 .row.wide{grid-template-columns:78px minmax(0,1fr)}
 .row input[type=text],.row select{width:100%;min-width:0;background:var(--bg);border:1px solid var(--line);border-radius:4px;padding:4px 6px}
-.ends{display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin:-6px 42px 0 86px}
+.ends{display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin:-4px 0 4px}
 .chips{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
 .chip{display:flex;align-items:center;gap:7px;background:var(--bg);border:1px solid var(--line);border-radius:4px;padding:5px 7px;font-size:13.5px;text-align:left;min-width:0}
 .chip i{flex:none;width:16px;height:16px;border-radius:50%;border:1px solid #0004}
@@ -148,7 +149,7 @@ body.phone .hint{display:none}
 body.phone .fab{display:flex;position:absolute;top:8px;right:calc(8px + env(safe-area-inset-right,0px));gap:6px;z-index:4}
 body.phone .chip{padding:9px 8px}
 body.phone .btn{padding:8px 12px}
-body.phone .row{grid-template-columns:70px minmax(0,1fr) 34px}
+body.phone .row{grid-template-columns:minmax(0,1fr) auto}
 body.phone .row input[type=range]{height:30px}
 body.phone .ends{margin-left:78px}
 body.phone .note{top:8px;left:8px;transform:none;max-width:calc(100% - 200px);font-size:12.5px}
@@ -2694,12 +2695,21 @@ function setTool(id){ opts.tool=id; draft=null; if(id!=='select') sel=null;
   document.querySelectorAll('.tool').forEach(b=>b.setAttribute('aria-pressed',b.dataset.tool===id));
   $('hint').textContent = landBrushOn() ? 'Left-drag paints land. Right-drag paints sea over it.' : TOOLS.find(t=>t.id===id).hint; cv.style.cursor = id==='pan'?'grab': id==='select'?'default':'crosshair'; renderPanel(); invalidate(); }
 
-const slider=(id,label,min,max,step,val,fmt)=>`<label class="row" for="${id}">${label}<input type="range" id="${id}" min="${min}" max="${max}" step="${step}" value="${val}"><output id="${id}Out">${fmt(val)}</output></label>`;
+const slider=(id,label,min,max,step,val,fmt)=>`<div class="row"><label for="${id}">${label}</label><input class="val" id="${id}Out" type="text" inputmode="decimal" value="${fmt(val)}" aria-label="${label}, type a value" title="Type a value, or use the arrow keys (Shift for bigger steps)"><input type="range" id="${id}" min="${min}" max="${max}" step="${step}" value="${val}" aria-label="${label}"></div>`;      // the slider spans the panel; the value above it can be typed into
 const pct=v=>Math.round(v*100), num=v=>Math.round(v), deg=v=>Math.round(v)+'°';
 const ROT_IDS=new Set(['stampRot','selRot','cliffDir']), snapRot=v=>Math.max(-180,Math.min(180,Math.round(v/15)*15));      // the rotation sliders, and what Snap does to them
-function bind(id, fmt, fn, isEdit){ const el=$(id); if(!el) return;
-  el.addEventListener('input',()=>{ if(isEdit) beginEdit(); let v=el.type==='range'?+el.value:el.value; if(ROT_IDS.has(id) && opts.rotSnap){ v=snapRot(v); el.value=v; } const o=$(id+'Out'); if(o) o.textContent=fmt(v); fn(v); invalidate(); });
-  el.addEventListener('change',()=>{ editing=false; if(isEdit && sel){ selDirty(true); invalidate(); } queueSave(); }); }
+const STRETCH=new Set(['selSize','stampSize','selBrush','landBrush','cliffBrush','brush','floorBrush','lineWidth','selWidth','scatter','labelSize','selLabelSize']);      // typed values may go past the slider's end for these (sizes and widths); the rest stay in range
+function bind(id, fmt, fn, isEdit){ const el=$(id); if(!el) return; const o=$(id+'Out'), show=v=>{ if(o && document.activeElement!==o) o.value=fmt(v); };
+  const finish=()=>{ editing=false; if(isEdit && sel) selDirty(true); invalidate(); queueSave(); }, apply=(v,done)=>{ if(isEdit) beginEdit(); if(ROT_IDS.has(id) && opts.rotSnap) v=snapRot(v); el.value=v; show(v); fn(v); invalidate(); if(done) finish(); }; let wheelT=0;
+  el.addEventListener('input',()=>{ apply(el.type==='range'?+el.value:el.value,false); });
+  el.addEventListener('change',()=>{ editing=false; if(isEdit && sel){ selDirty(true); invalidate(); } queueSave(); });
+  if(el.type!=='range') return; const min=+el.min, max=+el.max, step=+el.step||1, k=(()=>{ const r=parseFloat(fmt(max)); return max && Number.isFinite(r) && r ? r/max : 1; })();      // k: how the shown number relates to the value (100 for a percentage)
+  const clampV=v=>Math.max(min,Math.min(STRETCH.has(id)?max*5:max,v)), roundS=v=>Math.round(v/step)*step;
+  el.addEventListener('wheel',e=>{ e.preventDefault(); apply(clampV(roundS(+el.value+(e.deltaY<0?1:-1)*step*(e.shiftKey?10:1))),false); clearTimeout(wheelT); wheelT=setTimeout(finish,500); },{passive:false});      // the wheel nudges by one step (Shift: ten); a run of turns is one undo step
+  if(!o) return; o.addEventListener('focus',()=>o.select());
+  const typed=()=>{ const n=parseFloat(String(o.value).replace(',','.').replace(/[^0-9.+-]/g,'')); if(!Number.isFinite(n)){ o.value=fmt(+el.value); return; } const v=clampV(n/k); apply(v,true); o.value=fmt(v); };
+  o.addEventListener('change',typed); o.addEventListener('blur',()=>{ if(editing) finish(); }); o.addEventListener('keydown',e=>{ if(e.key==='Enter'){ e.preventDefault(); o.blur(); }      /* blurring fires change, which applies it once */ else if(e.key==='Escape'){ o.value=fmt(+el.value); o.blur(); }
+    else if(e.key==='ArrowUp'||e.key==='ArrowDown'){ e.preventDefault(); const cur=parseFloat(o.value)/k, v=clampV(roundS((Number.isFinite(cur)?cur:+el.value)+(e.key==='ArrowUp'?1:-1)*step*(e.shiftKey?10:1))); apply(v,false); o.value=fmt(v); o.select(); } }); }      // arrow presses are one undo step, closed when the box loses focus
 const stampGrid=(id,kinds,cur,stars)=>`<div class="stamps" id="${id}">${kinds.map(k=>`<button data-kind="${k}" aria-pressed="${k===cur}"><canvas width="88" height="88" data-kind="${k}"></canvas>${k.startsWith('ch_')?k.slice(3):k}${stars?`<span class="star${favs.includes(k)?' on':''}" data-fav="${k}" role="button" aria-label="${favs.includes(k)?'Remove from':'Add to'} favourites" title="${favs.includes(k)?'Remove from favourites':'Add to favourites'}">${favs.includes(k)?'★':'☆'}</span>`:''}</button>`).join('')}</div>`;
 /* Favourites and search. favs is the user's list of stamp kinds, in the order added, kept in the library store under '__favs' (not in any map file). The list under the search box is rebuilt
    on its own as the query changes, so the box keeps its focus; with a query it shows every matching kind in every set (a kind matches on its name or its group's name). */
