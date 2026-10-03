@@ -1117,7 +1117,27 @@ const territories=()=>{ const m=new Map(); S.lines.forEach((l,i)=>{ if(l.kind!==
 const REALM_COLS={madder:['Madder','#b5654f'],ochre:['Ochre','#c49a45'],sage:['Sage','#93a06a'],verdigris:['Verdigris','#6f9a86'],slate:['Slate','#6f87a6'],plum:['Plum','#8e6f95'],rose:['Rose','#c08a8a'],umber:['Umber','#8a6a4c']};
 const REALM_FILLS=[['wash','Wash'],['edge','Edge band'],['hatch','Hatching'],['dots','Stipple'],['line','Edge only']];
 const realmFillOf=l=>({band:'edge'})[l.fill]||l.fill||'edge', realmColOf=l=>REALM_COLS[l.col] ? l.col : (l.col===undefined && (l.fill||'band')==='band' ? 'umber' : l.col);      // maps from before: the old fringe becomes an umber edge band
-const realmPolyMap=new WeakMap(), realmPoly=l=>{ let p=realmPolyMap.get(l); if(!p){ p=l.brush ? brushOutline({pts:l.pts,size:l.size||160,rough:l.rough||0,seed:l.seed||1}).poly : lineBuilt(l).pts; realmPolyMap.set(l,p); } return p; };
+/* A territory's shape. Its plain strokes (loops and brush strokes) are joined together; ring strokes (ring:true, the outline left after erasing) are exact rings filled even-odd,
+   so a hole is a hole. fillTerritory paints the ground a territory's own lines hold onto a canvas. */
+function fillTerritory(x,lines){ x.fillStyle='#000'; const rp=new Path2D(); let anyRing=false;
+  for(const l of lines){ if(l.erase) continue; const pts=realmPoly(l); if(pts.length<3) continue; if(l.ring){ pts.forEach((q,i)=>i?rp.lineTo(q[0],q[1]):rp.moveTo(q[0],q[1])); rp.closePath(); anyRing=true; } else { const P=new Path2D(); pts.forEach((q,i)=>i?P.lineTo(q[0],q[1]):P.moveTo(q[0],q[1])); P.closePath(); x.fill(P); } }
+  if(anyRing) x.fill(rp,'evenodd'); }
+/* Erasing: the territory's ground is drawn, the eraser taken out of it, and what is left traced back into rings (marching squares at about 2 units, simplified), which
+   replace the territory's lines. Nothing of the eraser is kept. Returns false if nothing is left. */
+function traceRings(alpha,gw,gh,c,ox,oy){ const v=(i,j)=>i<0||j<0||i>=gw||j>=gh?0:alpha[j*gw+i]/255, nx=gw+1, adj=new Map(), pos=new Map(), H=(i,j)=>((j+1)*(nx+2)+(i+1))*2, V=(i,j)=>((j+1)*(nx+2)+(i+1))*2+1;      // edge ids; the grid is padded by one cell of nothing, so every ring closes
+  const link=(a,b)=>{ (adj.get(a)||adj.set(a,[]).get(a)).push(b); (adj.get(b)||adj.set(b,[]).get(b)).push(a); }, put=(id,x,y)=>{ if(!pos.has(id)) pos.set(id,[ox+x*c,oy+y*c]); };
+  for(let j=-1;j<gh;j++) for(let i=-1;i<gw;i++){ const a=v(i,j), b=v(i+1,j), cc=v(i+1,j+1), d=v(i,j+1), k=(a>=.5?8:0)|(b>=.5?4:0)|(cc>=.5?2:0)|(d>=.5?1:0); if(k===0||k===15) continue;
+    const t=(p,q)=>(.5-p)/((q-p)||1e-9), T=()=>{ const id=H(i,j); put(id,i+t(a,b),j); return id; }, R=()=>{ const id=V(i+1,j); put(id,i+1,j+t(b,cc)); return id; }, B=()=>{ const id=H(i,j+1); put(id,i+t(d,cc),j+1); return id; }, L=()=>{ const id=V(i,j); put(id,i,j+t(a,d)); return id; };
+    ({1:()=>link(L(),B()),2:()=>link(B(),R()),3:()=>link(L(),R()),4:()=>link(T(),R()),5:()=>{ link(T(),R()); link(L(),B()); },6:()=>link(T(),B()),7:()=>link(T(),L()),8:()=>link(T(),L()),9:()=>link(T(),B()),10:()=>{ link(T(),L()); link(B(),R()); },11:()=>link(T(),R()),12:()=>link(L(),R()),13:()=>link(R(),B()),14:()=>link(L(),B())})[k](); }
+  const used=new Set(), rings=[]; for(const s0 of adj.keys()){ if(used.has(s0)) continue; const ring=[]; let prev=null, cur=s0; while(cur!==undefined && !used.has(cur)){ used.add(cur); ring.push(pos.get(cur)); const nb=adj.get(cur)||[], nxt=nb[0]===prev ? nb[1] : nb[0]; prev=cur; cur=nxt; } if(ring.length>=4) rings.push(ring); }
+  const dp=(pts,tol)=>{ if(pts.length<4) return pts; const keep=new Uint8Array(pts.length); keep[0]=keep[pts.length-1]=1; const st=[[0,pts.length-1]]; while(st.length){ const [s,e]=st.pop(); let md=0, mi=-1; for(let i=s+1;i<e;i++){ const d=segDist(pts[i],pts[s],pts[e]); if(d>md){ md=d; mi=i; } } if(md>tol){ keep[mi]=1; st.push([s,mi],[mi,e]); } } return pts.filter((_,i)=>keep[i]); };
+  const area=r=>Math.abs(r.reduce((s,p,i)=>{ const q=r[(i+1)%r.length]; return s+p[0]*q[1]-q[0]*p[1]; },0)/2);
+  return rings.map(r=>dp([...r,r[0]],c*.3).slice(0,-1).map(p=>[Math.round(p[0]*10)/10,Math.round(p[1]*10)/10])).filter(r=>r.length>=3 && area(r)>c*c*3); }
+function eraseFromTerritory(t,erPoly){ const polys=t.lines.map(realmPoly).filter(p=>p.length>=3); let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9; for(const p of polys) for(const q of p){ x0=Math.min(x0,q[0]); y0=Math.min(y0,q[1]); x1=Math.max(x1,q[0]); y1=Math.max(y1,q[1]); }
+  x0-=6; y0-=6; x1+=6; y1+=6; const c=Math.max(1.5,Math.sqrt((x1-x0)*(y1-y0)/1.2e6)), gw=Math.ceil((x1-x0)/c), gh=Math.ceil((y1-y0)/c), [cv2,cx]=mkCanvas(gw,gh); cx.setTransform(1/c,0,0,1/c,-x0/c,-y0/c);
+  fillTerritory(cx,t.lines); cx.globalCompositeOperation='destination-out'; const E=new Path2D(); erPoly.forEach((q,i)=>i?E.lineTo(q[0],q[1]):E.moveTo(q[0],q[1])); E.closePath(); cx.fill(E);
+  const D=cx.getImageData(0,0,gw,gh).data, al=new Uint8Array(gw*gh); for(let i=0;i<al.length;i++) al[i]=D[i*4+3]; return traceRings(al,gw,gh,c,x0,y0); }
+const realmPolyMap=new WeakMap(), realmPoly=l=>{ let p=realmPolyMap.get(l); if(!p){ p=l.ring ? l.pts : l.brush ? brushOutline({pts:l.pts,size:l.size||160,rough:l.rough||0,seed:l.seed||1}).poly : lineBuilt(l).pts; realmPolyMap.set(l,p); } return p; };
 /* Each territory is worked on a canvas of its own box. A is the ground it holds: its strokes and the eraser strokes of its tier laid down in the order they were made
    (an eraser takes out what was painted before it), less the ground of later territories of the same tier. The border is every outline that could bound it (its own
    strokes, the erasers and the territories that carve it) drawn dashed, then kept only in a thin band round A's edge: so a stroke that crosses itself or overlaps another
@@ -1128,14 +1148,14 @@ function drawRealms(W,H){ const all=layers.lines.v ? S.lines.filter(l=>l.kind===
   const TT=territories().map(t=>({...t,lines:t.lines.filter(l=>vis.has(l))})).filter(t=>t.lines.length).sort((a,b)=>a.tier-b.tier || a.first-b.first);      // highest tier first (drawn beneath), and within a tier in the order drawn
   const over=(a,b)=>!(a[2]<b[0]||b[2]<a[0]||a[3]<b[1]||b[3]<a[1]);
   for(const t of TT){ let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9; for(const l of t.lines){ const b=pathOf.get(l).bb; x0=Math.min(x0,b[0]); y0=Math.min(y0,b[1]); x1=Math.max(x1,b[2]); y1=Math.max(y1,b[3]); } t.bb=[x0,y0,x1,y1]; t.l0=t.lines[0];
-    t.carve=TT.filter(o=>o!==t && o.tier===t.tier && o.first>t.first).flatMap(o=>o.lines.map(l=>pathOf.get(l))).filter(q=>over(q.bb,t.bb)); t.er=erasers.filter(e=>(e.gid ? e.gid===t.gid : e.tier===t.tier) && over(e.bb,t.bb)); }
+    t.carveT=TT.filter(o=>o!==t && o.tier===t.tier && o.first>t.first && o.lines.some(l=>over(pathOf.get(l).bb,t.bb))); t.carve=t.carveT.flatMap(o=>o.lines.map(l=>pathOf.get(l))).filter(q=>over(q.bb,t.bb)); t.er=erasers.filter(e=>(e.gid ? e.gid===t.gid : e.tier===t.tier) && over(e.bb,t.bb)); }
   const cut=()=>{ tc.globalAlpha=1; tc.globalCompositeOperation='destination-in'; tc.drawImage(landMask,0,0,W,H); tc.globalCompositeOperation='source-over'; };
   const MK=(t,pad)=>{ const b=[Math.floor(t.bb[0]-pad),Math.floor(t.bb[1]-pad),Math.ceil(t.bb[2]+pad),Math.ceil(t.bb[3]+pad)], q=mkCanvas(Math.max(1,Math.round((b[2]-b[0])*R)),Math.max(1,Math.round((b[3]-b[1])*R))); q[1].setTransform(R,0,0,R,-b[0]*R,-b[1]*R); return [...q,b]; };
   const clone=(src)=>{ const [c,x]=mkCanvas(src.width,src.height); x.drawImage(src,0,0); return [c,x]; };
   const morph=(src,d,grow)=>{ const [c,x]=clone(src); x.globalCompositeOperation=grow?'source-over':'destination-in'; const dp=d*R; for(let i=0;i<16;i++){ const th=i/16*Math.PI*2; x.drawImage(src,Math.cos(th)*dp,Math.sin(th)*dp); } return c; };      // grow or shrink a mask by d
   for(const t of TT){ const pad=40, [A,ax,b]=MK(t,pad);      // A: the ground the territory holds
     const ev=[...t.lines.map(l=>({i:idx.get(l),P:pathOf.get(l).P,er:false})),...t.er.map(e=>({i:e.i,P:e.P,er:true}))].sort((p,q)=>p.i-q.i);
-    ax.fillStyle='#000'; for(const e of ev){ ax.globalCompositeOperation=e.er?'destination-out':'source-over'; ax.fill(e.P); } ax.globalCompositeOperation='destination-out'; t.carve.forEach(q=>ax.fill(q.P)); ax.globalCompositeOperation='source-over';
+    ax.fillStyle='#000'; if(!t.er.length) fillTerritory(ax,t.lines); else for(const e of ev){ ax.globalCompositeOperation=e.er?'destination-out':'source-over'; ax.fill(e.P); } ax.globalCompositeOperation='destination-out'; t.carveT.forEach(o=>fillTerritory(ax,o.lines)); ax.globalCompositeOperation='source-over';
     t.A=A; t.b=b; }
   tc.globalAlpha=1; tc.globalCompositeOperation='source-over'; tc.clearRect(0,0,W,H); let anyCol=false;
   for(const t of TT){ const l0=t.l0, f=realmFillOf(l0), col=REALM_COLS[realmColOf(l0)], a=clamp((l0.op ?? 55)/100,0,1)*.75, k=(l0.width||2.5)/2.5, b=t.b, bw=b[2]-b[0], bh=b[3]-b[1]; if(!col || (f!=='wash' && f!=='edge')) continue; anyCol=true;
@@ -2721,9 +2741,11 @@ function endPointer(e){
   else if(a.type==='paint'){ pushUndo(); S.paints=[...S.paints,{...a.stroke,t:++S.tick}]; need.compose='full'; }
   else if(a.type==='lbrush'){ need.land=true; need.compose='full'; }
   else if(a.type==='cbrush'){ need.compose='full'; }
-  else if(a.type==='rbrush' && a.line.erase){ const er=a.line, ep=realmPoly({...er}), tid=er.tier, hit=territories().filter(t=>tierList()[t.tier].id===tid && t.lines.some(l=>{ const lp=realmPoly(l); return ep.some(q=>ptInPoly(q,lp)) || lp.some(q=>ptInPoly(q,ep)); }));
-    const parts=hit.map(t=>{ const g=t.lines[0].gid || t.gid; return {...er,gid:g}; }); const named=new Set(hit.filter(t=>!t.lines[0].gid).map(t=>t.lines[0]));      // the cut becomes part of each territory it touches, so it moves, copies and goes with it
-    S.lines=S.lines.flatMap(o=>o===er ? parts : named.has(o) ? [{...o,gid:gidOf(o)}] : [o]); if(!parts.length){ undoStack.pop(); syncButtons(); } need.compose='full'; renderPanel(); }
+  else if(a.type==='rbrush' && a.line.erase){ const er=a.line, ep=realmPoly({...er}), tid=er.tier; S.lines=S.lines.filter(o=>o!==er);      // the eraser takes ground out of each territory of this tier it touches, and is not kept
+    const hit=territories().filter(t=>tierList()[t.tier].id===tid && t.lines.some(l=>{ const lp=realmPoly(l); return ep.some(q=>ptInPoly(q,lp)) || lp.some(q=>ptInPoly(q,ep)); }));
+    for(const t of hit){ const rings=eraseFromTerritory(t,ep), l0=t.lines[0], g=l0.gid||t.gid, keep={kind:'realm',ring:true,gid:g,tier:l0.tier,name:l0.name,fill:l0.fill,col:l0.col,op:l0.op,width:l0.width,rough:0,seed:l0.seed,...(l0.ly?{ly:l0.ly}:{})}, gone=new Set(t.lines), at=S.lines.indexOf(t.lines[0]);
+      const fresh=rings.map(r=>({...keep,pts:r})); S.lines=S.lines.filter(o=>!gone.has(o) && !(o.erase && o.gid===g)); S.lines.splice(Math.max(0,Math.min(at,S.lines.length)),0,...fresh); }      // the territory's new outline takes its old place in the order, so the carving between territories stays as it was
+    if(!hit.length){ undoStack.pop(); syncButtons(); } if(opts.realmGid && !territories().some(t=>t.gid===opts.realmGid)) opts.realmGid=null; sel=null; need.compose='full'; renderPanel(); }
   else if(a.type==='rbrush'){ const nl={...a.line}; S.lines=S.lines.map(o=>o===a.line?nl:o); need.compose='full'; renderPanel(); }
   else if(a.type==='elev'){ const ns={...a.stroke}; S.elev=S.elev.map(o=>o===a.stroke?ns:o); need.compose='full'; }
   else if(a.type==='pull'){ if(a.moved){ const n={...a.cur,pts:densify(a.cur.pts,a.key==='lines'?3:4,a.closed)}; S[a.key]=S[a.key].map(o=>o===a.cur?n:o); shapeDirty(a.key,n,true); need.compose='full'; } }
