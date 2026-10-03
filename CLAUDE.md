@@ -50,7 +50,7 @@ Stamps
 
 Generators
 - `generateMap(W,H,kind,G)`: tectonic plates (`mulberry(seed+1001)`, never `rnd`, so seeds repeat), coastline detail (`G.coast`), lakes and rivers (priority flood; continents keep only their 5 biggest, deepest basins of 12+ cells), mountains on collisions (`highpeak` at the thickest part of a range, only on a landmass of 6+ peak-areas with its whole drawing on land and no river or road across its foot; snow only on its caps), range name placed near the range's middle, wholly on land and clear of other names, ground drifts (`groundAt`), cliffs and hollows (`G.cliffs`, `mulberry(seed+1501)`), routes by Dijkstra (`route`, Float64 costs, `mulberry(seed+1601)`). Stores `S.height`, plates, `gen` for Reroll (`reroll`, `generateFrom`, `genRef`).
-- `generateCity` (`housesAlong`, fields/orchards/vineyards in `VARIANTS`), `generateDungeon` (rooms, spanning-tree corridors, doors, themed props, monsters, room numbers clear of props).
+- `generateCity` (cathedral reserves room along its whole length, `coastY` gentle under the walls with bays and headlands further off, `housesAlong`, fields/orchards/vineyards in `VARIANTS`), `generateDungeon` (rooms, spanning-tree corridors, doors, themed props, monsters, room numbers clear of props).
 
 UI
 - `TOOLS` (`m:'w'|'d'|'x'`), `etool()` says which job a multi-job tool is doing (Terrain: ground/water/cliff/elev; Wall: fences; Street: road/trail). `renderPanel()`, `slider()`/`bind()` (typeable values, arrows, wheel; one undo per run), `syncHint()`, `openKeys()` (`?`).
@@ -60,7 +60,7 @@ UI
 
 ## Known gaps
 
-- Visual feedback being worked through (in order): city (cathedral overlaps, straight shore, black cartouche bevel), monsters still toy-like (goblin, rats, fiend), ice floes look like bubbles.
+- Visual feedback being worked through (in order): monsters still toy-like (goblin, rats, fiend), ice floes look like bubbles.
 - Older reports: roads straight over long runs, city river mouth has a pale fan and no bridges, grid doubles flagstone joints, example map lacks border/compass/cartouche, furniture shading, paddock animals and hedges crude, depth paints barely differ, rhumb lines cross lakes, river sources blunt and tributary banks cross the main river, streets across walls make no gate, hand-drawn walls wobble.
 - Dungeons: no lighting, per-room colour, level links or room rotation; generator gives round/cave rooms no doors. A dungeon drag is ~350 ms on software rendering (a dirty box would not match: hatch jitter runs along whole lines).
 - City district names don't avoid streets. Battle maps undecided.
