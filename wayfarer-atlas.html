@@ -489,8 +489,17 @@ const UNDO_TOOL={land:'Draw land',cliff:'Draw cliff',river:'Draw river',street:'
 function undoLabel(){ const t=etool(); if(t==='select') return sel ? 'Change '+(sel.type==='multi' ? selItems().length+' things' : ({land:'landmass',cliff:'cliff',line:'line',stamp:'stamp',label:'label'})[sel.type]||'selection') : 'Change map';
   if(t==='paint') return opts.paintLayer==='water' ? 'Paint water' : 'Paint '+(TERRAIN[opts.terrain] ? TERRAIN[opts.terrain].name.toLowerCase() : 'ground'); if(t==='stamp') return 'Place '+kindLabel(opts.stamp); return UNDO_TOOL[t]||'Edit'; }
 function pushUndo(label){ untouched=false; undoStack.push({state:snap(),label:label||undoLabel()}); if(undoStack.length>60) undoStack.shift(); redoStack=[]; syncButtons(); queueSave(); }
-function restore(s){ S={...s,theme:S.theme,hm:S.hm}; sel=null;      // the height view is a way of looking, not part of what is undone
-  rebuildAll(); renderPanel(); syncButtons(); queueSave(); }
+const UNDO_FREE=new Set(['name','tick','active','stamps','labels','lines','grid','scale','theme','hm']);      // parts of the state whose change alone needs no new base picture (or one decided below)
+function restoreNeeds(a,b){      // what stepping from state a to b needs drawn again: 'full' (the base picture), 'realms' (only the territories) or 'none' (lines, stamps and labels are drawn every frame)
+  for(const k in b) if(!UNDO_FREE.has(k) && a[k]!==b[k]) return 'full';
+  if(JSON.stringify(a.grid)!==JSON.stringify(b.grid) || JSON.stringify(a.scale)!==JSON.stringify(b.scale)) return 'full';
+  if(a.stamps!==b.stamps){ const ms=L=>L.filter(q=>MTN_BODY[q.kind]).map(q=>q.kind+','+q.x+','+q.y+','+q.size).join(';'); if(ms(a.stamps)!==ms(b.stamps)) return 'full'; }      // mountains shape the relief (a compass's rhumb lines are seen to by invalidate)
+  let realms=false; if(a.lines!==b.lines){ const A=new Set(a.lines), B=new Set(b.lines); for(const [L,O] of [[a.lines,B],[b.lines,A]]) for(const l of L) if(!O.has(l)){ if(l.kind==='realm') realms=true; else if(l.kind==='river' || l.kind==='dwall') return 'full'; } }
+  return realms ? 'realms' : 'none'; }
+function restore(s){ const was=S; S={...s,theme:S.theme,hm:S.hm}; sel=null;      // the height view is a way of looking, not part of what is undone
+  if(!(landFor && landFor.fresh && sameLand(landSig(),landFor))) rebuildAll();      // the land is rebuilt (and everything that hangs on it) only when the step changed what shapes it
+  else { const how=restoreNeeds(was,S); if(how==='full') compose(true); else if(how==='realms') need.realms=true; invalidate(); }
+  renderPanel(); syncButtons(); queueSave(); }
 function undo(){ if(!undoStack.length) return; const e=undoStack.pop(); redoStack.push({state:snap(),label:e.label}); restore(e.state); }
 function redo(){ if(!redoStack.length) return; const e=redoStack.pop(); undoStack.push({state:snap(),label:e.label}); restore(e.state); }
 function goTo(i){ const n=undoStack.length; i=Math.max(0,Math.min(n+redoStack.length,i)); if(i===n) return;      // jump to the picture after the i-th action (0 = as it began), redrawing once however far it is
@@ -536,6 +545,8 @@ function renderMaps(){ const q=(($('mapsQ')||{}).value||'').trim().toLowerCase()
 const packBytes=u8=>{ let t=''; for(let i=0;i<u8.length;i+=0x8000) t+=String.fromCharCode.apply(null,u8.subarray(i,i+0x8000)); return btoa(t); }, unpackBytes=t=>Uint8Array.from(atob(t),c=>c.charCodeAt(0));
 const packHeight=(nx,ny,cs,elev,mask)=>({nx,ny,cs,v:packBytes(new Uint8Array(Int8Array.from(elev,e=>Math.max(-127,Math.min(127,Math.round(e*100)))).buffer)),m:packBytes(Uint8Array.from(mask))});
 let heightCache={src:null,key:'',grid:null};
+let mtnFor=null, mtnStr='';
+function mtnSig(){ if(mtnFor!==S.stamps){ mtnFor=S.stamps; mtnStr=S.stamps.filter(q=>MTN_BODY[q.kind]).map(q=>q.kind+','+q.x+','+q.y+','+q.size).join(';'); } return mtnStr; }      // the height grid and the relief see only the mountains, so a tree or a town placed or undone leaves them as they are
 function featureBumps(e,nx,ny,cs,land){      // mountains add their height to the land cells under them (cliffs are added per pixel, see cliffRelief)
   const bump=(x,y,r,a)=>{ const i0=Math.max(0,Math.floor((x-r)/cs)), i1=Math.min(nx-1,Math.ceil((x+r)/cs)), j0=Math.max(0,Math.floor((y-r)/cs)), j1=Math.min(ny-1,Math.ceil((y+r)/cs)); for(let j=j0;j<=j1;j++) for(let i=i0;i<=i1;i++){ const d=Math.hypot(i*cs-x,j*cs-y)/r; if(d<1 && land[j*nx+i]) e[j*nx+i]+=a*(1-d)*(1-d); } };
   for(const q of S.stamps){ const a={mountain:.3,snowpeak:.38,highpeak:.55,volcano:.45,mesa:.25,crag:.2,hill:.12,boulders:0}[q.kind]; if(a) bump(q.x,q.y,q.size*.5,a); }
@@ -550,9 +561,15 @@ function genRef(){      // what the generator knew of this map: its plates, and 
   plateCache={key,data}; return data; }
 const platesFor=()=>{ const r=genRef(); return r && r.pid ? r : null; };
 const landAnchors=lands=>lands.filter(l=>l.mode!=='sea' && l.pts && l.pts.length>2).map(l=>({s:l.seed,a:l.pts[0],b:l.pts[l.pts.length>>1],n:l.pts.length}));
+/* Reading a whole canvas back from the graphics card is slow, so the land mask and the solid-cliff layer are read once per version and kept as alpha alone. */
+const alphaReads=new Map();
+function readAlpha(x,key){ const c=x.canvas, e=alphaReads.get(x); if(e && e.key===key && e.c===c) return e.A;
+  const D=x.getImageData(0,0,c.width,c.height).data, A=new Uint8Array(c.width*c.height); for(let i=0,k=3;i<A.length;i++,k+=4) A[i]=D[k];
+  if(!exporting) alphaReads.set(x,{key,c,A}); return A; }
+const landAlpha=()=>readAlpha(lm,landVer), cliffAlpha=()=>readAlpha(csx,cliffBuilt);
 function estimateHeights(nx,ny,cs){      // heights guessed from the coast as it is now: land rising inland, sea deepening offshore (no mountains or cliffs yet)
-  const N=nx*ny, e=new Float32Array(N), LD=lm.getImageData(0,0,landMask.width,landMask.height).data, W=landMask.width, land=new Uint8Array(N);
-  for(let j=0;j<ny;j++) for(let i=0;i<nx;i++) land[j*nx+i]=LD[(Math.min(landMask.height-1,Math.round(j*cs*R))*W+Math.min(W-1,Math.round(i*cs*R)))*4+3]>128?1:0;
+  const N=nx*ny, e=new Float32Array(N), LD=landAlpha(), W=landMask.width, land=new Uint8Array(N);
+  for(let j=0;j<ny;j++) for(let i=0;i<nx;i++) land[j*nx+i]=LD[Math.min(landMask.height-1,Math.round(j*cs*R))*W+Math.min(W-1,Math.round(i*cs*R))]>128?1:0;
   const toSea=chamfer(nx,ny,k=>!land[k]), toLand=chamfer(nx,ny,k=>land[k]);      // steps to the nearest water, and to the nearest land
   for(let k=0;k<N;k++) e[k]=land[k] ? .04+Math.min(1,toSea[k]/14)*.4 : -.03-Math.min(1,toLand[k]/16)*.6;
   return {e,land}; }
@@ -566,7 +583,7 @@ function elevStrokes(e,er,nx,ny,cs,land){      // the Elevation brush: each stro
     for(let j=Math.max(0,Math.floor((Math.min(...ys)-r)/cs));j<=Math.min(ny-1,Math.ceil((Math.max(...ys)+r)/cs));j++) for(let i=Math.max(0,Math.floor((Math.min(...xs)-r)/cs));i<=Math.min(nx-1,Math.ceil((Math.max(...xs)+r)/cs));i++){ const k=j*nx+i; if(!land[k]) continue;
       const q=[i*cs,j*cs]; let d=p.length===1?dist(q,p[0]):1e9; for(let t=1;t<p.length;t++) d=Math.min(d,segDist(q,p[t-1],p[t])); if(d>=r) continue; const f=1-d/r, w=f*f*(3-2*f)*st.amt; e[k]=Math.max(.012,e[k]+w); er[k]=Math.max(.012,er[k]+w); } } }
 function heightGrid(){      // {nx,ny,cs,e (heights),m (0 land, 1 sea, 2 lake), est, and the plates when known}. Always follows the map as it is now: the coast, the cliffs and the mountains
-  const key=[S.w,S.h,landVer].join(); if(heightCache.src===S.height && heightCache.key===key && heightCache.grid.fs===S.stamps && heightCache.grid.fc===S.cliffs && heightCache.grid.fl===S.lands && heightCache.grid.fe===S.elev) return heightCache.grid;
+  const key=[S.w,S.h,landVer].join(); if(heightCache.src===S.height && heightCache.key===key && heightCache.grid.fs===mtnSig() && heightCache.grid.fc===S.cliffs && heightCache.grid.fl===S.lands && heightCache.grid.fe===S.elev) return heightCache.grid;
   const cs=20, nx=Math.floor(S.w/cs)+1, ny=Math.floor(S.h/cs)+1, N=nx*ny, E=estimateHeights(nx,ny,cs), land=E.land, m=new Uint8Array(N); let e=E.e, ref=null, est=true;
   const FLAT=k=>land[k]?.06:-.1; let er=Float32Array.from({length:N},(_,k)=>FLAT(k));      // er: the ground the map's relief is drawn from. The estimate's rise from the coast is only a guess for the height view, so where nothing is known the ground is flat
   if(S.height){      // the generator's heights, kept where the land is still where it was, carried along with a landmass that has been moved, and blended into the estimate where the coast has been redrawn
@@ -588,8 +605,8 @@ function heightGrid(){      // {nx,ny,cs,e (heights),m (0 land, 1 sea, 2 lake), 
   const es=Float32Array.from(e); { const t=es; for(let j=0;j<ny;j++) for(let i=0;i<nx;i++){ const k=j*nx+i; if(land[k]) continue; let sum=0, n=0; for(let b=-1;b<=1;b++) for(let a=-1;a<=1;a++){ const ii=i+a, jj=j+b; if(ii<0||jj<0||ii>=nx||jj>=ny) continue; const q=jj*nx+ii; if(land[q]){ sum+=t[q]; n++; } } if(n) e[k]=sum/n*.8; } }      // water cells on the shore take the height of the land beside them, so a land pixel that falls in such a cell is not dragged down to sea level (the view takes land and sea per pixel; the sea there is drawn flat)
   const pl=ref && ref.pid ? {pid:unpackBytes(ref.pid),pb:unpackBytes(ref.pb),pa:ref.pa?unpackBytes(ref.pa):null,plates:ref.plates} : {pid:null,pb:null,pa:null,plates:null};
   if(pl.pid && S.height && (S.height.nx!==nx || S.height.ny!==ny)){ pl.pid=null; }      // the sheet was resized: the plates no longer line up
-  heightCache={src:S.height,key,grid:{nx,ny,cs,e,es,er,m,est,...pl,fs:S.stamps,fc:S.cliffs,fl:S.lands,fe:S.elev}}; return heightCache.grid; }
-function landSampler(){ const W=landMask.width, H=landMask.height, D=lm.getImageData(0,0,W,H).data; return (x,y)=>D[(Math.min(H-1,Math.max(0,Math.round(y*R)))*W+Math.min(W-1,Math.max(0,Math.round(x*R))))*4+3]>128; }      // the coast exactly as drawn, not as the 20-unit height grid has it
+  heightCache={src:S.height,key,grid:{nx,ny,cs,e,es,er,m,est,...pl,fs:mtnSig(),fc:S.cliffs,fl:S.lands,fe:S.elev}}; return heightCache.grid; }
+function landSampler(){ const W=landMask.width, H=landMask.height, D=landAlpha(); return (x,y)=>D[Math.min(H-1,Math.max(0,Math.round(y*R)))*W+Math.min(W-1,Math.max(0,Math.round(x*R)))]>128; }      // the coast exactly as drawn, not as the 20-unit height grid has it
 const PLATE_NAMES=['Aldra','Brennor','Caul','Dravos','Eskar','Fenwick','Gorm','Halvet','Iskeld','Jorund','Kesh','Lorne','Maren','Norvik'];
 function composePlates(g){      // each plate in its own faint colour (warm for continental crust, cool for oceanic), where they meet marked by how they meet, with the way each one drifts
   const W=S.w, H=S.h, u=Math.max(exporting?1.5:4,Math.sqrt(W*H/(exporting?1.2e6:400000))), ow=Math.ceil(W/u), oh=Math.ceil(H/u), [oc,ox]=mkCanvas(ow,oh), im=ox.createImageData(ow,oh), d=im.data, P=g.plates;
@@ -615,30 +632,33 @@ function composePlates(g){      // each plate in its own faint colour (warm for 
    shore for a sea cliff. Drawn from the relief ground (er: the generator's heights, the Elevation brush, flat where nothing is known), never inside a mountain stamp's drawing, on its own
    layer laid over the ground paint and cut to the land. S.relief (Map settings) sets how strong. */
 let reliefC,rfx, reliefFor=null;
-function rebuildRelief(){ const g=heightGrid(), k=S.relief ?? 1, o=reliefC.getContext('2d'); reliefFor={g,k,cv:reliefC};
-  o.save(); o.setTransform(1,0,0,1,0,0); o.clearRect(0,0,reliefC.width,reliefC.height); o.restore(); if(!(k>0) || !g.er) return;
+function rebuildRelief(rect){ const g=heightGrid(), k=S.relief ?? 1, o=reliefC.getContext('2d'); reliefFor={g,k,cv:reliefC,part:!!rect};      // rect: while the Elevation brush is down only the box it reached is redone (lines crossing its edge may differ a little until the full redraw when it is let go)
+  if(rect){ o.save(); o.beginPath(); o.rect(...rect); o.clip(); o.clearRect(...rect); try{ reliefDraw(g,k,o,rect); } finally{ o.restore(); } return; }
+  o.save(); o.setTransform(1,0,0,1,0,0); o.clearRect(0,0,reliefC.width,reliefC.height); o.restore(); reliefDraw(g,k,o,null); }
+function reliefDraw(g,k,o,rect){ if(!(k>0) || !g.er) return;
   const W=S.w, H=S.h, er=g.er, at=(x,y)=>{ const gx=Math.max(0,Math.min(g.nx-1.001,x/g.cs)), gy=Math.max(0,Math.min(g.ny-1.001,y/g.cs)), i=Math.floor(gx), j=Math.floor(gy), fx=gx-i, fy=gy-j, E=(a,b)=>er[b*g.nx+a]; return E(i,j)*(1-fx)*(1-fy)+E(i+1,j)*fx*(1-fy)+E(i,j+1)*(1-fx)*fy+E(i+1,j+1)*fx*fy; };
   const onLand=landSampler(), ms=S.stamps.filter(s=>MTN_BODY[s.kind]), inMtn=(x,y)=>ms.length && inMountain(ms,x,y+6), seed=7331;
   /* Everything is laid as one tone and then hatched in one direction, top left to bottom right, like the shading on cliffs and stamps: a tone grid (TC units a cell) holds
      how dark each place is, and parallel diagonal lines are drawn through it, more of them (closer together) and heavier where it is darker. */
   const TC=5, tw=Math.ceil(W/TC)+1, th=Math.ceil(H/TC)+1, tone=new Float32Array(tw*th), ti=(x,y)=>Math.round(y/TC)*tw+Math.round(x/TC);
-  for(let y=0;y<th;y++) for(let x=0;x<tw;x++){ const X=x*TC, Y=y*TC; if(!onLand(X,Y) || inMtn(X,Y)) { tone[y*tw+x]=-1; continue; }      // -1: no hatching here at all
+  const Q=rect ? [rect[0]-110,rect[1]-110,rect[0]+rect[2]+110,rect[1]+rect[3]+110] : [-1e9,-1e9,1e9,1e9], cx0=Math.max(0,Math.floor((Q[0]-30)/TC)), cx1=Math.min(tw-1,Math.ceil((Q[2]+30)/TC)), cy0=Math.max(0,Math.floor((Q[1]-30)/TC)), cy1=Math.min(th-1,Math.ceil((Q[3]+30)/TC));      // Q: the part worked out (all of it, or the box and a margin)
+  for(let y=cy0;y<=cy1;y++) for(let x=cx0;x<=cx1;x++){ const X=x*TC, Y=y*TC; if(!onLand(X,Y) || inMtn(X,Y)) { tone[y*tw+x]=-1; continue; }      // -1: no hatching here at all
     const gx=(at(X+10,Y)-at(X-10,Y))/20, gy=(at(X,Y+10)-at(X,Y-10))/20, sl=Math.hypot(gx,gy); if(sl<.0008) continue;
     const ux=-gx/sl, steep=clamp((sl-.0008)/.0035,0,1); tone[y*tw+x]=steep*(.1+.9*Math.max(0,ux))*k; }      // slopes turned to the right (downhill that way) are in shadow; the lit ones stay almost clear
   for(const c of S.cliffs){ const Hc=c.h ?? 26, tp=c.taper||0; if(c.mode!=='up' || !(tp>0) || Math.abs(Hc)<3) continue;      /* a ramp's surface is shaded like any hillside: one that falls away to the right (from the light) is hatched, one that rises to the right stays bright */
     const ax=cliffAxis(c), steep=clamp(Math.abs(Hc)*CLIFF_K*tp/ax.L/.0025,0,1), down=Hc>0 ? [-ax.u[0],-ax.u[1]] : ax.u, t0=steep*(.1+.9*Math.max(0,down[0]))*k; if(t0<=.02) continue;      // a plateau's ramp runs down toward its low end, a pit's floor down toward its deep end
-    const lift=Math.max(Hc,0); for(let y=Math.max(0,Math.floor((ax.bb[1]-lift)/TC));y<=Math.min(th-1,Math.ceil(ax.bb[3]/TC));y++) for(let x=Math.max(0,Math.floor(ax.bb[0]/TC));x<=Math.min(tw-1,Math.ceil(ax.bb[2]/TC));x++){ const q=y*tw+x; if(tone[q]<0) continue;
+    const lift=Math.max(Hc,0); for(let y=Math.max(cy0,Math.floor((ax.bb[1]-lift)/TC));y<=Math.min(cy1,Math.ceil(ax.bb[3]/TC));y++) for(let x=Math.max(cx0,Math.floor(ax.bb[0]/TC));x<=Math.min(cx1,Math.ceil(ax.bb[2]/TC));x++){ const q=y*tw+x; if(tone[q]<0) continue;
       const X=x*TC, Y=y*TC, sj=clamp(((X-ax.mid[0])*ax.u[0]+(Y-ax.mid[1])*ax.u[1])/ax.L+.5,0,1), fr=(1-tp)+tp*sj, hl=Hc>0 ? Hc*fr : 0; if(fr<.17) continue; if(inLand(c,[X,Y+hl])) tone[q]=Math.max(tone[q],t0); } }      // not past where the ramp runs out (the drawing stops there too)      // a plateau's top stands above its outline by the height there
   const SP=4, DIRS=Array.from({length:12},(_,a)=>[Math.cos(a/12*Math.PI*2),Math.sin(a/12*Math.PI*2)]);
-  for(let y=SP/2;y<H;y+=SP) for(let x=SP/2;x<W;x+=SP){ if(!onLand(x,y)) continue; let sx=0, sy=0, n=0; for(const [dx,dy] of DIRS) if(!onLand(x+dx*8,y+dy*8)){ sx+=dx; sy+=dy; n++; } if(!n) continue;      // a point by the shore: which way the sea lies
+  for(let y=SP/2;y<H;y+=SP){ if(y<Q[1]-24 || y>Q[3]+24) continue; for(let x=SP/2;x<W;x+=SP){ if(x<Q[0]-24 || x>Q[2]+24 || !onLand(x,y)) continue; let sx=0, sy=0, n=0; for(const [dx,dy] of DIRS) if(!onLand(x+dx*8,y+dy*8)){ sx+=dx; sy+=dy; n++; } if(!n) continue;      // a point by the shore: which way the sea lies
     const l=Math.hypot(sx,sy); if(l<1e-6) continue; const ux=sx/l, uy=sy/l, sea=g.m[Math.min(g.ny-1,Math.max(0,Math.round((y+uy*10)/g.cs)))*g.nx+Math.min(g.nx-1,Math.max(0,Math.round((x+ux*10)/g.cs)))]; if(sea===2) continue;      // a lake shore is not a sea cliff
     const hIn=Math.max(at(x-ux*30,y-uy*30),at(x-ux*50,y-uy*50)), c=clamp((hIn-.19)/.25,0,1)*Math.min(1.4,k); if(c<=0) continue;
-    const band=6+10*c; for(let d=0;d<=band;d+=TC*.6){ const q=ti(x-ux*d,y-uy*d); if(q>=0 && q<tone.length && tone[q]>=0) tone[q]=Math.max(tone[q],c*(1-d/band*.35)); } }      // a sea cliff: a dark band from the shore up to the top of the face
+    const band=6+10*c; for(let d=0;d<=band;d+=TC*.6){ const q=ti(x-ux*d,y-uy*d); if(q>=0 && q<tone.length && tone[q]>=0) tone[q]=Math.max(tone[q],c*(1-d/band*.35)); } } }      // a sea cliff: a dark band from the shore up to the top of the face
   const T=(x,y)=>{ const X=Math.round(x/TC), Y=Math.round(y/TC); return X<0||Y<0||X>=tw||Y>=th ? -1 : tone[Y*tw+X]; };
   o.save(); o.strokeStyle=INK; o.lineCap='round'; const STEP=2.2, HS=5.2;
-  for(let n=Math.floor(-H/HS); n*HS<W; n++){ const c0=n*HS, lvl=(n%4===0)?.1:(n%2===0)?.36:.62, x0=Math.max(0,c0), x1=Math.min(W,H+c0); if(x1<=x0) continue;      // lines x - y = c0; every fourth line takes a light tone, every second a middle one, all of them the darkest
+  for(let n=Math.floor(-H/HS); n*HS<W; n++){ const c0=n*HS, lvl=(n%4===0)?.1:(n%2===0)?.36:.62, x0=Math.max(0,c0), x1=Math.min(W,H+c0); if(x1<=x0 || c0<Q[0]-Q[3]-HS || c0>Q[2]-Q[1]+HS) continue;      // lines x - y = c0; every fourth line takes a light tone, every second a middle one, all of them the darkest
     let run=null, wsum=0, cnt=0; const flush=()=>{ if(run && run.length>1){ o.lineWidth=.3+.38*Math.min(1,wsum/cnt); o.beginPath(); run.forEach((p,i)=>i?o.lineTo(p[0],p[1]):o.moveTo(p[0],p[1])); o.stroke(); } run=null; wsum=0; cnt=0; };
-    for(let x=x0;x<=x1;x+=STEP){ const y=x-c0, v=T(x,y), on=v>lvl+(hash(Math.round(x),n,seed)-.5)*.08; if(on){ if(!run) run=[]; run.push([x,y]); wsum+=v; cnt++; } else flush(); } flush(); }
+    for(let x=x0;x<=x1;x+=STEP){ const y=x-c0; if(x<Q[0] || y<Q[1]) continue; if(x>Q[2] || y>Q[3]) break; const v=T(x,y), on=v>lvl+(hash(Math.round(x),n,seed)-.5)*.08; if(on){ if(!run) run=[]; run.push([x,y]); wsum+=v; cnt++; } else flush(); } flush(); }
   o.restore(); }
 const CLIFF_K=.012;      // height-map units per unit of cliff height
 let cliffRelCache={cliffs:null,ow:0,oh:0,lv:-1,data:null,max:0};
@@ -690,7 +710,7 @@ function loadState(d){ d=migrate(d); S={gen:d.gen||null,relief:Number.isFinite(d
   setTool(opts.tool); rebuildAll(); fitView(); renderPanel(); syncButtons(); }
 
 /* ============================================================ raster buffers */
-let landMask,lm, landLayer,lc, base,bc, tmpC,tc, invC,iv, innerC,ic, coastC,cc, ringC,rc, halfC,hc, terrainC,tx, waterC,wx, sbC,sb, clipC,cl, wSynced=[], pat={}, coastDirty=true;
+let landMask,lm, landLayer,lc, base,bc, tmpC,tc, invC,iv, innerC,ic, coastC,cc, ringC,rc, halfC,hc, terrainC,tx, waterC,wx, clipC,cl, wSynced=[], pat={}, coastDirty=true;
 let synced={lands:null,paints:null}; const tcache=[];
 let cliffSolidC,csx, cleanC,cnx, cleanFor=null;
 let ecoC,ecx, ecoFor=null;
@@ -769,11 +789,11 @@ function initBuffers(){
   [coastC,cc]=mkCanvas(W*R/2,H*R/2); [ringC,rc]=mkCanvas(W*R/2,H*R/2); [halfC,hc]=mkCanvas(W*R/2,H*R/2);
   [waterC,wx]=full();                           // water paint strokes; sits on the sea, under the coast and the land
   [tintC,tnx]=half();      // every colour wash, land and sea, as one layer laid over the finished drawing (see buildTint)
-  [cliffSolidC,csx]=full(); [cleanC,cnx]=full(); cleanFor=null; [ecoC,ecx]=full(); ecoFor=null; [reliefC,rfx]=full(); reliefFor=null;      // the woodland edge (see rebuildEco)      // where cliff faces and edges are; and the ground marks with the cut ones taken out
+  [cliffSolidC,csx]=full(); [cleanC,cnx]=full(); cleanFor=null; [ecoC,ecx]=full(); ecoFor=null; [reliefC,rfx]=full(); reliefFor=null; realmColC=realmInkC=prebaseC=null; prebaseOK=false; realmLayerKey=''; realmLayerParts=null; realmCache.clear(); alphaReads.clear(); landFor=null; baseIsMap=false;      // the woodland edge (see rebuildEco)      // where cliff faces and edges are; and the ground marks with the cut ones taken out
   [cliffC,cf]=full(); cliffBuilt={cliffs:null,landVer:-1};   // cliff faces, drawn over the land
-  { const mk=()=>{ const a=mkCanvas(W*WASH_SCALE,H*WASH_SCALE); a[1].setTransform(WASH_SCALE,0,0,WASH_SCALE,0,0); return a; }; [washLand,wtx]=mk(); [washSea,wwx]=mk(); [washTmp,wtt]=mk(); }
+  { const mk=()=>{ const a=mkCanvas(W*WASH_SCALE,H*WASH_SCALE); a[1].setTransform(WASH_SCALE,0,0,WASH_SCALE,0,0); return a; }; [washLand,wtx]=mk(); [washSea,wwx]=mk(); }
   [terrainC,tx]=full();                         // every ground paint stroke, already textured, in the order it was painted
-  [sbC,sb]=mkCanvas(mw,mh); [clipC,cl]=mkCanvas(mw,mh);   // one brush stroke as opacity; and the land it is allowed to land on
+  [clipC,cl]=mkCanvas(mw,mh); for(const k in scratch) delete scratch[k];   // the land a brush stroke is allowed to land on
   if(S.kind==='dungeon'){ [dgF,dgFx]=full(); [dgT,dgTx]=full(); [dgS,dgSx]=full(); }      // the dungeon's floor plan, and the textures laid on it
   synced={lands:null,paints:null}; tcache.length=0; wSynced=[]; sprites.clear(); spriteArea=0; hitMaps.clear();
   const mkPat=(col,kind,seed,sk=true)=>{ const p=bc.createPattern(texture(col,kind,seed,sk),'repeat'); p.setTransform(new DOMMatrix().scale(1/Math.min(R,3))); return p; };   // one tile always covers 256 map units
@@ -960,8 +980,8 @@ function rebuildEco(){
       for(const [cx,on] of [[fx,forest],[gx,open]]){ cx.save(); cx.lineCap=cx.lineJoin='round'; cx.lineWidth=w; cx.globalAlpha=q.op ?? 1; cx.fillStyle=cx.strokeStyle='#000'; cx.globalCompositeOperation=on?'source-over':'destination-out';      // a paint replaces what was under it: any ground clears the other kind, an eraser clears both
         if(q.pts.length===1){ cx.beginPath(); cx.arc(q.pts[0][0]/C,q.pts[0][1]/C,w/2,0,7); cx.fill(); } else { cx.beginPath(); q.pts.forEach((r,i)=>i?cx.lineTo(r[0]/C,r[1]/C):cx.moveTo(r[0]/C,r[1]/C)); cx.stroke(); } cx.restore(); } }
     const rd=cn=>cn.getContext('2d').getImageData(0,0,gw,gh).data, fd=rd(fc), gd=rd(gc);
-    const lw=landMask.width, lh=landMask.height, LD=lm.getImageData(0,0,lw,lh).data, CD=csx.getImageData(0,0,lw,lh).data;      // the land, and the cliff faces, at full size
-    const ok=(x,y)=>{ const i=Math.round(x*R), j=Math.round(y*R); if(i<0||j<0||i>=lw||j>=lh) return false; const k=(j*lw+i)*4+3; return LD[k]>150 && CD[k]<40; };
+    const lw=landMask.width, lh=landMask.height, LD=landAlpha(), CD=cliffAlpha();      // the land, and the cliff faces, at full size
+    const ok=(x,y)=>{ const i=Math.round(x*R), j=Math.round(y*R); if(i<0||j<0||i>=lw||j>=lh) return false; const k=j*lw+i; return LD[k]>150 && CD[k]<40; };
     const dist=new Float32Array(gw*gh), BIG=1e9; for(let k=0;k<gw*gh;k++) dist[k]=(fd[k*4+3]>110 && ok((k%gw+.5)*C,(Math.floor(k/gw)+.5)*C))?0:BIG;
     for(let y=0;y<gh;y++) for(let x=0;x<gw;x++){ const k=y*gw+x; let d=dist[k]; if(x>0) d=Math.min(d,dist[k-1]+1); if(y>0){ d=Math.min(d,dist[k-gw]+1); if(x>0) d=Math.min(d,dist[k-gw-1]+1.414); if(x<gw-1) d=Math.min(d,dist[k-gw+1]+1.414); } dist[k]=d; }
     for(let y=gh-1;y>=0;y--) for(let x=gw-1;x>=0;x--){ const k=y*gw+x; let d=dist[k]; if(x<gw-1) d=Math.min(d,dist[k+1]+1); if(y<gh-1){ d=Math.min(d,dist[k+gw]+1); if(x<gw-1) d=Math.min(d,dist[k+gw+1]+1.414); if(x>0) d=Math.min(d,dist[k+gw-1]+1.414); } dist[k]=d; }
@@ -975,7 +995,10 @@ function rebuildEco(){
     marks.sort((a,b)=>a[1]-b[1]); if(marks.length>8000) marks.length=8000;
     o.save(); o.setTransform(R,0,0,R,0,0); o.globalAlpha=.92; for(const m of marks){ const rn=mulberry(m[4]); (m[2]?ecoSapling:ecoShrub)(o,m[0],m[1],m[3],rn); } o.restore();
   }catch(e){ ecoFor=null; console.error('woodland edge',e); } }
-function rebuildLand(fresh){ landVer++;
+let landFor=null;      // what the land mask was last built from (see sameLand)
+const landSig=()=>({l:S.lands,c:S.cliffs,cv:layers.cliffs.v,lv:layers.lines.v,r:layers.lines.v?S.lines.filter(l=>l.kind==='river' && lyVisible(l)):[],R,w:S.w,h:S.h});
+const sameLand=(a,b)=>!!(a && b && a.l===b.l && a.c===b.c && a.cv===b.cv && a.lv===b.lv && a.R===b.R && a.w===b.w && a.h===b.h && a.r.length===b.r.length && a.r.every((o,i)=>o===b.r[i]));
+function rebuildLand(fresh){ landVer++; landFor={...landSig(),fresh:!!fresh};
   lm.globalCompositeOperation='source-over'; lm.clearRect(0,0,S.w,S.h); lm.fillStyle='#000';
   for(const l of S.lands){ lm.globalCompositeOperation = l.mode==='sea' ? 'destination-out' : 'source-over'; lm.fill(landPath(l)); const b=built.get(l);
     if(b.core){ lm.lineWidth=b.cw; lm.lineCap=lm.lineJoin='round'; lm.strokeStyle='#000'; lm.stroke(b.core); } }
@@ -991,47 +1014,57 @@ function rebuildLand(fresh){ landVer++;
 function landOp(x,l,scale){ landPath(l); const b=built.get(l); x.save(); x.setTransform(scale*R,0,0,scale*R,0,0); x.globalAlpha=1; x.globalCompositeOperation = l.mode==='sea'?'destination-out':'source-over';
   x.fillStyle=x.strokeStyle='#000'; x.fill(b.path); if(b.core){ x.lineWidth=b.cw; x.lineCap=x.lineJoin='round'; x.stroke(b.core); } x.restore(); }
 function buildClip(){ cl.clearRect(0,0,clipC.width,clipC.height); S.lands.forEach(l=>landOp(cl,l,MASK_SCALE)); }
-function strokeAlpha(p){      // draws one stroke into sbC as opacity and returns the box it touched [x,y,w,h]. Hardness sets how wide the soft edge is: the edge is a blurred shadow of the stroke.
-  const M=MASK_SCALE*R, F=(1-(p.hard ?? .85))*p.size*.5, w=Math.max(1,(p.size-F)*M), blur=F/2*M, OFF=sbC.width+2000, pad=p.size/2+F+8;
+let liveClip=null;      // {p, r}: while a stroke is painted only the part of the sheet it has just reached is redrawn, so the stroke is worked only inside that box
+const boxAnd=(a,b)=>{ const x0=Math.max(a[0],b[0]), y0=Math.max(a[1],b[1]), x1=Math.min(a[0]+a[2],b[0]+b[2]), y1=Math.min(a[1]+a[3],b[1]+b[3]); return [x0,y0,Math.max(0,x1-x0),Math.max(0,y1-y0)]; };
+/* Scratch canvases sized to the stroke at hand, reused from stroke to stroke. Drawing on a canvas after it has been drawn from costs a copy of the whole of it,
+   so working each stroke on a small canvas instead of a sheet-sized one is what keeps replaying a map's paint (thousands of strokes) quick. */
+const scratch={};
+function scr(k,w,h){ w=Math.max(1,Math.ceil(w)); h=Math.max(1,Math.ceil(h)); let s=scratch[k];
+  if(!s || s.c.width<w || s.c.height<h || s.c.width*s.c.height>4*Math.max(w*h,262144)){ const [c,x]=mkCanvas(Math.ceil(w/64)*64,Math.ceil(h/64)*64); s=scratch[k]={c,x}; }
+  s.x.setTransform(1,0,0,1,0,0); s.x.globalAlpha=1; s.x.globalCompositeOperation='source-over'; s.x.clearRect(0,0,w,h); return s; }
+let SB=null;      // the stroke strokeAlpha drew last: {c, ox, oy}, a small canvas whose top left is (ox, oy) in map units, at mask scale
+const sbSrc=bb=>{ const M=MASK_SCALE*R; return [(bb[0]-SB.ox)*M,(bb[1]-SB.oy)*M,bb[2]*M,bb[3]*M]; };
+function strokeAlpha(p){      // draws one stroke into SB as opacity and returns the box it touched [x,y,w,h]. Hardness sets how wide the soft edge is: the edge is a blurred shadow of the stroke.
+  const M=MASK_SCALE*R, F=(1-(p.hard ?? .85))*p.size*.5, w=Math.max(1,(p.size-F)*M), blur=F/2*M, pad=p.size/2+F+8;
   const xs=p.pts.map(q=>q[0]), ys=p.pts.map(q=>q[1]), x0=Math.max(0,Math.floor((Math.min(...xs)-pad)/4)*4), y0=Math.max(0,Math.floor((Math.min(...ys)-pad)/4)*4);
-  const bb=[x0,y0,Math.min(S.w,Math.ceil((Math.max(...xs)+pad)/4)*4)-x0,Math.min(S.h,Math.ceil((Math.max(...ys)+pad)/4)*4)-y0]; if(bb[2]<=0||bb[3]<=0) return [0,0,4,4];
-  sb.setTransform(1,0,0,1,0,0); sb.save(); sb.beginPath(); sb.rect((bb[0]-4)*M,(bb[1]-4)*M,(bb[2]+8)*M,(bb[3]+8)*M); sb.clip();   // a little wider than the box, so nothing stale sits at its edge          // everything stays inside the box, which keeps big maps quick
-  sb.globalAlpha=1; sb.globalCompositeOperation='source-over'; sb.clearRect(0,0,sbC.width,sbC.height);
-  sb.save(); sb.fillStyle=sb.strokeStyle='#000'; sb.lineCap=sb.lineJoin='round'; sb.lineWidth=w;
-  if(blur>.6){ sb.shadowColor='#000'; sb.shadowBlur=blur; sb.shadowOffsetX=OFF; sb.translate(-OFF,0); }
-  sb.beginPath(); if(p.pts.length===1){ sb.arc(p.pts[0][0]*M,p.pts[0][1]*M,w/2,0,7); sb.fill(); } else { p.pts.forEach((q,i)=>i?sb.lineTo(q[0]*M,q[1]*M):sb.moveTo(q[0]*M,q[1]*M)); sb.stroke(); }
-  sb.restore(); if(!p.w){ sb.globalCompositeOperation='destination-in'; sb.drawImage(clipC,0,0); }   // ground paint is cut to the land; water paint (w) is not
-  sb.restore(); return bb;
+  let bb=[x0,y0,Math.min(S.w,Math.ceil((Math.max(...xs)+pad)/4)*4)-x0,Math.min(S.h,Math.ceil((Math.max(...ys)+pad)/4)*4)-y0]; if(liveClip && p===liveClip.p) bb=boxAnd(bb,liveClip.r);
+  if(bb[2]<=0||bb[3]<=0){ const e=scr('sb',8*M,8*M); SB={c:e.c,ox:-4,oy:-4}; return [0,0,4,4]; }
+  const ox=bb[0]-4, oy=bb[1]-4, s=scr('sb',(bb[2]+8)*M,(bb[3]+8)*M), x=s.x, OFF=s.c.width+2000; SB={c:s.c,ox,oy};      // a little wider than the box, so nothing stale sits at its edge
+  x.save(); x.fillStyle=x.strokeStyle='#000'; x.lineCap=x.lineJoin='round'; x.lineWidth=w; x.translate(-ox*M,-oy*M);
+  if(blur>.6){ x.shadowColor='#000'; x.shadowBlur=blur; x.shadowOffsetX=OFF; x.translate(-OFF,0); }
+  x.beginPath(); if(p.pts.length===1){ x.arc(p.pts[0][0]*M,p.pts[0][1]*M,w/2,0,7); x.fill(); } else { p.pts.forEach((q,i)=>i?x.lineTo(q[0]*M,q[1]*M):x.moveTo(q[0]*M,q[1]*M)); x.stroke(); }
+  x.restore(); if(!p.w){ x.globalCompositeOperation='destination-in'; x.drawImage(clipC,-ox*M,-oy*M); x.globalCompositeOperation='source-over'; }   // ground paint is cut to the land; water paint (w) is not
+  return bb;
 }
-let washLand,wtx,washSea,wwx,washTmp,wtt;
+let washLand,wtx,washSea,wwx, washVer=0;      // washVer goes up whenever either wash layer is drawn on, so the tint is only rebuilt when it has to be
 function paintInto(T,p,replace){      // lays one stroke onto T at the stroke's opacity
-  const bb=strokeAlpha(p), M=MASK_SCALE*R, src=[bb[0]*M,bb[1]*M,bb[2]*M,bb[3]*M];
+  const bb=strokeAlpha(p), sc=SB.c, src=sbSrc(bb);
   T.save(); T.beginPath(); T.rect(...bb); T.clip(); T.globalAlpha=p.op ?? 1;
-  if(p.type==='erase'){ T.globalCompositeOperation='destination-out'; T.drawImage(sbC,...src,...bb); }
-  else if(pat[p.type]){ tc.save(); tc.beginPath(); tc.rect(bb[0]-4,bb[1]-4,bb[2]+8,bb[3]+8); tc.clip(); tc.globalAlpha=1; tc.globalCompositeOperation='source-over'; tc.clearRect(bb[0]-4,bb[1]-4,bb[2]+8,bb[3]+8); tc.drawImage(sbC,...src,...bb);
-    tc.globalCompositeOperation='source-in'; tc.fillStyle=pat[p.type]; tc.fillRect(bb[0]-4,bb[1]-4,bb[2]+8,bb[3]+8); tc.restore();
-    if(replace){ T.globalCompositeOperation='destination-out'; T.drawImage(sbC,...src,...bb); T.globalCompositeOperation='source-over'; }   // sketch marks are see-through, so clear what was under them first
-    T.drawImage(tmpC,bb[0]*R,bb[1]*R,bb[2]*R,bb[3]*R,...bb); }
+  if(p.type==='erase'){ T.globalCompositeOperation='destination-out'; T.drawImage(sc,...src,...bb); }
+  else if(pat[p.type]){ const t=scr('pt',(bb[2]+8)*R,(bb[3]+8)*R), y=t.x; y.setTransform(R,0,0,R,-(bb[0]-4)*R,-(bb[1]-4)*R); y.drawImage(sc,...src,...bb);      // the stroke's texture, on a canvas the size of the stroke (the pattern stays fixed to the map)
+    y.globalCompositeOperation='source-in'; y.fillStyle=pat[p.type]; y.fillRect(bb[0]-4,bb[1]-4,bb[2]+8,bb[3]+8); y.globalCompositeOperation='source-over'; y.setTransform(1,0,0,1,0,0);
+    if(replace){ T.globalCompositeOperation='destination-out'; T.drawImage(sc,...src,...bb); T.globalCompositeOperation='source-over'; }   // sketch marks are see-through, so clear what was under them first
+    T.drawImage(t.c,4*R,4*R,bb[2]*R,bb[3]*R,...bb); }
   T.restore();
-  const Wc = T===tx ? wtx : T===wx ? wwx : null, col=washOf(p.type), K=WASH_SCALE, tint=()=>{ wtt.save(); wtt.globalAlpha=1; wtt.globalCompositeOperation='source-over'; wtt.clearRect(bb[0]-8,bb[1]-8,bb[2]+16,bb[3]+16); wtt.beginPath(); wtt.rect(...bb); wtt.clip(); wtt.drawImage(sbC,...src,...bb); wtt.globalCompositeOperation='source-in'; wtt.fillStyle=col; wtt.fillRect(...bb); wtt.restore(); };
-  if(Wc){ Wc.save(); Wc.beginPath(); Wc.rect(...bb); Wc.clip(); Wc.globalAlpha=p.op ?? 1; if(p.type==='erase' || replace){ Wc.globalCompositeOperation='destination-out'; Wc.drawImage(sbC,...src,...bb); Wc.globalCompositeOperation='source-over'; }
-    if(col){ tint(); Wc.drawImage(washTmp,bb[0]*K,bb[1]*K,bb[2]*K,bb[3]*K,...bb); } Wc.restore(); }
-  else if(col){ tint(); T.save(); T.globalAlpha=p.op ?? 1; T.globalCompositeOperation='destination-over'; T.drawImage(washTmp,bb[0]*K,bb[1]*K,bb[2]*K,bb[3]*K,...bb); T.restore(); }      // a stroke still being painted shows its wash straight away
+  const Wc = T===tx ? wtx : T===wx ? wwx : null, col=washOf(p.type), K=WASH_SCALE, tint=()=>{ const t=scr('wt',(bb[2]+16)*K,(bb[3]+16)*K), y=t.x; y.setTransform(K,0,0,K,-(bb[0]-8)*K,-(bb[1]-8)*K); y.save(); y.beginPath(); y.rect(...bb); y.clip(); y.drawImage(sc,...src,...bb); y.globalCompositeOperation='source-in'; y.fillStyle=col; y.fillRect(...bb); y.restore(); y.setTransform(1,0,0,1,0,0); return t.c; }, wsrc=[8*K,8*K,bb[2]*K,bb[3]*K];
+  if(Wc){ washVer++; Wc.save(); Wc.beginPath(); Wc.rect(...bb); Wc.clip(); Wc.globalAlpha=p.op ?? 1; if(p.type==='erase' || replace){ Wc.globalCompositeOperation='destination-out'; Wc.drawImage(sc,...src,...bb); Wc.globalCompositeOperation='source-over'; }
+    if(col){ Wc.drawImage(tint(),...wsrc,...bb); } Wc.restore(); }
+  else if(col){ const tw=tint(); T.save(); T.globalAlpha=p.op ?? 1; T.globalCompositeOperation='destination-over'; T.drawImage(tw,...wsrc,...bb); T.restore(); }      // a stroke still being painted shows its wash straight away
 }
 let tintC,tnx;
-function buildTint(){ const W=S.w, H=S.h;      // the washes are multiplied over everything at the end, so stamps, cliff faces and lettering take the colour of the ground they stand on instead of showing as bare paper
+function buildTint(){ const W=S.w, H=S.h, key=[washVer,landVer,layers.terrain.v,R,W,H].join(); if(tintC.__key===key) return; tintC.__key=key;      // the washes are multiplied over everything at the end, so stamps, cliff faces and lettering take the colour of the ground they stand on instead of showing as bare paper
   tnx.save(); tnx.globalAlpha=1; tnx.globalCompositeOperation='source-over'; tnx.clearRect(0,0,W,H); if(layers.terrain.v) drawWash(tnx,washSea,32); tnx.fillStyle=SEA_TINT; tnx.fillRect(0,0,W,H); tnx.globalCompositeOperation='destination-out'; tnx.drawImage(landMask,0,0,W,H); tnx.restore();
   if(layers.terrain.v){ tc.save(); tc.globalAlpha=1; tc.globalCompositeOperation='source-over'; tc.clearRect(0,0,W,H); tc.restore(); drawWash(tc,washLand,20); tc.save(); tc.globalCompositeOperation='destination-in'; tc.drawImage(landMask,0,0,W,H); tc.restore(); tnx.drawImage(tmpC,0,0,W,H); } }
 function drawWash(T,c,rad=20){ T.save(); T.globalAlpha=1; T.globalCompositeOperation='source-over'; try{ T.filter=`blur(${Math.round(rad*R)}px)`; }catch(e){} T.drawImage(c,0,0,S.w,S.h); T.restore(); }
-function applyOp(o){ if('mode' in o){ landOp(cl,o,MASK_SCALE); if(o.mode==='sea'){ landOp(tx,o,1); landOp(wtx,o,WASH_SCALE/R); } } else if(!o.w) paintInto(tx,o,true); }
+function applyOp(o){ if('mode' in o){ landOp(cl,o,MASK_SCALE); if(o.mode==='sea'){ landOp(tx,o,1); landOp(wtx,o,WASH_SCALE/R); washVer++; } } else if(!o.w) paintInto(tx,o,true); }
 function syncWater(){         // water strokes don't depend on the land, so they are kept up to date on their own
   const list=S.paints.filter(p=>p.w), same=wSynced.every((o,i)=>o===list[i]); if(same && list.length===wSynced.length) return;
   if(same) list.slice(wSynced.length).forEach(p=>paintInto(wx,p,true));
-  else { wx.setTransform(R,0,0,R,0,0); wx.globalAlpha=1; wx.globalCompositeOperation='source-over'; wx.clearRect(0,0,S.w,S.h); wwx.clearRect(0,0,S.w,S.h); list.forEach(p=>paintInto(wx,p,true)); }
+  else { wx.setTransform(R,0,0,R,0,0); wx.globalAlpha=1; wx.globalCompositeOperation='source-over'; wx.clearRect(0,0,S.w,S.h); wwx.clearRect(0,0,S.w,S.h); washVer++; list.forEach(p=>paintInto(wx,p,true)); }
   wSynced=list; }
 function drawLayer(T,layer,live){   // a paint layer, plus the stroke being painted right now as a preview
   if(live && live.type==='erase'){ const bb=strokeAlpha(live), M=MASK_SCALE*R; tc.globalAlpha=1; tc.globalCompositeOperation='copy'; tc.drawImage(layer,0,0,S.w,S.h);
-    tc.save(); tc.beginPath(); tc.rect(...bb); tc.clip(); tc.globalCompositeOperation='destination-out'; tc.globalAlpha=live.op; tc.drawImage(sbC,bb[0]*M,bb[1]*M,bb[2]*M,bb[3]*M,...bb); tc.restore();
+    tc.save(); tc.beginPath(); tc.rect(...bb); tc.clip(); tc.globalCompositeOperation='destination-out'; tc.globalAlpha=live.op; tc.drawImage(SB.c,...sbSrc(bb),...bb); tc.restore();
     tc.globalAlpha=1; tc.globalCompositeOperation='source-over'; T.drawImage(tmpC,0,0,S.w,S.h); }
   else { T.drawImage(layer,0,0,S.w,S.h); if(live) paintInto(T,live); } }
 function syncTerrain(){       // brings terrainC up to date: adds what is new, or reuses a recent copy (for undo), or replays everything
@@ -1040,7 +1073,7 @@ function syncTerrain(){       // brings terrainC up to date: adds what is new, o
   if(ext(synced.lands,L) && ext(synced.paints,P)) [...L.slice(synced.lands.length),...P.slice(synced.paints.length)].sort((a,b)=>a.t-b.t).forEach(applyOp);
   else { const hit=tcache.find(e=>e.lands===L && e.paints===P);
     tx.setTransform(R,0,0,R,0,0); tx.globalAlpha=1; tx.globalCompositeOperation='source-over'; tx.clearRect(0,0,S.w,S.h); wtx.setTransform(WASH_SCALE,0,0,WASH_SCALE,0,0); wtx.globalAlpha=1; wtx.globalCompositeOperation='source-over'; wtx.clearRect(0,0,S.w,S.h);
-    if(hit){ tx.drawImage(hit.c,0,0,S.w,S.h); wtx.drawImage(hit.wc,0,0,S.w,S.h); buildClip(); synced={lands:L,paints:P}; return; }
+    washVer++; if(hit){ tx.drawImage(hit.c,0,0,S.w,S.h); wtx.drawImage(hit.wc,0,0,S.w,S.h); buildClip(); synced={lands:L,paints:P}; return; }
     cl.clearRect(0,0,clipC.width,clipC.height); [...L,...P].sort((a,b)=>a.t-b.t).forEach(applyOp); }
   synced={lands:L,paints:P};
   if(exporting) return;
@@ -1072,17 +1105,27 @@ function rebuildCoast(){
       ic.save(); ic.globalCompositeOperation='destination-out'; ic.fillStyle='#000'; for(const l of rivers) ic.fill(riverPath(l,false)); ic.restore(); } }
   coastDirty=false;
 }
+let baseIsMap=false;      // the sheet holds a finished map picture (not the height view or a dungeon), so a part of it can be redrawn alone
+function relief(full,rect){ if(!(reliefFor && reliefFor.cv===reliefC && reliefFor.k===(S.relief ?? 1) && reliefFor.g===heightGrid() && !(full && reliefFor.part))) rebuildRelief(rect); }      // the relief is redone when the ground under it changed (in full when a part was done while painting)
+function liveBox(a,s){      // the box a stroke being painted has touched since the sheet was last drawn: its newest points, padded by the brush and its soft edge
+  const from=Math.max(0,(a.drawn||0)-1), pts=a.pts.slice(from); if(!pts.length) return null; const pad=s.size/2+(1-(s.hard ?? .85))*s.size*.5+12;
+  const xs=pts.map(q=>q[0]), ys=pts.map(q=>q[1]), x0=Math.floor((Math.min(...xs)-pad)/4)*4, y0=Math.floor((Math.min(...ys)-pad)/4)*4; return boxAnd([x0,y0,Math.ceil((Math.max(...xs)+pad)/4)*4-x0,Math.ceil((Math.max(...ys)+pad)/4)*4-y0],[0,0,S.w,S.h]); }      // on multiples of 4, so a stroke's pixels line up as they do when it is drawn whole
 function compose(full){
-  if(S.kind==='dungeon') return composeDungeon(full);
-  if(S.hm){ composeHeight(); return; }      // the height view replaces the finished map (rivers, roads and names are still drawn over it)
+  if(S.kind==='dungeon'){ baseIsMap=false; return composeDungeon(full); }
+  if(S.hm){ baseIsMap=false; composeHeight(); return; }      // the height view replaces the finished map (rivers, roads and names are still drawn over it)
   const W=S.w,H=S.h, live = act && act.type==='paint' && act.pts.length ? act.stroke : null;
   if(full){ if(coastDirty) rebuildCoast(); syncTerrain(); syncWater(); }
   if(cliffBuilt.cliffs!==S.cliffs || (full && cliffBuilt.landVer!==landVer)) rebuildCliffs();
+  const el = !full && act && act.type==='elev' ? act : null, dr = !full && (live || el) && baseIsMap && !exporting && !coastDirty ? liveBox(act,live || {size:el.stroke.size+200,hard:1}) : null; if(live || el) act.drawn=act.pts.length;      // the Elevation brush changes the ground within its radius; the relief there can reach about 100 further (sea cliffs, slopes)
+  if(dr){ if(!dr[2] || !dr[3]) return; buildTint(); realmLayers(W,H); if(el) relief(false,dr); liveClip=live ? {p:live,r:dr} : null; for(const x of [lc,bc]){ x.save(); x.beginPath(); x.rect(...dr); x.clip(); } tc.save(); tc.beginPath(); tc.rect(dr[0]-4,dr[1]-4,dr[2]+8,dr[3]+8); tc.clip(); }      // the rest of the sheet is as it was
+  try{ composeMap(full,live,dr); } finally{ if(dr){ lc.restore(); bc.restore(); tc.restore(); liveClip=null; } }
+  baseIsMap=true; }
+function composeMap(full,live,dr){ const W=S.w,H=S.h;
   lc.globalAlpha=1; lc.globalCompositeOperation='source-over'; { lc.fillStyle=pat.paper||PAPER(); lc.fillRect(0,0,W,H); lc.drawImage(ageC,0,0,W,H); } lc.fillStyle=pat.land; lc.fillRect(0,0,W,H);
   const inkOK=cleanFor && cleanFor.p===S.paints && cleanFor.l===S.lands && cleanFor.c===S.cliffs && cleanFor.v===landVer && cleanFor.cv===cleanC;
   if(layers.terrain.v) drawLayer(lc,(inkOK || (full && !live && cleanInk())) ? cleanC : terrainC,live && !live.w ? live : null);
   if(layers.terrain.v){ if(full && !(ecoFor && ecoFor.p===S.paints && ecoFor.l===S.lands && ecoFor.c===S.cliffs && ecoFor.v===landVer && ecoFor.cv===ecoC && ecoFor.cl===layers.cliffs.v && ecoFor.ln===layers.lines.v)) rebuildEco(); lc.drawImage(ecoC,0,0,W,H); }      // the woodland edge, over the ground
-  if((full || (act && act.type==='elev')) && !(reliefFor && reliefFor.cv===reliefC && reliefFor.k===(S.relief ?? 1) && reliefFor.g===heightGrid())) rebuildRelief(); lc.globalAlpha=.8; lc.drawImage(reliefC,0,0,W,H); lc.globalAlpha=1;      // the lie of the land
+  if(full || (act && act.type==='elev')) relief(full,null); lc.globalAlpha=.8; lc.drawImage(reliefC,0,0,W,H); lc.globalAlpha=1;      // the lie of the land
   lc.globalCompositeOperation='destination-in'; lc.drawImage(landMask,0,0,W,H);
   if(!coastDirty){ lc.globalCompositeOperation='source-atop'; lc.drawImage(innerC,0,0,W,H); }
   lc.globalCompositeOperation='source-over';
@@ -1096,6 +1139,7 @@ function compose(full){
   tc.globalAlpha=1; tc.globalCompositeOperation='copy'; tc.drawImage(landMask,0,0,W,H); tc.globalCompositeOperation='source-in'; tc.fillStyle=INK; tc.fillRect(0,0,W,H); tc.globalCompositeOperation='source-over';   // the land's shape in ink...
   for(let i=0;i<8;i++){ const a=i*Math.PI/4; bc.drawImage(tmpC,Math.cos(a)*1.5,Math.sin(a)*1.5,W,H); }                                                                 // ...nudged eight ways makes the coastline
   bc.drawImage(landLayer,0,0,W,H);
+  if(!exporting){ if(!prebaseC) prebaseC=mkCanvas(base.width,base.height)[0]; const px=prebaseC.getContext('2d'); px.save(); if(dr){ px.beginPath(); px.rect(dr[0]*R,dr[1]*R,dr[2]*R,dr[3]*R); px.clip(); } px.globalCompositeOperation='copy'; px.drawImage(base,0,0); px.restore(); prebaseOK=true; }      // the sheet as it is under the territories
   drawRealms(W,H);
   bc.drawImage(cliffC,0,0,W,H);
 }
@@ -1155,39 +1199,80 @@ const realmPolyMap=new WeakMap(), realmPoly=l=>{ let p=realmPolyMap.get(l); if(!
    (an eraser takes out what was painted before it), less the ground of later territories of the same tier. The border is every outline that could bound it (its own
    strokes, the erasers and the territories that carve it) drawn dashed, then kept only in a thin band round A's edge: so a stroke that crosses itself or overlaps another
    leaves no line inside, and a cut made by the eraser or by a neighbour gets a border of its own. */
-function drawRealms(W,H){ const all=layers.lines.v ? S.lines.filter(l=>l.kind==='realm' && lyVisible(l)) : []; realmSig=all; if(!all.length) return;
+/* Territories are drawn once and kept. Each territory's colour and ink are rendered into canvases of their own box (realmCache, by gid) and redrawn only when its key
+   changes (the identities of its lines, the cuts that apply to it and the territories that carve it, its tier, R), so editing one territory never redraws the others.
+   The pieces are laid together into two map-sized layers, colour (multiplied in) and ink, cut to the land (realmColC, realmInkC), rebuilt when a piece or the land
+   changes. compose keeps a copy of the sheet as it is under the territories (prebaseC), so a change to territories alone re-lays only them (composeRealmsOnly). */
+let prebaseOK=false, realmColC=null, realmInkC=null, prebaseC=null, realmLayerKey='', realmHasCol=false, realmHasInk=false; const realmCache=new Map();
+const objIds=new WeakMap(); let objIdN=0; const oid=o=>objIds.get(o) || (objIds.set(o,++objIdN), objIdN);
+/* Exact Euclidean distance transform (Felzenszwalb and Huttenlocher): for every pixel, the squared distance in pixels to the nearest pixel where src is set. */
+function edt2(src,w,h){ const INF=1e20, n=Math.max(w,h), f=new Float64Array(n), d=new Float64Array(n), v=new Int32Array(n), z=new Float64Array(n+1), g=new Float32Array(w*h);
+  for(let i=0;i<w*h;i++) g[i]=src[i]?0:INF;
+  const pass=len=>{ let k=0; v[0]=0; z[0]=-INF; z[1]=INF; for(let q=1;q<len;q++){ let r=v[k], s=((f[q]+q*q)-(f[r]+r*r))/(2*q-2*r); while(s<=z[k] && k>0){ k--; r=v[k]; s=((f[q]+q*q)-(f[r]+r*r))/(2*q-2*r); } if(s<=z[k]){ v[0]=q; z[0]=-INF; z[1]=INF; k=0; continue; } k++; v[k]=q; z[k]=s; z[k+1]=INF; }
+    k=0; for(let q=0;q<len;q++){ while(z[k+1]<q) k++; const r=v[k]; d[q]=(q-r)*(q-r)+f[r]; } };
+  for(let x=0;x<w;x++){ for(let y=0;y<h;y++) f[y]=g[y*w+x]; pass(h); for(let y=0;y<h;y++) g[y*w+x]=d[y]; }
+  for(let y=0;y<h;y++){ const o=y*w; for(let x=0;x<w;x++) f[x]=g[o+x]; pass(w); for(let x=0;x<w;x++) g[o+x]=d[x]; }
+  return g; }
+/* Distance to the nearest pixel of the other kind, only for pixels within rmax of it (Infinity beyond): spread from the pixels on the edge over a small disc. Cheap for the thin band a border needs. */
+function edgeDist(inside,w,h,rmax){ const out=new Float32Array(w*h).fill(Infinity), r=Math.ceil(rmax), disc=[]; for(let dy=-r;dy<=r;dy++) for(let dx=-r;dx<=r;dx++){ const d=Math.hypot(dx,dy); if(d<=rmax+.5) disc.push([dx,dy,d]); }
+  for(let y=0;y<h;y++) for(let x=0;x<w;x++){ const i=y*w+x, v=inside[i]; if(!((x>0&&inside[i-1]!==v)||(x<w-1&&inside[i+1]!==v)||(y>0&&inside[i-w]!==v)||(y<h-1&&inside[i+w]!==v))) continue;      // a pixel on the edge: the pixels of the other kind round it are as far from the edge as from it
+    for(const [dx,dy,d] of disc){ const X=x+dx, Y=y+dy; if(X<0||Y<0||X>=w||Y>=h) continue; const j=Y*w+X; if(inside[j]===v) continue; const dd=Math.max(.5,d-.5); if(dd<out[j]) out[j]=dd; } }
+  return out; }
+function renderTerritory(t,pathOf,idx){
+  const MK=(pad)=>{ const b=[Math.floor(t.bb[0]-pad),Math.floor(t.bb[1]-pad),Math.ceil(t.bb[2]+pad),Math.ceil(t.bb[3]+pad)], q=mkCanvas(Math.max(1,Math.round((b[2]-b[0])*R)),Math.max(1,Math.round((b[3]-b[1])*R))); q[1].setTransform(R,0,0,R,-b[0]*R,-b[1]*R); return [...q,b]; };
+  const b=[Math.floor(t.bb[0]-40),Math.floor(t.bb[1]-40),Math.ceil(t.bb[2]+40),Math.ceil(t.bb[3]+40)], [A,ax]=mkCanvas(Math.max(1,Math.round((b[2]-b[0])*R)),Math.max(1,Math.round((b[3]-b[1])*R)),{willReadFrequently:true}); ax.setTransform(R,0,0,R,-b[0]*R,-b[1]*R);      // A: the ground the territory holds (read back once, for the distance fields)
+  const ev=[...t.lines.map(l=>({i:idx.get(l),P:pathOf.get(l).P,er:false})),...t.er.map(e=>({i:e.i,P:e.P,er:true}))].sort((p,q)=>p.i-q.i);
+  ax.fillStyle='#000'; if(!t.er.length) fillTerritory(ax,t.lines); else for(const e of ev){ ax.globalCompositeOperation=e.er?'destination-out':'source-over'; ax.fill(e.P); } ax.globalCompositeOperation='destination-out'; t.carveT.forEach(o=>fillTerritory(ax,o.lines)); ax.globalCompositeOperation='source-over';
+  const l0=t.l0, f=realmFillOf(l0), col=REALM_COLS[realmColOf(l0)], k=(l0.width||2.5)/2.5, out={b,col:null,ink:null};
+  const AW=A.width, AH=A.height, Ad=ax.getImageData(0,0,AW,AH).data, inside=new Uint8Array(AW*AH); for(let i=0;i<inside.length;i++) inside[i]=Ad[i*4+3]>=128?1:0;
+  const hasCol=!!(col && (f==='wash' || f==='edge')), dIn=hasCol ? edt2(inside.map(v=>1-v),AW,AH) : null;      // squared distance from each pixel inside to the edge (to the nearest pixel outside), for the colour band
+  if(hasCol){ const a=clamp((l0.op ?? 55)/100,0,1)*.75, [Cc,cx]=MK(40), [P,px]=mkCanvas(AW,AH), im=px.createImageData(AW,AH), o=im.data, rgb=[1,3,5].map(i=>parseInt(col[1].slice(i,i+2),16));      // the colour
+    const steps=f==='wash' ? [[6*k,a*.45]] : (()=>{ const band=Math.max(10,Math.min(26,Math.min(t.bb[2]-t.bb[0],t.bb[3]-t.bb[1])*.12))*k; return [[2,.2],[1.6,.2],[1.25,.2],[.95,.2],[.65,.2],[.35,.22]].map(([dd,al])=>[band*dd,a*al]); })(), r2=steps.map(([d])=>(d*R)**2), base0=f==='wash' ? a*.7 : 0;
+    for(let i=0;i<AW*AH;i++){ const av=Ad[i*4+3]; if(!av) continue; let keep=1-base0; const g=dIn[i]; for(let j=0;j<r2.length;j++) if(g<=r2[j]) keep*=1-steps[j][1]; const al=(1-keep)*av; if(al<=0) continue; const q=i*4; o[q]=rgb[0]; o[q+1]=rgb[1]; o[q+2]=rgb[2]; o[q+3]=al; }      // the wash and the band rings, as they stack, kept to the ground's own soft edge
+    px.putImageData(im,0,0); cx.setTransform(1,0,0,1,0,0); if(f==='edge'){ const band=Math.max(10,Math.min(26,Math.min(t.bb[2]-t.bb[0],t.bb[3]-t.bb[1])*.12))*k; cx.filter=`blur(${band*.12*R}px)`; } cx.drawImage(P,0,0); cx.filter='none';      // the band is softened, as it always was
+    out.col=Cc; }
+  const [In,inx]=MK(40); inx.setTransform(1,0,0,1,0,0);      // the ink: hatching or stipple, and the border
+  { const a=clamp((l0.op ?? 55)/100,0,1), rn=mulberry((l0.seed||1)+17), [x0,y0,x1,y1]=t.bb, tb=TIER_BORDER[Math.min(TIER_BORDER.length-1,t.tier)];
+    if(f==='hatch' || f==='dots'){ const [T,tx]=MK(40); tx.strokeStyle=tx.fillStyle=INK; tx.globalAlpha=a;      // ink marks, kept to the ground held
+      if(f==='hatch'){ const ang=[.7,-.7,1.25,-1.25,.2,-.2][Math.floor(rn()*6)], dx=Math.cos(ang), dy=Math.sin(ang), R0=Math.hypot(x1-x0,y1-y0)/2+10, cx=(x0+x1)/2, cy=(y0+y1)/2; tx.beginPath(); for(let o=-R0;o<=R0;o+=6.5*k){ tx.moveTo(cx-dy*o-dx*R0,cy+dx*o-dy*R0); tx.lineTo(cx-dy*o+dx*R0,cy+dx*o+dy*R0); } tx.lineWidth=.8; tx.stroke(); }
+      else { tx.beginPath(); let row=0; for(let y=y0;y<=y1;y+=8*k,row++) for(let x=x0+(row%2)*5*k;x<=x1;x+=10*k){ const qx=x+(rn()-.5)*4, qy=y+(rn()-.5)*4, rr=.9+rn()*.6; tx.moveTo(qx+rr,qy); tx.arc(qx,qy,rr,0,7); } tx.fill(); }
+      tx.globalAlpha=1; tx.save(); tx.setTransform(1,0,0,1,0,0); tx.globalCompositeOperation='destination-in'; tx.drawImage(A,0,0); tx.restore(); inx.drawImage(T,0,0); }
+    const lw=(l0.width||2.5)*.9*tb.w, [Bd,bdx]=MK(40); bdx.strokeStyle=INK; bdx.lineCap='round'; bdx.lineJoin='round'; bdx.lineWidth=lw; bdx.setLineDash(tb.dash.map(d=>d*k));      // the border
+    for(const P of [...t.lines.map(l=>pathOf.get(l).P),...t.er.map(e=>e.P),...t.carve.map(q=>q.P)]) bdx.stroke(P); bdx.setLineDash([]);
+    const band=(lw*.5+1.2)*R, dE=edgeDist(inside,AW,AH,band+1), [Km,kmx]=mkCanvas(AW,AH), km=kmx.createImageData(AW,AH), kd=km.data;      // the border is kept only within a thin band round the edge, inside or out
+    for(let i=0;i<AW*AH;i++){ const dd=dE[i]; if(dd===Infinity) continue; const al=Math.max(0,Math.min(1,band-dd+.5)); if(al>0) kd[i*4+3]=al*255; }
+    kmx.putImageData(km,0,0); bdx.save(); bdx.setTransform(1,0,0,1,0,0); bdx.globalCompositeOperation='destination-in'; bdx.drawImage(Km,0,0); bdx.restore();
+    inx.drawImage(Bd,0,0); }
+  out.ink=In; return out; }
+/* Brings realmColC and realmInkC up to date; false when there is nothing to draw. Each territory is worked on a canvas of its own box. A is the ground it holds: its strokes
+   and the old eraser lines that apply to it, less the ground of later territories of the same tier. The border is every outline that could bound it (its own strokes, the
+   cuts and the territories that carve it) drawn dashed, then kept only in a thin band round A's edge, so overlapping strokes leave no line inside. */
+let realmLayerParts=null, realmLayerBase='', realmDirty=null, realmColLive=false;      // the parts laid last time, and the box that changed when they were laid again (null: all of it)
+function realmLayers(W,H){ const all=layers.lines.v ? S.lines.filter(l=>l.kind==='realm' && lyVisible(l)) : []; realmSig=all; if(!all.length){ realmCache.clear(); realmLayerParts=null; return false; }
   const idx=new Map(S.lines.map((l,i)=>[l,i])), pathOf=new Map(); for(const l of all){ const pts=realmPoly(l); if(pts.length<3) continue; const P=new Path2D(); pts.forEach((q,i)=>i?P.lineTo(q[0],q[1]):P.moveTo(q[0],q[1])); P.closePath(); let x0=1e9,x1=-1e9,y0=1e9,y1=-1e9; for(const q of pts){ x0=Math.min(x0,q[0]); x1=Math.max(x1,q[0]); y0=Math.min(y0,q[1]); y1=Math.max(y1,q[1]); } pathOf.set(l,{P,bb:[x0,y0,x1,y1]}); }
   const vis=new Set(all.filter(l=>pathOf.has(l))), erasers=all.filter(l=>l.erase && vis.has(l)).map(l=>({l,i:idx.get(l),tier:tierIdxOf(l.tier),gid:l.gid,...pathOf.get(l)}));
   const TT=territories().map(t=>({...t,lines:t.lines.filter(l=>vis.has(l))})).filter(t=>t.lines.length).sort((a,b)=>a.tier-b.tier || a.first-b.first);      // highest tier first (drawn beneath), and within a tier in the order drawn
   const over=(a,b)=>!(a[2]<b[0]||b[2]<a[0]||a[3]<b[1]||b[3]<a[1]);
   for(const t of TT){ let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9; for(const l of t.lines){ const b=pathOf.get(l).bb; x0=Math.min(x0,b[0]); y0=Math.min(y0,b[1]); x1=Math.max(x1,b[2]); y1=Math.max(y1,b[3]); } t.bb=[x0,y0,x1,y1]; t.l0=t.lines[0];
     t.carveT=TT.filter(o=>o!==t && o.tier===t.tier && o.first>t.first && o.lines.some(l=>over(pathOf.get(l).bb,t.bb))); t.carve=t.carveT.flatMap(o=>o.lines.map(l=>pathOf.get(l))).filter(q=>over(q.bb,t.bb)); t.er=erasers.filter(e=>(e.gid ? e.gid===t.gid : e.tier===t.tier) && over(e.bb,t.bb)); }
-  const cut=()=>{ tc.globalAlpha=1; tc.globalCompositeOperation='destination-in'; tc.drawImage(landMask,0,0,W,H); tc.globalCompositeOperation='source-over'; };
-  const MK=(t,pad)=>{ const b=[Math.floor(t.bb[0]-pad),Math.floor(t.bb[1]-pad),Math.ceil(t.bb[2]+pad),Math.ceil(t.bb[3]+pad)], q=mkCanvas(Math.max(1,Math.round((b[2]-b[0])*R)),Math.max(1,Math.round((b[3]-b[1])*R))); q[1].setTransform(R,0,0,R,-b[0]*R,-b[1]*R); return [...q,b]; };
-  const clone=(src)=>{ const [c,x]=mkCanvas(src.width,src.height); x.drawImage(src,0,0); return [c,x]; };
-  const morph=(src,d,grow)=>{ const [c,x]=clone(src); x.globalCompositeOperation=grow?'source-over':'destination-in'; const dp=d*R; for(let i=0;i<16;i++){ const th=i/16*Math.PI*2; x.drawImage(src,Math.cos(th)*dp,Math.sin(th)*dp); } return c; };      // grow or shrink a mask by d
-  for(const t of TT){ const pad=40, [A,ax,b]=MK(t,pad);      // A: the ground the territory holds
-    const ev=[...t.lines.map(l=>({i:idx.get(l),P:pathOf.get(l).P,er:false})),...t.er.map(e=>({i:e.i,P:e.P,er:true}))].sort((p,q)=>p.i-q.i);
-    ax.fillStyle='#000'; if(!t.er.length) fillTerritory(ax,t.lines); else for(const e of ev){ ax.globalCompositeOperation=e.er?'destination-out':'source-over'; ax.fill(e.P); } ax.globalCompositeOperation='destination-out'; t.carveT.forEach(o=>fillTerritory(ax,o.lines)); ax.globalCompositeOperation='source-over';
-    t.A=A; t.b=b; }
-  tc.globalAlpha=1; tc.globalCompositeOperation='source-over'; tc.clearRect(0,0,W,H); let anyCol=false;
-  for(const t of TT){ const l0=t.l0, f=realmFillOf(l0), col=REALM_COLS[realmColOf(l0)], a=clamp((l0.op ?? 55)/100,0,1)*.75, k=(l0.width||2.5)/2.5, b=t.b, bw=b[2]-b[0], bh=b[3]-b[1]; if(!col || (f!=='wash' && f!=='edge')) continue; anyCol=true;
-    const tint=(src,al,soft)=>{ const [T,tx]=clone(src); tx.globalCompositeOperation='source-in'; tx.fillStyle=col[1]; tx.fillRect(0,0,T.width,T.height); if(soft){ tx.globalCompositeOperation='destination-in'; tx.drawImage(t.A,0,0); } tc.globalAlpha=al; if(soft) tc.filter=`blur(${soft*R}px)`; tc.drawImage(T,b[0],b[1],bw,bh); tc.filter='none'; tc.globalAlpha=1; };
-    const ring=d=>{ const [B,bx2]=clone(t.A); bx2.globalCompositeOperation='destination-out'; bx2.drawImage(morph(t.A,d,false),0,0); return B; };      // the part of the ground within d of its edge (a hole has an edge too)
-    if(f==='wash'){ tint(t.A,a*.7); tint(ring(6*k),a*.45); }
-    else { const band=Math.max(10,Math.min(26,Math.min(t.bb[2]-t.bb[0],t.bb[3]-t.bb[1])*.12))*k; for(const [d,al] of [[2,.2],[1.6,.2],[1.25,.2],[.95,.2],[.65,.2],[.35,.22]]) tint(ring(band*d),a*al,band*.12); } }      // the band, fading in fine steps from the edge inward
-  if(anyCol){ cut(); bc.save(); bc.globalCompositeOperation='multiply'; bc.drawImage(tmpC,0,0,W,H); bc.restore(); }
-  tc.globalAlpha=1; tc.globalCompositeOperation='source-over'; tc.clearRect(0,0,W,H);
-  for(const t of TT){ const l0=t.l0, f=realmFillOf(l0), k=(l0.width||2.5)/2.5, a=clamp((l0.op ?? 55)/100,0,1), rn=mulberry((l0.seed||1)+17), [x0,y0,x1,y1]=t.bb, b=t.b, bw=b[2]-b[0], bh=b[3]-b[1], tb=TIER_BORDER[Math.min(TIER_BORDER.length-1,t.tier)];
-    if(f==='hatch' || f==='dots'){ const [T,tx]=MK(t,40); tx.strokeStyle=tx.fillStyle=INK; tx.globalAlpha=a;      // ink marks, kept to the ground held
-      if(f==='hatch'){ const ang=[.7,-.7,1.25,-1.25,.2,-.2][Math.floor(rn()*6)], dx=Math.cos(ang), dy=Math.sin(ang), R0=Math.hypot(x1-x0,y1-y0)/2+10, cx=(x0+x1)/2, cy=(y0+y1)/2; tx.beginPath(); for(let o=-R0;o<=R0;o+=6.5*k){ tx.moveTo(cx-dy*o-dx*R0,cy+dx*o-dy*R0); tx.lineTo(cx-dy*o+dx*R0,cy+dx*o+dy*R0); } tx.lineWidth=.8; tx.stroke(); }
-      else { tx.beginPath(); let row=0; for(let y=y0;y<=y1;y+=8*k,row++) for(let x=x0+(row%2)*5*k;x<=x1;x+=10*k){ const qx=x+(rn()-.5)*4, qy=y+(rn()-.5)*4, rr=.9+rn()*.6; tx.moveTo(qx+rr,qy); tx.arc(qx,qy,rr,0,7); } tx.fill(); }
-      tx.globalAlpha=1; tx.save(); tx.setTransform(1,0,0,1,0,0); tx.globalCompositeOperation='destination-in'; tx.drawImage(t.A,0,0); tx.restore(); tc.drawImage(T,b[0],b[1],bw,bh); }
-    const lw=(l0.width||2.5)*.9*tb.w, [Bd,bdx]=MK(t,40); bdx.strokeStyle=INK; bdx.lineCap='round'; bdx.lineJoin='round'; bdx.lineWidth=lw; bdx.setLineDash(tb.dash.map(d=>d*k));      // the border
-    for(const P of [...t.lines.map(l=>pathOf.get(l).P),...t.er.map(e=>e.P),...t.carve.map(q=>q.P)]) bdx.stroke(P); bdx.setLineDash([]);
-    const band=lw*.5+1.2; bdx.save(); bdx.setTransform(1,0,0,1,0,0); bdx.globalCompositeOperation='destination-in'; bdx.drawImage(morph(t.A,band,true),0,0); bdx.globalCompositeOperation='destination-out'; bdx.drawImage(morph(t.A,band,false),0,0); bdx.restore();
-    tc.drawImage(Bd,b[0],b[1],bw,bh); }
-  cut(); bc.drawImage(tmpC,0,0,W,H); }
+  const seen=new Set(), parts=[];
+  for(const t of TT){ const key=[R,t.tier,...t.lines.map(oid),'|',...t.er.map(e=>oid(e.l)+'@'+e.i),'|',...t.carveT.flatMap(o=>o.lines.map(oid))].join(); let e=realmCache.get(t.gid);
+    if(!e || e.key!==key){ e={key,...renderTerritory(t,pathOf,idx)}; realmCache.set(t.gid,e); } seen.add(t.gid); parts.push(e); }
+  for(const g of [...realmCache.keys()]) if(!seen.has(g)) realmCache.delete(g);
+  const lkey=[landVer,R,W,H,...parts.map(oid)].join(); if(lkey===realmLayerKey && realmInkC) return true; realmLayerKey=lkey;
+  const lbase=[landVer,R,W,H].join(), prev=realmLayerParts && realmLayerBase===lbase && realmInkC ? realmLayerParts : null; realmLayerParts=parts; realmLayerBase=lbase;
+  let box=null; const grow=b=>{ box=box ? [Math.min(box[0],b[0]),Math.min(box[1],b[1]),Math.max(box[2],b[2]),Math.max(box[3],b[3])] : b.slice(); };
+  if(prev){ const was=new Set(prev), now=new Set(parts); for(const e of prev) if(!now.has(e)) grow(e.b); for(const e of parts) if(!was.has(e)) grow(e.b); }      // only where a territory changed (or one it carves or is carved by) is laid again
+  if(box) box=[Math.max(0,Math.floor(box[0]-2)),Math.max(0,Math.floor(box[1]-2)),Math.min(W,Math.ceil(box[2]+2)),Math.min(H,Math.ceil(box[3]+2))]; realmDirty=box;
+  const mk=()=>{ const a=mkCanvas(W*R,H*R); a[1].setTransform(R,0,0,R,0,0); return a; }, lay=(C,list,bx)=>{ const x=C.getContext('2d'); x.setTransform(R,0,0,R,0,0); x.save(); x.globalAlpha=1; x.globalCompositeOperation='source-over';
+    if(bx){ x.beginPath(); x.rect(bx[0],bx[1],bx[2]-bx[0],bx[3]-bx[1]); x.clip(); x.clearRect(bx[0],bx[1],bx[2]-bx[0],bx[3]-bx[1]); } else x.clearRect(0,0,W,H);
+    for(const e of list){ const b=e.b; if(bx && (b[2]<bx[0] || b[0]>bx[2] || b[3]<bx[1] || b[1]>bx[3])) continue; x.drawImage(list===parts ? e.ink : e.col,b[0],b[1],b[2]-b[0],b[3]-b[1]); } x.globalCompositeOperation='destination-in'; x.drawImage(landMask,0,0,W,H); x.restore(); };
+  const cols=parts.filter(e=>e.col); realmHasCol=cols.length>0; realmHasInk=true;
+  if(realmHasCol){ const fresh=!realmColC || !realmColLive; if(!realmColC) realmColC=mk()[0]; lay(realmColC,cols,fresh || !prev ? null : box); } realmColLive=realmHasCol;      // the colour layer is kept up to date only while some territory has colour
+  if(!realmInkC) realmInkC=mk()[0]; lay(realmInkC,parts,prev ? box : null); if(prev && !box) realmDirty=null; return true; }
+function drawRealms(W,H){ if(!realmLayers(W,H)) return; if(realmHasCol){ bc.save(); bc.globalCompositeOperation='multiply'; bc.drawImage(realmColC,0,0,W,H); bc.restore(); } bc.drawImage(realmInkC,0,0,W,H); }
+function composeRealmsOnly(){ const W=S.w, H=S.h; realmDirty=null; realmLayers(W,H); const d=realmDirty; bc.save(); if(d){ bc.beginPath(); bc.rect(d[0],d[1],d[2]-d[0],d[3]-d[1]); bc.clip(); }      // redrawn only where the territories changed
+  bc.save(); bc.setTransform(1,0,0,1,0,0); bc.globalAlpha=1; bc.globalCompositeOperation='copy'; bc.drawImage(prebaseC,0,0); bc.restore(); drawRealms(W,H); bc.drawImage(cliffC,0,0,W,H); bc.restore(); }      // only the territories changed: the sheet under them is kept
 /* ============================================================ dungeon sheet
    The floor plan is the union of the room and corridor shapes (S.lands; a cut shape digs a hole). Everything else is made from it:
    a distance field over the rock gives the hatching, thickest at the wall and thinning out; the wall is the floor's own silhouette nudged
@@ -2235,7 +2320,7 @@ function faceHidden(){      // stamps standing on a cliff face, its edge or in a
   if(faceFor===S.stamps && faceKey===cliffBuilt && cliffBuilt.cliffs===S.cliffs) return faceSet;
   faceFor=S.stamps; faceKey=cliffBuilt; faceSet=new Set(); if(cliffBuilt.cliffs!==S.cliffs) return faceSet;
   const boxes=S.cliffs.map(c=>{ landPath(c); return built.get(c).bb; }).filter(b=>b);
-  for(const st of S.stamps){ if(boxes.some(b=>st.x>b[0]-60 && st.x<b[2]+60 && st.y>b[1]-60 && st.y<b[3]+60)){ const px=Math.round(st.x*R), py=Math.round(st.y*R); if(px<0||py<0||px>=csx.canvas.width||py>=csx.canvas.height) continue; if(csx.getImageData(px,py,1,1).data[3]>128) faceSet.add(st); } }
+  for(const st of S.stamps){ if(boxes.some(b=>st.x>b[0]-60 && st.x<b[2]+60 && st.y>b[1]-60 && st.y<b[3]+60)){ const px=Math.round(st.x*R), py=Math.round(st.y*R), cw=csx.canvas.width; if(px<0||py<0||px>=cw||py>=csx.canvas.height) continue; if(cliffAlpha()[py*cw+px]>128) faceSet.add(st); } }
   return faceSet; }
 function spriteAlpha(s,p){      // how solid a stamp's drawing is at map point p (0-255), read from its sprite the way the selection hit-test reads it (rotation and mirroring included, the faded foot counts as clear)
   const a=-s.rot*Math.PI/180, dx=p[0]-s.x, dy=p[1]-s.y, lx=dx*Math.cos(a)-dy*Math.sin(a), ly=dx*Math.sin(a)+dy*Math.cos(a), full=s.size*sprSide(s.kind); if(Math.abs(lx)>full/2 || Math.abs(ly)>full/2) return 0;
@@ -2289,7 +2374,7 @@ function drawVectors(c,k,vp){      // vp: the part of the map in view [x0,y0,x1,
 
 /* ============================================================ view */
 const cv=$('view'), ctx=cv.getContext('2d'), stage=$('stage');
-const view={x:0,y:0,k:1}; let dirty=false, need={land:false,compose:null}, hover=null;
+const view={x:0,y:0,k:1}; let dirty=false, need={land:false,compose:null,realms:false}, hover=null;
 function drawFrame(c){ const W=S.w, H=S.h, u=Math.min(W,H), m=Math.round(u*.016), bw=Math.max(6,Math.round(u*.012)); c.save(); c.strokeStyle=c.fillStyle=INK; c.lineJoin='miter';      // the neatline round the sheet; 'graduated' adds the black-and-white scale border of a sea chart
   if(S.frame==='line'){ c.lineWidth=Math.max(2,u*.004); c.strokeRect(m,m,W-2*m,H-2*m); c.lineWidth=1; c.strokeRect(m+bw*.7,m+bw*.7,W-2*m-bw*1.4,H-2*m-bw*1.4); c.restore(); return; }
   const x0=m, y0=m, x1=W-m, y1=H-m; c.fillStyle=PAPER(); c.fillRect(x0,y0,x1-x0,bw); c.fillRect(x0,y1-bw,x1-x0,bw); c.fillRect(x0,y0,bw,y1-y0); c.fillRect(x1-bw,y0,bw,y1-y0); c.fillStyle=INK;
@@ -2300,19 +2385,23 @@ function drawFrame(c){ const W=S.w, H=S.h, u=Math.min(W,H), m=Math.round(u*.016)
 let rhumbFor=null;
 let cliffLandFor=null;
 function invalidate(){ if(dirty) return; dirty=true; requestAnimationFrame(()=>{ dirty=false;
-  { const rs=layers.lines.v ? S.lines.filter(l=>l.kind==='realm' && lyVisible(l)) : []; if(rs.length!==realmSig.length || rs.some((l,i)=>l!==realmSig[i])) need.compose=need.compose||true; }      // a realm was drawn, moved, reshaped or removed
+  { const rs=layers.lines.v ? S.lines.filter(l=>l.kind==='realm' && lyVisible(l)) : []; if(rs.length!==realmSig.length || rs.some((l,i)=>l!==realmSig[i])) need.realms=true; }      // a territory was drawn, moved, reshaped or removed
   if(S.rhumb && rhumbFor!==S.stamps){ const sig=S.stamps.filter(s=>s.kind==='compass').map(s=>[s.x,s.y,s.rot,s.size].join()).join(';'); if(sig!==invalidate.sig){ invalidate.sig=sig; need.compose='full'; } rhumbFor=S.stamps; }
+  if(!act && S.kind!=='dungeon' && heightCache.grid && heightCache.grid.fs!==mtnSig()) need.compose=need.compose||'full';      // a mountain placed, moved or removed changes the relief (once it is let go)
   if(cliffLandFor!==S.cliffs){ cliffLandFor=S.cliffs; need.land=true; need.compose=need.compose||(act?'fast':'full'); }      // cliffs are part of the land, so changing them changes the coast
   if(need.land){ rebuildLand(need.compose==='full'); need.land=false; }
-  if(need.compose){ compose(need.compose==='full'); need.compose=null; }
+  if(need.compose){ compose(need.compose==='full'); need.compose=null; need.realms=false; }
+  else if(need.realms){ need.realms=false; if(S.kind!=='dungeon' && !S.hm){ if(prebaseOK && prebaseC && prebaseC.width===base.width && prebaseC.height===base.height) composeRealmsOnly(); else compose(false); } }      // only the territories changed
   draw(); }); }
 function resize(){ const r=stage.getBoundingClientRect(), d=DPR(); cv.width=Math.max(1,r.width*d); cv.height=Math.max(1,r.height*d); invalidate(); }
 function fitView(){ const r=stage.getBoundingClientRect(); if(!r.width) return; view.k=Math.min((r.width-32)/S.w,(r.height-32)/S.h); view.x=(r.width-S.w*view.k)/2; view.y=(r.height-S.h*view.k)/2; invalidate(); }
 const toWorld = e => { const r=cv.getBoundingClientRect(); return [(e.clientX-r.left-view.x)/view.k, (e.clientY-r.top-view.y)/view.k]; };
 function zoomAt(sx,sy,f){ const k=clamp(view.k*f,0.08,6); f=k/view.k; view.x=sx-(sx-view.x)*f; view.y=sy-(sy-view.y)*f; view.k=k; invalidate(); }
+const darkMQ=window.matchMedia('(prefers-color-scheme: dark)'); let wellFor=null, wellCol='#ccc';
+const wellColour=()=>{ const k=(document.documentElement.getAttribute('data-theme')||'')+(darkMQ.matches?'d':'l'); if(k!==wellFor){ wellFor=k; wellCol=getComputedStyle(document.documentElement).getPropertyValue('--well')||'#ccc'; } return wellCol; };      // read from the style sheet only when the theme changes, not every frame (reading it forces the page's styles to be worked out)
 function draw(){
   const d=DPR(); ctx.setTransform(d,0,0,d,0,0);
-  ctx.fillStyle=getComputedStyle(document.documentElement).getPropertyValue('--well')||'#ccc'; ctx.fillRect(0,0,cv.width,cv.height);
+  ctx.fillStyle=wellColour(); ctx.fillRect(0,0,cv.width,cv.height);
   ctx.translate(view.x,view.y); ctx.scale(view.k,view.k);
   ctx.fillStyle='rgba(0,0,0,.25)'; ctx.fillRect(5/view.k,6/view.k,S.w,S.h);
   ctx.drawImage(base,0,0,S.w,S.h);
@@ -2693,7 +2782,7 @@ cv.addEventListener('pointermove',e=>{
   if(pinch && pointers.size===2){ const [a,b]=[...pointers.values()], d=dist(a,b), cx=(a[0]+b[0])/2, cy=(a[1]+b[1])/2, r=cv.getBoundingClientRect();
     view.x+=cx-pinch.cx; view.y+=cy-pinch.cy; zoomAt(cx-r.left,cy-r.top,d/(pinch.d||1)); pinch={d,cx,cy}; return; }
   const p=toWorld(e); hover=p;
-  if(!act){ if(draft || (DUNG() && (opts.tool==='room'||opts.tool==='corridor'||opts.tool==='dwall')) || opts.tool==='paint'||opts.tool==='floor'||opts.tool==='stamp'||opts.tool==='reshape'||landBrushOn()) invalidate(); return; }
+  if(!act){ if(draft || (DUNG() && (opts.tool==='room'||opts.tool==='corridor'||opts.tool==='dwall')) || opts.tool==='paint'||opts.tool==='floor'||opts.tool==='stamp'||opts.tool==='reshape'||(opts.tool==='realm' && opts.realmBrush)||landBrushOn()) invalidate(); return; }      // tools that show a brush ring or a ghost under the pointer
   if(act.type==='pan'){ view.x=act.vx+e.clientX-act.sx; view.y=act.vy+e.clientY-act.sy; }
   else if(act.type==='xf'){ act.shift=e.shiftKey; xfApply(p); }
   else if(act.type==='pull'){ const a=act, dx=p[0]-a.start[0], dy=p[1]-a.start[1]; if(!a.moved){ if(Math.hypot(dx,dy)<3/view.k) return; pushUndo(); a.moved=true; }
@@ -2702,7 +2791,7 @@ cv.addEventListener('pointermove',e=>{
   else if(act.type==='box') act.b=p;
   else if(act.type==='drect') act.b=gsnap(p);
   else if(act.type==='shape'||act.type==='line'||act.type==='fill'||act.type==='measure') addPoint(act,p,5);
-  else if(act.type==='elev'){ if(addPoint(act,p,8)){ const now=performance.now(); if(now-act.t>140){ act.t=now; const ns={...act.stroke}; S.elev=S.elev.map(o=>o===act.stroke?ns:o); act.stroke=ns; need.compose='fast'; } } }      // the relief is redrawn a few times a second while painting, and fully at the end
+  else if(act.type==='elev'){ if(addPoint(act,p,8)){ const now=performance.now(); if(now-act.t>70){ act.t=now; const ns={...act.stroke}; S.elev=S.elev.map(o=>o===act.stroke?ns:o); act.stroke=ns; need.compose='fast'; } } }      // the relief is redrawn a few times a second while painting, and fully at the end
   else if(act.type==='rbrush'){ if(addPoint(act,p,8)){ const now=performance.now(); if(now-act.t>110){ act.t=now; const nl={...act.line}; S.lines=S.lines.map(o=>o===act.line?nl:o); act.line=nl; } } }
   else if(act.type==='cbrush'){ if(addPoint(act,p,6)){ const nc={...act.cliff}; S.cliffs=S.cliffs.map(o=>o===act.cliff?nc:o); act.cliff=nc; need.compose='fast'; } }
   else if(act.type==='cheight' && sel){ if(!act.moved){ pushUndo(); act.moved=true; }   // drag up for a plateau, down past level for a pit
@@ -2749,7 +2838,7 @@ function endPointer(e){
       S.cliffs=[...S.cliffs,{mode:a.mode,pts:resample(a.pts,10,true),rough:opts.cliffRough,seed:rseed(),h:opts.cliffH,taper:opts.cliffTaper,dir:opts.cliffDir}]; need.compose='full'; }
     else if(a.pts.length>=4 && Math.max(...xs)-Math.min(...xs)>14 && Math.max(...ys)-Math.min(...ys)>14){ pushUndo();
       S.lands=[...S.lands,{mode:a.mode,pts:resample(a.pts,10,true),rough:a.cave?opts.caveRough:opts.landRough,seed:rseed(),t:++S.tick,...(a.cave?{floor:1,tex:opts.roomTex==='flag'?'dirt':opts.roomTex}:{})}]; need.land=true; need.compose='full'; } }
-  else if(a.type==='line'){ if(a.pts.length>=3){ pushUndo(); S.lines=[...S.lines,withLy({kind:a.kind,pts:resample(a.pts,10,a.kind==='realm'),rough:opts.lineRough,width:opts.lineWidth[a.kind],seed:rseed(),...(a.kind==='realm'?territoryProps():{}),...(a.kind==='fence'?{style:opts.fenceStyle}:{})})]; if(a.kind==='realm'){ mergeStroke(S.lines[S.lines.length-1]); need.compose='full'; renderPanel(); } if(a.kind==='river'){ need.land=true; need.compose='full'; } } }
+  else if(a.type==='line'){ if(a.pts.length>=3){ pushUndo(); S.lines=[...S.lines,withLy({kind:a.kind,pts:resample(a.pts,10,a.kind==='realm'),rough:opts.lineRough,width:opts.lineWidth[a.kind],seed:rseed(),...(a.kind==='realm'?territoryProps():{}),...(a.kind==='fence'?{style:opts.fenceStyle}:{})})]; if(a.kind==='realm'){ mergeStroke(S.lines[S.lines.length-1]); need.realms=true; renderPanel(); } if(a.kind==='river'){ need.land=true; need.compose='full'; } } }
   else if(a.type==='fpaint'){ need.compose='full'; queueSave(); }
   else if(a.type==='paint'){ pushUndo(); S.paints=[...S.paints,{...a.stroke,t:++S.tick}]; need.compose='full'; }
   else if(a.type==='lbrush'){ need.land=true; need.compose='full'; }
@@ -2757,8 +2846,8 @@ function endPointer(e){
   else if(a.type==='rbrush' && a.line.erase){ const er=a.line, ep=realmPoly({...er}), tid=er.tier; S.lines=S.lines.filter(o=>o!==er);      // the eraser takes ground out of each territory of this tier it touches, and is not kept
     const hit=territories().filter(t=>tierList()[t.tier].id===tid && t.lines.some(l=>{ const lp=realmPoly(l); return ep.some(q=>ptInPoly(q,lp)) || lp.some(q=>ptInPoly(q,ep)); }));
     for(const t of hit){ const g=t.lines[0].gid||t.gid, l0=t.lines[0]; for(const ps of piecesOf(t)){ if(!ps.some(l=>polysMeet(realmPoly(l),ep))) continue; replaceLines(ps,retrace(ps,null,ep).map(r=>ringLine(l0,g,r))); } S.lines=S.lines.filter(o=>!(o.erase && o.gid===g)); }      // only the pieces it touched are redrawn
-    if(!hit.length){ undoStack.pop(); syncButtons(); } if(opts.realmGid && !territories().some(t=>t.gid===opts.realmGid)) opts.realmGid=null; sel=null; need.compose='full'; renderPanel(); }
-  else if(a.type==='rbrush'){ const nl={...a.line}; S.lines=S.lines.map(o=>o===a.line?nl:o); mergeStroke(nl); need.compose='full'; renderPanel(); }
+    if(!hit.length){ undoStack.pop(); syncButtons(); } if(opts.realmGid && !territories().some(t=>t.gid===opts.realmGid)) opts.realmGid=null; sel=null; need.realms=true; renderPanel(); }
+  else if(a.type==='rbrush'){ const nl={...a.line}; S.lines=S.lines.map(o=>o===a.line?nl:o); mergeStroke(nl); need.realms=true; renderPanel(); }      // only the territories are drawn again
   else if(a.type==='elev'){ const ns={...a.stroke}; S.elev=S.elev.map(o=>o===a.stroke?ns:o); need.compose='full'; }
   else if(a.type==='pull'){ if(a.moved){ const n={...a.cur,pts:densify(a.cur.pts,a.key==='lines'?3:4,a.closed)}; S[a.key]=S[a.key].map(o=>o===a.cur?n:o); shapeDirty(a.key,n,true); need.compose='full'; } }
   else if(a.type==='cut'){ if(a.before===S.lines) undoStack.pop(); else { need.land=true; need.compose='full'; } syncButtons(); }
@@ -2782,7 +2871,7 @@ lblEdit.addEventListener('keydown',e=>{ e.stopPropagation(); if((e.key==='Enter'
 lblEdit.addEventListener('blur',endLabelEdit);
 cv.addEventListener('dblclick',e=>{ const h=hitTest(toWorld(e)); if(h && h.type==='label'){ sel=h; setTool('select'); renderPanel(); editLabel(false); } });
 window.addEventListener('keydown',e=>{
-  if(/INPUT|SELECT|TEXTAREA/.test(e.target.tagName) && e.target.type!=='range') return;
+  if(/INPUT|SELECT|TEXTAREA/.test(e.target.tagName) && (e.target.type!=='range' || /^(Arrow|Page|Home|End)/.test(e.key))) return;      // a focused slider keeps its own keys (arrows step it); other shortcuts still work from it
   const mod=e.ctrlKey||e.metaKey;
   if(mod && e.key.toLowerCase()==='z'){ e.preventDefault(); e.shiftKey?redo():undo(); }
   else if(mod && e.key.toLowerCase()==='y'){ e.preventDefault(); redo(); }
@@ -3079,9 +3168,9 @@ async function saveFile(filename, blob){
 }
 $('saveBtn').onclick=()=>saveFile(slug()+'.json', new Blob([serialize()],{type:'application/json'}));
 /* Export draws on about BUFFER_COUNT full-size images at once: 10 full-size canvases (see initBuffers), 8 more at half size each way (a quarter of the area, so 2), and about 3 for the pixel reads
-   that clean up ground marks and place the woodland edge. EXPORT_BUDGET is the most pixels, counted that way, that is offered; the size dialog shows both numbers. */
-const BUFFER_COUNT=16, EXPORT_BUDGET=260e6, exportMP=k=>S.w*S.h*k*k/1e6, MAX_IMAGE_MP=EXPORT_BUDGET/BUFFER_COUNT/1e6;
-const maxScale = () => { let m=1; for(const k of [1.5,2,3,4]) if(S.w*S.h*k*k*BUFFER_COUNT<=EXPORT_BUDGET) m=k; return m; };
+   that clean up ground marks and place the woodland edge; territories add two more (their colour and their ink, see realmLayers). EXPORT_BUDGET is the most pixels, counted that way, that is offered; the size dialog shows both numbers. */
+const BUFFER_COUNT=16, EXPORT_BUDGET=260e6, exportMP=k=>S.w*S.h*k*k/1e6, bufCount=()=>BUFFER_COUNT+(S.lines.some(l=>l.kind==='realm')?2:0), maxImageMP=()=>EXPORT_BUDGET/bufCount()/1e6;
+const maxScale = () => { let m=1; for(const k of [1.5,2,3,4]) if(S.w*S.h*k*k*bufCount()<=EXPORT_BUDGET) m=k; return m; };
 function setDetail(k){ R=k; initBuffers(); rebuildAll(); }
 function exportPNG(scale){
   toast('Drawing the map at '+Math.round(S.w*scale)+' × '+Math.round(S.h*scale)+'…');
@@ -3097,9 +3186,9 @@ function buffersOK(){      // a browser that cannot allocate a canvas as large a
   return [base,terrainC,landMask,cliffC,waterC].every(c=>{ if(!c || c.width!==want[0] || c.height!==want[1]) return false;
     try{ const x=c.getContext('2d'); x.save(); x.setTransform(1,0,0,1,0,0); x.globalCompositeOperation='copy'; x.fillStyle='#010203'; x.fillRect(0,0,1,1); const d=x.getImageData(0,0,1,1).data; x.clearRect(0,0,1,1); x.restore(); return d[0]===1 && d[1]===2 && d[2]===3; }catch(e){ return false; } }); }
 function releaseBuffers(){      // shrunk, not nulled: the screen may still be redrawn before the export finishes, and drawing a 1 x 1 canvas is harmless where drawing a missing one is not
-  for(const c of [tmpC,invC,innerC,coastC,ringC,halfC,cliffSolidC,cleanC,landMask,landLayer,terrainC,waterC,cliffC,ecoC,reliefC,tintC,sbC,clipC]) if(c){ c.width=1; c.height=1; } cleanFor=null; ecoFor=null; reliefFor=null; }
+  for(const c of [tmpC,invC,innerC,coastC,ringC,halfC,cliffSolidC,cleanC,landMask,landLayer,terrainC,waterC,cliffC,ecoC,reliefC,tintC,clipC,realmColC,realmInkC,prebaseC]) if(c){ c.width=1; c.height=1; } cleanFor=null; ecoFor=null; reliefFor=null; realmCache.clear(); realmLayerKey=''; realmLayerParts=null; prebaseOK=false; alphaReads.clear(); landFor=null; baseIsMap=false; }
 $('pngBtn').onclick=()=>{ const top=maxScale();
-  $('expSizes').innerHTML=[1,2,3,4].map(k=>`<label><input type="radio" name="exp" value="${k}" id="ex${k}" ${k===Math.min(2,top)?'checked':''} ${k>top?'disabled':''}> ${k===1?'Standard':k+'× size'} (${S.w*k} × ${S.h*k})${k>top?` · too large for this map (${exportMP(k).toFixed(0)} megapixels; about ${Math.floor(MAX_IMAGE_MP)} is the most it will draw)`:''}</label>`).join('');
+  $('expSizes').innerHTML=[1,2,3,4].map(k=>`<label><input type="radio" name="exp" value="${k}" id="ex${k}" ${k===Math.min(2,top)?'checked':''} ${k>top?'disabled':''}> ${k===1?'Standard':k+'× size'} (${S.w*k} × ${S.h*k})${k>top?` · too large for this map (${exportMP(k).toFixed(0)} megapixels; about ${Math.floor(maxImageMP())} is the most it will draw)`:''}</label>`).join('');
   $('expDlg').showModal(); };
 $('expDlg').addEventListener('close',()=>{ if($('expDlg').returnValue==='ok') exportPNG(+document.querySelector('input[name=exp]:checked').value); });
 $('openBtn').onclick=()=>$('fileIn').click();
