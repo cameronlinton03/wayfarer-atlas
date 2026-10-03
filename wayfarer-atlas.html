@@ -803,7 +803,7 @@ function rebuildCliffs(){
   const downs=S.cliffs.filter(c=>c.mode==='down'), ink=INK;
   const shape=(x,c)=>{ landPath(c); const b=built.get(c); x.fillStyle=x.strokeStyle='#000'; x.fill(b.path); if(b.core){ x.lineWidth=b.cw; x.lineCap=x.lineJoin='round'; x.stroke(b.core); } };
   for(const c of S.cliffs){ if(c.mode==='down') continue;
-    const {bb,u,mid,L}=cliffAxis(c), H=c.h ?? 26, tp=c.taper||0, pad=6, bx=Math.floor(bb[0]-pad), by=Math.floor(bb[1]-pad), bw=Math.ceil(bb[2]-bb[0]+pad*2), bh=Math.ceil(bb[3]-bb[1]+pad*2+Math.max(H,0));
+    const {bb,u,mid,L}=cliffAxis(c), H=c.h ?? 26, tp=c.taper||0, pad=6, bx=Math.floor(bb[0]-pad), by=Math.floor(bb[1]-pad-Math.max(H,0)), bw=Math.ceil(bb[2]-bb[0]+pad*2), bh=Math.ceil(bb[3]-bb[1]+pad*2+Math.max(H,0));      // a plateau rises above its outline, so the box reaches up by its height
     if(bw<2||bh<2||Math.abs(H)<3) continue;
     const mk=()=>{ const q=mkCanvas(bw*R,bh*R); q[1].setTransform(R,0,0,R,-bx*R,-by*R); return q; }, [A,a]=mk(), [B,b]=mk(), [C,cx]=mk(), [D,d]=mk(), [O,ox]=mk(); let od=null;      // O: the outline of a plateau on a layer of its own, so a ramp can lose its edge before it loses its hatching
     shape(a,c); a.globalCompositeOperation='destination-out'; downs.forEach(dn=>shape(a,dn)); a.globalCompositeOperation='destination-in'; a.drawImage(landMask,0,0,S.w,S.h);   // A = the raised (or sunken) area, on land only
@@ -858,12 +858,16 @@ function rebuildCliffs(){
         hatchRows(ph,bx,by,bw,bh,1.5,.5,43); ps.globalCompositeOperation='source-in'; ps.drawImage(Ph,bx,by,bw,bh); cx.drawImage(Ps,bx,by,bw,bh); }
       fadeLow(cx,bw,bh,.14,.22); cf.drawImage(C,bx,by,bw,bh); csx.drawImage(Wc,bx,by,bw,bh); csx.lineWidth=3.4; csx.strokeStyle='#000'; csx.stroke(built.get(c).path); continue; }
     od=ox;
+    { d.globalCompositeOperation='source-over'; d.clearRect(bx,by,bw,bh); d.drawImage(A,bx,by,bw,bh); a.save(); a.setTransform(R,0,0,R,-bx*R,-by*R); a.globalCompositeOperation='source-over'; a.clearRect(bx,by,bw,bh);      // the outline drawn is the plateau's foot: its top stands that high above it (on a ramp, as high as the ramp is there), so the face comes down onto the outline
+      if(!tp) a.drawImage(D,bx,by-H,bw,bh); else { const NS=48; for(let q=0;q<NS;q++){ const s0=q/NS, s1=(q+1)/NS+.004, f=(1-tp)+tp*((q+.5)/NS); a.save(); plane(a,s0,-H*f,true); a.clip(); plane(a,s1,-H*f,false); a.clip(); a.drawImage(D,bx,by-H*f,bw,bh); a.restore(); }
+        a.save(); plane(a,0,-H*(1-tp),false); a.clip(); a.drawImage(D,bx,by-H*(1-tp),bw,bh); a.restore(); a.save(); plane(a,1,-H,true); a.clip(); a.drawImage(D,bx,by-H,bw,bh); a.restore(); }      // and anything past either end of the axis
+      a.restore(); }
     for(let j=1.5;j<=H;j+=1.5){ b.save();
       if(tp>0){ const sj=1-(1-j/H)/tp; if(sj>1){ b.restore(); break; } if(sj>0){ plane(b,sj,j,true); b.clip(); } }
       b.drawImage(A,bx,by+j,bw,bh); b.restore(); }
     b.globalCompositeOperation='destination-out'; b.drawImage(A,bx,by,bw,bh);                                    // B = the rock face
     inked(A,B); ox.globalCompositeOperation='destination-out'; ox.drawImage(A,bx,by,bw,bh); ox.drawImage(B,bx,by,bw,bh); ox.globalCompositeOperation='source-over';      // outline round top and face together: only the ring, never the fill
-    rock(b,.3); cx.drawImage(B,bx,by,bw,bh); csx.drawImage(B,bx,by,bw,bh); csx.lineWidth=3.4; csx.strokeStyle='#000'; csx.stroke(built.get(c).path);
+    rock(b,.3); cx.drawImage(B,bx,by,bw,bh); csx.drawImage(B,bx,by,bw,bh); csx.lineWidth=3.4; csx.strokeStyle='#000'; csx.stroke(built.get(c).path); csx.save(); csx.translate(0,-H*(1-tp/2)); csx.stroke(built.get(c).path); csx.restore();      // the foot and (near enough) the rim
     inked(A);                                                                                                      // rim line round the top
     cx.globalCompositeOperation='destination-out'; cx.drawImage(A,bx,by,bw,bh); ox.globalCompositeOperation='destination-out'; ox.drawImage(A,bx,by,bw,bh); ox.globalCompositeOperation='source-over';      // the top itself stays clear so the ground shows
     { const len=clamp(H*1.15,8,70), sw=bw+len+6, shh=bh+len*.3+6, mkS=()=>{ const q=mkCanvas(sw*R,shh*R); q[1].setTransform(R,0,0,R,-bx*R,-by*R); return q; }, [Sh,sh]=mkS(), [Hh,hh]=mkS();      // the shadow the height throws: its outline swept away from the light, minus the plateau itself, kept to the land
@@ -3279,10 +3283,10 @@ function generateMap(W,H,kind,G={}){ G={land:1,mountains:1,forests:1,rivers:1,to
     for(let k=0;k<N;k++){ if(!mask[k]||seen[k]) continue; const c=[k]; seen[k]=1; for(let q=0;q<c.length;q++) for(const m of nb4(c[q])) if(mask[m]&&!seen[m]){ seen[m]=1; c.push(m); } if(c.length>=14 && c.length<=420){ const set=new Set(c), core=c.filter(k=>nb4(k).every(m=>set.has(m))).length; if(core>=Math.max(6,c.length*.45)) comps.push(c); } }      // thick enough to stand as a table, not a blade
     comps.sort((a,b)=>b.length-a.length); let made=0;
     for(const c of comps){ if(made>=want) break; const set=new Set(c); let cx=0, cy=0; for(const k of c){ const [x,y]=pos(k); cx+=x; cy+=y; } cx/=c.length; cy/=c.length;
-      const pts=resample(star(cx,cy,(x,y)=>set.has(at(clamp(Math.round(x/cs),0,nx-1),clamp(Math.round(y/cs),0,ny-1))),420),10,true); if(pts.length<8 || !fits(pts,26)) continue;
+      const pts=resample(star(cx,cy,(x,y)=>set.has(at(clamp(Math.round(x/cs),0,nx-1),clamp(Math.round(y/cs),0,ny-1))),420),10,true); if(pts.length<8) continue; const hr=CR(), ph=hr<.55 ? 10+CR()*12 : hr<.9 ? 22+CR()*18 : 45+CR()*35;      // mostly low tables, some taller, now and then a high mesa
+      if(!fits(pts,26) || !fits(pts.map(p=>[p[0],p[1]-ph]),18)) continue;      // the top stands above the foot, so it must be clear too
       let gx=0, gy=0; for(const k of c){ const [x,y]=pos(k); gx+=(x-cx)*elev[k]; gy+=(y-cy)*elev[k]; }      // which way the ground rises across it
-      const tap=CR()<.4 ? +(.55+CR()*.35).toFixed(2) : 0; const hr=CR(), ph=hr<.55 ? 10+CR()*12 : hr<.9 ? 22+CR()*18 : 45+CR()*35;      // mostly low tables, some taller, now and then a high mesa
-      st.cliffs.push({mode:'up',pts,rough:.35,seed:(CR()*1e9)|0,h:Math.round(ph),taper:tap,dir:Math.round(Math.atan2(gy,gx)*180/Math.PI)}); placed.push(pts); made++; }
+      const tap=CR()<.4 ? +(.55+CR()*.35).toFixed(2) : 0; st.cliffs.push({mode:'up',pts,rough:.35,seed:(CR()*1e9)|0,h:Math.round(ph),taper:tap,dir:Math.round(Math.atan2(gy,gx)*180/Math.PI)}); placed.push(pts); made++; }
     const TREES=new Set(['conifer','deciduous']); for(const pl of placed) st.stamps=st.stamps.filter(o=>!(TREES.has(o.kind) && edgeD([o.x,o.y],pl)<o.size*.45+8));      // no tree straddling a cliff's edge
     /* Hollows: mostly ravines (a winding cleft, widest in the middle and pinched to a point at each end), sometimes an irregular sinkhole, now and then a roundish crater.
        Most are a modest drop; rarely one is a deep black pit. */
