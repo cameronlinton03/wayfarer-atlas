@@ -644,7 +644,7 @@ function reliefDraw(g,k,o,rect){ if(!(k>0) || !g.er) return;
   const Q=rect ? [rect[0]-110,rect[1]-110,rect[0]+rect[2]+110,rect[1]+rect[3]+110] : [-1e9,-1e9,1e9,1e9], cx0=Math.max(0,Math.floor((Q[0]-30)/TC)), cx1=Math.min(tw-1,Math.ceil((Q[2]+30)/TC)), cy0=Math.max(0,Math.floor((Q[1]-30)/TC)), cy1=Math.min(th-1,Math.ceil((Q[3]+30)/TC));      // Q: the part worked out (all of it, or the box and a margin)
   for(let y=cy0;y<=cy1;y++) for(let x=cx0;x<=cx1;x++){ const X=x*TC, Y=y*TC; if(!onLand(X,Y) || inMtn(X,Y)) { tone[y*tw+x]=-1; continue; }      // -1: no hatching here at all
     const gx=(at(X+10,Y)-at(X-10,Y))/20, gy=(at(X,Y+10)-at(X,Y-10))/20, sl=Math.hypot(gx,gy); if(sl<.0008) continue;
-    const ux=-gx/sl, steep=clamp((sl-.0008)/.0035,0,1); tone[y*tw+x]=steep*(.1+.9*Math.max(0,ux))*k; }      // slopes turned to the right (downhill that way) are in shadow; the lit ones stay almost clear
+    const ux=-gx/sl, steep=clamp((sl-.009)/.008,0,1); tone[y*tw+x]=steep*Math.max(0,ux)*k; }      // slopes turned to the right (downhill that way) are in shadow; the lit ones stay almost clear
   for(const c of S.cliffs){ const Hc=c.h ?? 26, tp=c.taper||0; if(c.mode!=='up' || !(tp>0) || Math.abs(Hc)<3) continue;      /* a ramp's surface is shaded like any hillside: one that falls away to the right (from the light) is hatched, one that rises to the right stays bright */
     const ax=cliffAxis(c), steep=clamp(Math.abs(Hc)*CLIFF_K*tp/ax.L/.0025,0,1), down=Hc>0 ? [-ax.u[0],-ax.u[1]] : ax.u, t0=steep*(.1+.9*Math.max(0,down[0]))*k; if(t0<=.02) continue;      // a plateau's ramp runs down toward its low end, a pit's floor down toward its deep end
     const lift=Math.max(Hc,0); for(let y=Math.max(cy0,Math.floor((ax.bb[1]-lift)/TC));y<=Math.min(cy1,Math.ceil(ax.bb[3]/TC));y++) for(let x=Math.max(cx0,Math.floor(ax.bb[0]/TC));x<=Math.min(cx1,Math.ceil(ax.bb[2]/TC));x++){ const q=y*tw+x; if(tone[q]<0) continue;
@@ -652,7 +652,7 @@ function reliefDraw(g,k,o,rect){ if(!(k>0) || !g.er) return;
   const SP=4, DIRS=Array.from({length:12},(_,a)=>[Math.cos(a/12*Math.PI*2),Math.sin(a/12*Math.PI*2)]);
   for(let y=SP/2;y<H;y+=SP){ if(y<Q[1]-24 || y>Q[3]+24) continue; for(let x=SP/2;x<W;x+=SP){ if(x<Q[0]-24 || x>Q[2]+24 || !onLand(x,y)) continue; let sx=0, sy=0, n=0; for(const [dx,dy] of DIRS) if(!onLand(x+dx*8,y+dy*8)){ sx+=dx; sy+=dy; n++; } if(!n) continue;      // a point by the shore: which way the sea lies
     const l=Math.hypot(sx,sy); if(l<1e-6) continue; const ux=sx/l, uy=sy/l, sea=g.m[Math.min(g.ny-1,Math.max(0,Math.round((y+uy*10)/g.cs)))*g.nx+Math.min(g.nx-1,Math.max(0,Math.round((x+ux*10)/g.cs)))]; if(sea===2) continue;      // a lake shore is not a sea cliff
-    const hIn=Math.max(at(x-ux*30,y-uy*30),at(x-ux*50,y-uy*50)), c=clamp((hIn-.19)/.25,0,1)*Math.min(1.4,k); if(c<=0) continue;
+    const hIn=Math.max(at(x-ux*30,y-uy*30),at(x-ux*50,y-uy*50)), c=clamp((hIn-.42)/.3,0,1)*Math.min(1.4,k); if(c<=0) continue;
     const band=6+10*c; for(let d=0;d<=band;d+=TC*.6){ const q=ti(x-ux*d,y-uy*d); if(q>=0 && q<tone.length && tone[q]>=0) tone[q]=Math.max(tone[q],c*(1-d/band*.35)); } } }      // a sea cliff: a dark band from the shore up to the top of the face
   const T=(x,y)=>{ const X=Math.round(x/TC), Y=Math.round(y/TC); return X<0||Y<0||X>=tw||Y>=th ? -1 : tone[Y*tw+X]; };
   o.save(); o.strokeStyle=INK; o.lineCap='round'; const STEP=2.2, HS=5.2;
@@ -876,13 +876,12 @@ function rebuildCliffs(){
           x.lineWidth=lw; x.beginPath(); x.moveTo(q[0],q[1]); x.lineTo(q[0]+lean*.5,q[1]+len*.6); x.stroke(); x.lineWidth=lw*.6; x.beginPath(); x.moveTo(q[0]+lean*.5,q[1]+len*.6); x.lineTo(q[0]+lean,q[1]+len); x.stroke(); } }
       x.globalCompositeOperation='source-over'; };
     if(H<0){                                                    // a pit: the wall shows inside, under the upper rim; the deeper it goes the darker it gets
-      const Dp=-H, [E,e]=mk(), [Wc,w]=mk(), [Fd,fd]=mk(), hEff=Math.min(Dp,bb[3]-bb[1]); b.drawImage(A,bx,by,bw,bh);                                             // B = the floor: shrinks as the wall grows
+      const Dp=-H, [E,e]=mk(), [Wc,w]=mk(), hEff=Math.min(Dp,bb[3]-bb[1]); b.drawImage(A,bx,by,bw,bh);                                             // B = the floor: shrinks as the wall grows
       const js=tp>0 ? clamp(2.5*Dp*tp/L,.5,2) : 2;      // on a ramp each step moves the floor's edge along the axis, so the steps are kept fine enough to leave no stairs
       for(let j=js;j<=Dp;j+=js){ let sj=0; if(tp>0){ sj=1-(1-j/Dp)/tp; if(sj>1) break; }
         d.globalCompositeOperation='source-over'; d.clearRect(bx,by,bw,bh); d.drawImage(A,bx,by+j,bw,bh); if(sj>0){ d.fillStyle='#000'; plane(d,sj,0,false); d.fill(); }
         b.globalCompositeOperation='destination-in'; b.drawImage(D,bx,by,bw,bh);
-        e.save(); if(sj>0){ plane(e,sj,0,true); e.clip(); } e.globalAlpha=(.03+.11*clamp((j-24)/110,0,1))*js/2; e.drawImage(B,bx,by,bw,bh); e.restore();
-        if(Dp>70 && j>hEff*.42){ fd.globalAlpha=.075*js/2; fd.drawImage(B,bx,by,bw,bh); } }                  // Fd = the last of the depth, gathering to solid black at the very bottom                  // E = darkness, building up with depth until it is black
+      }
       b.globalCompositeOperation='source-over';
       w.drawImage(A,bx,by,bw,bh); w.globalCompositeOperation='destination-out'; w.drawImage(B,bx,by,bw,bh); rock(w,.4,true);
       if(Dp>70){ w.globalCompositeOperation='source-atop'; w.strokeStyle=INK; w.lineCap='round'; const top=bb[1], hh=bb[3]-bb[1], k=clamp((Dp-70)/120,0.2,1);      // a deep pit darkens toward the bottom and toward its shadowed left side; the upright strokes stay the main thing you see
@@ -893,14 +892,19 @@ function rebuildCliffs(){
            the thresholds are staggered stroke by stroke, so as the floor shallows the strokes drop out one at a time, as an engraver tapers a tone */
         const st=(x0,y0,x1,y1,lo,hi,h)=>{ fx.strokeStyle=`rgb(${Math.round((lo+(hi-lo)*h)*255)},0,0)`; fx.beginPath(); fx.moveTo(x0,y0); fx.lineTo(x1,y1); fx.stroke(); };
         const ord=j=>[0,4,2,6,1,5,3,7][j&7]/8;      // rows (and diagonals) drop out in an ordered way, every other one first, so a middle tone stays even instead of mottled
-        const rows=(off,lw,sd,lo,hi)=>{ fx.lineWidth=lw; for(let Y=by+off,j=0;Y<by+bh;Y+=3,j++){ let X=bx+hash(j,c.seed,sd)*4; while(X<bx+bw){ const run=8+hash(j,X|0,c.seed+sd)*16; st(X,Y,X+run,Y+(hash(X|0,j,c.seed+sd+1)-.5)*.5,lo,hi,Math.min(1,ord(j)+hash(X|0,j,c.seed+sd+3)*.12)); X+=run+.8+hash(j,X|0,c.seed+sd+2)*2; } } };
-        rows(0,.42,21,.1,.38); rows(1.5,.4,25,.34,.62); fx.lineWidth=.36; for(let X=bx-bh,i=0;X<bx+bw;X+=4,i++){ let t=0; while(t<bh){ const run=6+hash(i,t|0,c.seed+31)*14; st(X+t*.7,by+t,X+(t+run)*.7,by+t+run,.58,.86,Math.min(1,ord(i)+hash(t|0,i,c.seed+32)*.12)); t+=run; } }
-        const deepK=1+clamp((Dp-90)/60,0,2.5), EW=E.width, EH=E.height, ED=e.getImageData(0,0,EW,EH), ea=ED.data, FD=fx.getImageData(0,0,EW,EH).data, fa=Dp>70 ? new Uint8ClampedArray(fd.getImageData(0,0,EW,EH).data) : null;
-        for(let p=0,n=EW*EH;p<n;p++){ const o=p*4+3, dk=Math.min(1,ea[o]/255*deepK), on=dk>.94 || (FD[o]>28 && dk>FD[o-3]/255); ea[o-3]=ea[o-2]=ea[o-1]=0; ea[o]=on?255:0;
-          if(fa){ const dd=Math.min(1,fa[o]/255*1.25), don=dd>.55 || (FD[o]>28 && dd>.25+FD[o-3]/255*.3); fa[o-3]=fa[o-2]=fa[o-1]=0; fa[o]=don?255:0; } }      // the last of a deep pit's depth: solid ink, with staggered strokes just above it (it is not kept to the floor, which in a narrow pit is all but gone)
-        if(fa){ const FI=fd.getImageData(0,0,EW,EH); FI.data.set(fa); fd.putImageData(FI,0,0); fd.globalAlpha=1; fd.globalCompositeOperation='source-in'; fd.fillStyle=INK; fd.fillRect(bx,by,bw,bh); fd.globalCompositeOperation='source-over'; }      // the very bottom of a deep pit is solid ink
-        e.putImageData(ED,0,0); e.globalAlpha=1; e.globalCompositeOperation='source-in'; e.fillStyle=INK; e.fillRect(bx,by,bw,bh); e.globalCompositeOperation='destination-in'; e.drawImage(B,bx,by,bw,bh); e.globalCompositeOperation='source-over'; }      // kept to the floor, so the walls show only their own strokes
-      inked(B); cx.globalCompositeOperation='destination-out'; cx.drawImage(B,bx,by,bw,bh); cx.globalCompositeOperation='source-over'; cx.globalAlpha=1; cx.drawImage(E,bx,by,bw,bh); if(Dp>70) cx.drawImage(Fd,bx,by,bw,bh);
+        const rows=(off,lw,sd,lo,hi)=>{ fx.lineWidth=lw; for(let Y=by+off,j=0;Y<by+bh;Y+=3,j++){ let X=bx+hash(j,c.seed,sd)*4; while(X<bx+bw){ const run=18+hash(j,X|0,c.seed+sd)*34; st(X,Y,X+run,Y+(hash(X|0,j,c.seed+sd+1)-.5)*.7,lo,hi,Math.min(1,ord(j)+hash(X|0,j,c.seed+sd+3)*.12)); X+=run+.6+hash(j,X|0,c.seed+sd+2)*1.4; } } };
+        rows(0,.42,21,.12,.4); rows(1.5,.4,25,.36,.64); fx.lineWidth=.36; for(let X=bx-bh,i=0;X<bx+bw;X+=4,i++){ let t=0; while(t<bh){ const run=6+hash(i,t|0,c.seed+31)*14; st(X+t*.7,by+t,X+(t+run)*.7,by+t+run,.58,.86,Math.min(1,ord(i)+hash(t|0,i,c.seed+32)*.12)); t+=run; } }
+        /* the floor's tone: darker the deeper the pit is there (on a ramp, the depth at that point along it), and fading in from the floor's edge toward its middle, so a deep pit grades into black instead of ending in a hard blob, and a shallow one stays clean */
+        const EW=E.width, EH=E.height, ED=e.getImageData(0,0,EW,EH), ea=ED.data, FD=fx.getImageData(0,0,EW,EH).data, BD=b.getImageData(0,0,EW,EH).data, inF=new Uint8Array(EW*EH); for(let p=0;p<EW*EH;p++) inF[p]=BD[p*4+3]>=128?0:1;
+        const g2=edt2(inF,EW,EH), ramp=clamp(Dp*.25,8,40)*R, AD=a.getImageData(0,0,EW,EH).data, dep=new Float32Array(EW*EH);      // dep: how far below the rim each point of the hollow lies (down its wall)
+        for(let px=0;px<EW;px++){ let top=-1; for(let py=0;py<EH;py++){ const p=py*EW+px; if(AD[p*4+3]>=128){ if(top<0) top=py; dep[p]=(py-top)/R; } else top=-1; } }
+        for(let p=0,n=EW*EH;p<n;p++){ const o=p*4+3; let on=false; if(AD[o]>=128){ const X=bx+(p%EW+.5)/R, Y=by+(Math.floor(p/EW)+.5)/R, sa=tp>0 ? clamp(((X-mid[0])*u[0]+(Y-mid[1])*u[1])/L+.5,0,1) : 1, dl=Dp*((1-tp)+tp*sa), q=clamp((dl-60)/110,0,1);      // q: how far the pit is past seeing to the bottom
+            let dk; if(inF[p]){ const t=clamp(dep[p]/Math.max(1,dl),0,1); dk=q*clamp((t-.3)/.7,0,1)**1.4; }      // a deep pit's wall darkens toward its foot,
+            else { const base=clamp((dl-25)/150,0,1), r=clamp(Math.sqrt(g2[p])/ramp,0,1); dk=Math.max(q,base*(.45+.55*r*r*(3-2*r))); }      // into a floor as dark as the foot of the wall (a shallower floor fades in from its edge)
+            on=dk>.94 || (FD[o]>28 && dk>FD[o-3]/255); }
+          ea[o-3]=ea[o-2]=ea[o-1]=0; ea[o]=on?255:0; }
+        e.putImageData(ED,0,0); e.globalAlpha=1; e.globalCompositeOperation='source-in'; e.fillStyle=INK; e.fillRect(bx,by,bw,bh); e.globalCompositeOperation='destination-in'; e.drawImage(A,bx,by,bw,bh); e.globalCompositeOperation='source-over'; }      // kept to the hollow
+      if(Dp<110) inked(B); cx.globalCompositeOperation='destination-out'; cx.drawImage(B,bx,by,bw,bh); cx.globalCompositeOperation='source-over'; cx.globalAlpha=1; cx.drawImage(E,bx,by,bw,bh);      // a floor too deep to see has no edge drawn: the wall runs down into it
       { const reach=clamp(Dp*.75,6,46), [Ps,ps]=mk(), [Ph,ph]=mk(); ps.drawImage(B,bx,by,bw,bh); ps.globalCompositeOperation='destination-out'; ps.drawImage(B,bx+reach,by+reach*.2,bw,bh);      // in a hollow the left rim throws its shadow onto the floor beneath it
         hatchRows(ph,bx,by,bw,bh,1.5,.5,43); ps.globalCompositeOperation='source-in'; ps.drawImage(Ph,bx,by,bw,bh); cx.drawImage(Ps,bx,by,bw,bh); }
       fadeLow(cx,bw,bh,.16,.165); fadeLow(ox,bw,bh,.2,.205); cx.drawImage(O,bx,by,bw,bh); footLine(.2,.205); cf.drawImage(C,bx,by,bw,bh); csx.drawImage(Wc,bx,by,bw,bh); csx.lineWidth=3.4; csx.strokeStyle='#000'; csx.stroke(built.get(c).path); continue; }      // a ramped pit's strokes stop where it runs out (a crisp end, as engraved lines do), the rim a little sooner
@@ -3358,7 +3362,8 @@ function generateMap(W,H,kind,G={}){ G={land:1,mountains:1,forests:1,rivers:1,to
     const closed=new Uint8Array(N); for(let k=0;k<N;k++){ const i=k%nx, j=(k-i)/nx; if(i===0||j===0||i===nx-1||j===ny-1){ filled[k]=elev[k]; closed[k]=1; push(k); } }
     while(heap.length){ const c=pop(); for(const m of nb8(c)) if(!closed[m]){ closed[m]=1; filled[m]=Math.max(elev[m],filled[c]+1e-5); push(m); } }      // the epsilon makes the surface slope towards the outlet even where it is flat
     const basin=new Uint8Array(N); for(let k=0;k<N;k++) if(elev[k]>0 && filled[k]-elev[k]>.012) basin[k]=1;
-    const seen=new Uint8Array(N); for(let s0=0;s0<N;s0++){ if(!basin[s0]||seen[s0]) continue; const list=[s0]; seen[s0]=1; for(let q=0;q<list.length;q++) for(const m of nb4(list[q])) if(basin[m]&&!seen[m]){ seen[m]=1; list.push(m); } if(list.length<5) list.forEach(k=>basin[k]=0); }
+    const seen=new Uint8Array(N), comps=[]; for(let s0=0;s0<N;s0++){ if(!basin[s0]||seen[s0]) continue; const list=[s0]; seen[s0]=1; for(let q=0;q<list.length;q++) for(const m of nb4(list[q])) if(basin[m]&&!seen[m]){ seen[m]=1; list.push(m); } if(list.length<(kind==='continent'?12:5)) list.forEach(k=>basin[k]=0); else comps.push(list); }
+    if(kind==='continent'){ const score=L=>L.reduce((t,k)=>t+filled[k]-elev[k],0); comps.sort((a,b)=>score(b)-score(a)); comps.slice(5).forEach(L=>L.forEach(k=>basin[k]=0)); }      // a continent keeps only its few biggest, deepest lakes, or they crowd the map
     for(let k=0;k<N;k++) if(basin[k]) elev[k]=-.004-(filled[k]-elev[k])*.5; }      // deeper where the basin is deeper, so a shallow rim gives the shore a rounded outline and not a square one
   const isLand=k=>elev[k]>0;
   const spread=start=>{ const d=new Int32Array(N).fill(-1), q=[]; for(let k=0;k<N;k++) if(start(k)){ d[k]=0; q.push(k); } for(let h=0;h<q.length;h++) for(const m of nb4(q[h])) if(d[m]<0){ d[m]=d[q[h]]+1; q.push(m); } return d; };

@@ -34,8 +34,8 @@ Rendering
 
 Terrain and land
 - Ground types `TERRAIN` (Grass, Grasses, Flowers, Stone, Sand, Cold) are `INK_TILES` recipes: faint wash + small sparse marks. `paintInto`/`strokeAlpha` lay strokes; `syncTerrain`/`syncWater` replay them; `cleanInk` removes marks cut by coasts, banks and cliff edges (partial when only strokes were added/removed). Woodland edge (`rebuildEco`): shrubs/saplings where open ground (`isOpenGround`) meets forest, on a hashed lattice.
-- Relief (`rebuildRelief`): one-direction diagonal hatching (top left to bottom right) from the relief ground `er` in `heightGrid()` (generator heights where still valid, Elevation brush strokes `S.elev`), plus sea cliff bands and tapered-cliff ramps. `S.relief` sets strength. `heightGrid` also feeds the height view (estimate from the coast where nothing is stored, mountains via `featureBumps`, cliffs via `cliffRelief`).
-- Cliffs (`rebuildCliffs`): plateaus (h>0, part of the land; the outline is the foot, the top is lifted by h), pits (h<0, rim on its own layer, drawn crisp), taper/dir ramps (`fadeLow`, `footLine`). `faceHidden` hides stamps on faces; `ridersOn` carries stamps, paint, lines, elevation on moved land/plateaus.
+- Relief (`rebuildRelief`): one-direction diagonal hatching (top left to bottom right), only on steep slopes facing away from the light (slope > .009) and steep sea cliffs, from the relief ground `er` in `heightGrid()` (generator heights where still valid, Elevation brush strokes `S.elev`), plus sea cliff bands and tapered-cliff ramps. `S.relief` sets strength. `heightGrid` also feeds the height view (estimate from the coast where nothing is stored, mountains via `featureBumps`, cliffs via `cliffRelief`).
+- Cliffs (`rebuildCliffs`): plateaus (h>0, part of the land; the outline is the foot, the top is lifted by h), pits (h<0, rim on its own layer, drawn crisp; tone per pixel from depth: shallow floors stay clean, a floor fades in from its edge, a deep pit's walls darken to its foot and into a black floor with no edge drawn), taper/dir ramps (`fadeLow`, `footLine`). `faceHidden` hides stamps on faces; `ridersOn` carries stamps, paint, lines, elevation on moved land/plateaus.
 - Shore: `rebuildCoast` (lining band, inner shading; none inside rivers).
 
 Lines
@@ -49,7 +49,7 @@ Stamps
 - Dungeon set: Doors, Stairs & pits, Furnishings, Hazards, monsters (top-down, no faces: `mMan`, `mHead`, `engForm`), characters `ch_*`. `DUN_FOOT`, `dungSnap`.
 
 Generators
-- `generateMap(W,H,kind,G)`: tectonic plates (`mulberry(seed+1001)`, never `rnd`, so seeds repeat), coastline detail (`G.coast`), lakes and rivers (priority flood), mountains on collisions (`highpeak` at the thickest), ground drifts (`groundAt`), cliffs and hollows (`G.cliffs`, `mulberry(seed+1501)`), routes by Dijkstra (`route`, Float64 costs, `mulberry(seed+1601)`). Stores `S.height`, plates, `gen` for Reroll (`reroll`, `generateFrom`, `genRef`).
+- `generateMap(W,H,kind,G)`: tectonic plates (`mulberry(seed+1001)`, never `rnd`, so seeds repeat), coastline detail (`G.coast`), lakes and rivers (priority flood; continents keep only their 5 biggest, deepest basins of 12+ cells), mountains on collisions (`highpeak` at the thickest), ground drifts (`groundAt`), cliffs and hollows (`G.cliffs`, `mulberry(seed+1501)`), routes by Dijkstra (`route`, Float64 costs, `mulberry(seed+1601)`). Stores `S.height`, plates, `gen` for Reroll (`reroll`, `generateFrom`, `genRef`).
 - `generateCity` (`housesAlong`, fields/orchards/vineyards in `VARIANTS`), `generateDungeon` (rooms, spanning-tree corridors, doors, themed props, monsters, room numbers clear of props).
 
 UI
@@ -60,7 +60,7 @@ UI
 
 ## Known gaps
 
-- Visual feedback being worked through (in order): pits (deep pit should fade to black; crater floor reads as brickwork; generated hollows look like eggs/feathers), high peaks (pale with black smears, overflow small islands), range names (over towns, in the sea), tapered plateau sliver, dungeon corridor flagstones through rooms / stairs read as brick / cube's grey block, city (cathedral overlaps, straight shore, black cartouche bevel), monsters still toy-like (goblin, rats, fiend), ice floes look like bubbles.
+- Visual feedback being worked through (in order): high peaks (pale with black smears, overflow small islands), range names (over towns, in the sea), tapered plateau sliver, dungeon corridor flagstones through rooms / stairs read as brick / cube's grey block, city (cathedral overlaps, straight shore, black cartouche bevel), monsters still toy-like (goblin, rats, fiend), ice floes look like bubbles.
 - Older reports: roads straight over long runs, city river mouth has a pale fan and no bridges, grid doubles flagstone joints, example map lacks border/compass/cartouche, furniture shading, paddock animals and hedges crude, depth paints barely differ, rhumb lines cross lakes, river sources blunt and tributary banks cross the main river, streets across walls make no gate, hand-drawn walls wobble.
 - Dungeons: no lighting, per-room colour, level links or room rotation; generator gives round/cave rooms no doors. A dungeon drag is ~350 ms on software rendering (a dirty box would not match: hatch jitter runs along whole lines).
 - City district names don't avoid streets. Battle maps undecided.
