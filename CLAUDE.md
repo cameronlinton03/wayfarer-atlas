@@ -28,7 +28,7 @@ State and history
 
 Rendering
 - Render scale `R`; map-sized buffers in `initBuffers()`, drawn in map units. `invalidate()` runs one rAF: `need.land` → `rebuildLand()` (land mask, rivers carved out, raised cliffs added), `need.compose` ('fast'|'full') → `compose()`, `need.realms` → `composeRealmsOnly()`; then `draw()`.
-- `compose` → `composeMap`: paper, sea, water paint, coast lining, land with ground paint (`cleanC`), woodland edge (`ecoC`), relief (`reliefC`), territories, cliffs. Dungeons: `composeDungeon`; height view: `composeHeight` / `composePlates`.
+- `compose` → `composeMap`: paper, sea, water paint, coast lining, land with ground paint (`cleanC`), woodland edge (`ecoC`), relief (`reliefC`), territories, cliffs. Dungeons: `composeDungeon` (a room clears corridor flagstones under it; corridor textures are cut to outside rooms); height view: `composeHeight` / `composePlates`.
 - `drawVectors(c,k,vp)` draws lines, stamps, labels per layer every frame (only what is in view), then multiplies `tintC` (all washes, `buildTint`).
 - Kept quick by: caches keyed on identity/versions (`landVer`, `washVer`, `oid`, `mtnSig`, `readAlpha`); a dirty box while painting ground/water/elevation (`liveBox`, `liveClip`, `rebuildRelief(rect)`, needs `baseIsMap`); stroke-sized scratch canvases (`scr`, `SB`) because drawing onto a canvas that was drawn from copies all of it; territory pictures cached per territory and relaid only where changed (`realmCache`, `realmLayers`, `realmDirty`, `prebaseC`). Sprites are capped (512 px, 1024 export), LRU-limited (`SPRITE_PIXELS`) and built under a per-frame budget (`spriteBudgetMs`). Export budget: `maxScale`, `bufCount()`, `releaseBuffers`.
 
@@ -60,7 +60,7 @@ UI
 
 ## Known gaps
 
-- Visual feedback being worked through (in order): dungeon corridor flagstones through rooms / stairs read as brick / cube's grey block, city (cathedral overlaps, straight shore, black cartouche bevel), monsters still toy-like (goblin, rats, fiend), ice floes look like bubbles.
+- Visual feedback being worked through (in order): city (cathedral overlaps, straight shore, black cartouche bevel), monsters still toy-like (goblin, rats, fiend), ice floes look like bubbles.
 - Older reports: roads straight over long runs, city river mouth has a pale fan and no bridges, grid doubles flagstone joints, example map lacks border/compass/cartouche, furniture shading, paddock animals and hedges crude, depth paints barely differ, rhumb lines cross lakes, river sources blunt and tributary banks cross the main river, streets across walls make no gate, hand-drawn walls wobble.
 - Dungeons: no lighting, per-room colour, level links or room rotation; generator gives round/cave rooms no doors. A dungeon drag is ~350 ms on software rendering (a dirty box would not match: hatch jitter runs along whole lines).
 - City district names don't avoid streets. Battle maps undecided.
