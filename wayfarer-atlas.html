@@ -644,7 +644,7 @@ function reliefDraw(g,k,o,rect){ if(!(k>0) || !g.er) return;
   const Q=rect ? [rect[0]-110,rect[1]-110,rect[0]+rect[2]+110,rect[1]+rect[3]+110] : [-1e9,-1e9,1e9,1e9], cx0=Math.max(0,Math.floor((Q[0]-30)/TC)), cx1=Math.min(tw-1,Math.ceil((Q[2]+30)/TC)), cy0=Math.max(0,Math.floor((Q[1]-30)/TC)), cy1=Math.min(th-1,Math.ceil((Q[3]+30)/TC));      // Q: the part worked out (all of it, or the box and a margin)
   for(let y=cy0;y<=cy1;y++) for(let x=cx0;x<=cx1;x++){ const X=x*TC, Y=y*TC; if(!onLand(X,Y) || inMtn(X,Y)) { tone[y*tw+x]=-1; continue; }      // -1: no hatching here at all
     const gx=(at(X+10,Y)-at(X-10,Y))/20, gy=(at(X,Y+10)-at(X,Y-10))/20, sl=Math.hypot(gx,gy); if(sl<.0008) continue;
-    const ux=-gx/sl, steep=clamp((sl-.009)/.008,0,1); tone[y*tw+x]=steep*Math.max(0,ux)*k; }      // slopes turned to the right (downhill that way) are in shadow; the lit ones stay almost clear
+    const ux=-gx/sl, steep=clamp((sl-.0045)/.0065,0,1); tone[y*tw+x]=steep*Math.max(0,ux)*k; }      // slopes turned to the right (downhill that way) are in shadow; the lit ones stay almost clear
   for(const c of S.cliffs){ const Hc=c.h ?? 26, tp=c.taper||0; if(c.mode!=='up' || !(tp>0) || Math.abs(Hc)<3) continue;      /* a ramp's surface is shaded like any hillside: one that falls away to the right (from the light) is hatched, one that rises to the right stays bright */
     const ax=cliffAxis(c), steep=clamp(Math.abs(Hc)*CLIFF_K*tp/ax.L/.0025,0,1), down=Hc>0 ? [-ax.u[0],-ax.u[1]] : ax.u, t0=steep*(.1+.9*Math.max(0,down[0]))*k; if(t0<=.02) continue;      // a plateau's ramp runs down toward its low end, a pit's floor down toward its deep end
     const lift=Math.max(Hc,0); for(let y=Math.max(cy0,Math.floor((ax.bb[1]-lift)/TC));y<=Math.min(cy1,Math.ceil(ax.bb[3]/TC));y++) for(let x=Math.max(cx0,Math.floor(ax.bb[0]/TC));x<=Math.min(cx1,Math.ceil(ax.bb[2]/TC));x++){ const q=y*tw+x; if(tone[q]<0) continue;
@@ -652,7 +652,7 @@ function reliefDraw(g,k,o,rect){ if(!(k>0) || !g.er) return;
   const SP=4, DIRS=Array.from({length:12},(_,a)=>[Math.cos(a/12*Math.PI*2),Math.sin(a/12*Math.PI*2)]);
   for(let y=SP/2;y<H;y+=SP){ if(y<Q[1]-24 || y>Q[3]+24) continue; for(let x=SP/2;x<W;x+=SP){ if(x<Q[0]-24 || x>Q[2]+24 || !onLand(x,y)) continue; let sx=0, sy=0, n=0; for(const [dx,dy] of DIRS) if(!onLand(x+dx*8,y+dy*8)){ sx+=dx; sy+=dy; n++; } if(!n) continue;      // a point by the shore: which way the sea lies
     const l=Math.hypot(sx,sy); if(l<1e-6) continue; const ux=sx/l, uy=sy/l, sea=g.m[Math.min(g.ny-1,Math.max(0,Math.round((y+uy*10)/g.cs)))*g.nx+Math.min(g.nx-1,Math.max(0,Math.round((x+ux*10)/g.cs)))]; if(sea===2) continue;      // a lake shore is not a sea cliff
-    const hIn=Math.max(at(x-ux*30,y-uy*30),at(x-ux*50,y-uy*50)), c=clamp((hIn-.42)/.3,0,1)*Math.min(1.4,k); if(c<=0) continue;
+    const hIn=Math.max(at(x-ux*30,y-uy*30),at(x-ux*50,y-uy*50)), c=clamp((hIn-.3)/.28,0,1)*Math.min(1.4,k); if(c<=0) continue;
     const band=6+10*c; for(let d=0;d<=band;d+=TC*.6){ const q=ti(x-ux*d,y-uy*d); if(q>=0 && q<tone.length && tone[q]>=0) tone[q]=Math.max(tone[q],c*(1-d/band*.35)); } } }      // a sea cliff: a dark band from the shore up to the top of the face
   const T=(x,y)=>{ const X=Math.round(x/TC), Y=Math.round(y/TC); return X<0||Y<0||X>=tw||Y>=th ? -1 : tone[Y*tw+X]; };
   o.save(); o.strokeStyle=INK; o.lineCap='round'; const STEP=2.2, HS=5.2;
