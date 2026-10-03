@@ -612,6 +612,10 @@ function rebuildRelief(){ const g=heightGrid(), k=S.relief ?? 1, o=reliefC.getCo
   for(let y=0;y<th;y++) for(let x=0;x<tw;x++){ const X=x*TC, Y=y*TC; if(!onLand(X,Y) || inMtn(X,Y)) { tone[y*tw+x]=-1; continue; }      // -1: no hatching here at all
     const gx=(at(X+10,Y)-at(X-10,Y))/20, gy=(at(X,Y+10)-at(X,Y-10))/20, sl=Math.hypot(gx,gy); if(sl<.0008) continue;
     const ux=-gx/sl, steep=clamp((sl-.0008)/.0035,0,1); tone[y*tw+x]=steep*(.1+.9*Math.max(0,ux))*k; }      // slopes turned to the right (downhill that way) are in shadow; the lit ones stay almost clear
+  for(const c of S.cliffs){ const Hc=c.h ?? 26, tp=c.taper||0; if(c.mode!=='up' || !(tp>0) || Math.abs(Hc)<3) continue;      /* a ramp's surface is shaded like any hillside: one that falls away to the right (from the light) is hatched, one that rises to the right stays bright */
+    const ax=cliffAxis(c), steep=clamp(Math.abs(Hc)*CLIFF_K*tp/ax.L/.0025,0,1), down=Hc>0 ? [-ax.u[0],-ax.u[1]] : ax.u, t0=steep*(.1+.9*Math.max(0,down[0]))*k; if(t0<=.02) continue;      // a plateau's ramp runs down toward its low end, a pit's floor down toward its deep end
+    const lift=Math.max(Hc,0); for(let y=Math.max(0,Math.floor((ax.bb[1]-lift)/TC));y<=Math.min(th-1,Math.ceil(ax.bb[3]/TC));y++) for(let x=Math.max(0,Math.floor(ax.bb[0]/TC));x<=Math.min(tw-1,Math.ceil(ax.bb[2]/TC));x++){ const q=y*tw+x; if(tone[q]<0) continue;
+      const X=x*TC, Y=y*TC, sj=clamp(((X-ax.mid[0])*ax.u[0]+(Y-ax.mid[1])*ax.u[1])/ax.L+.5,0,1), fr=(1-tp)+tp*sj, hl=Hc>0 ? Hc*fr : 0; if(fr<.17) continue; if(inLand(c,[X,Y+hl])) tone[q]=Math.max(tone[q],t0); } }      // not past where the ramp runs out (the drawing stops there too)      // a plateau's top stands above its outline by the height there
   const SP=4, DIRS=Array.from({length:12},(_,a)=>[Math.cos(a/12*Math.PI*2),Math.sin(a/12*Math.PI*2)]);
   for(let y=SP/2;y<H;y+=SP) for(let x=SP/2;x<W;x+=SP){ if(!onLand(x,y)) continue; let sx=0, sy=0, n=0; for(const [dx,dy] of DIRS) if(!onLand(x+dx*8,y+dy*8)){ sx+=dx; sy+=dy; n++; } if(!n) continue;      // a point by the shore: which way the sea lies
     const l=Math.hypot(sx,sy); if(l<1e-6) continue; const ux=sx/l, uy=sy/l, sea=g.m[Math.min(g.ny-1,Math.max(0,Math.round((y+uy*10)/g.cs)))*g.nx+Math.min(g.nx-1,Math.max(0,Math.round((x+ux*10)/g.cs)))]; if(sea===2) continue;      // a lake shore is not a sea cliff
@@ -811,9 +815,11 @@ function rebuildCliffs(){
       x.beginPath(); x.moveTo(q[0]+v[0]*G,q[1]+v[1]*G); x.lineTo(q[0]-v[0]*G,q[1]-v[1]*G); x.lineTo(q[0]-v[0]*G+u[0]*g,q[1]-v[1]*G+u[1]*g); x.lineTo(q[0]+v[0]*G+u[0]*g,q[1]+v[1]*G+u[1]*g); x.closePath(); };
     /* A taper that ramps to nothing really does: the height at the low end is H x (1 - taper), and wherever the height is down to a few units the whole drawing (rim, face and shadow) is faded out
        along the slope, so the cliff dies away into the ground instead of ending as a smaller lump with its outline intact. */
-    const fadeLow=(x,w,h,f0,f1)=>{ if(f1<=f0) return; const lo=[mid[0]-u[0]*L/2,mid[1]-u[1]*L/2], hi=[mid[0]+u[0]*L/2,mid[1]+u[1]*L/2], g=x.createLinearGradient(lo[0],lo[1],hi[0],hi[1]), full=(1-tp)>=f1; if(full) return;      // f = the height there as a fraction of full height: clear below f0, solid above f1
-      for(let i=0;i<=60;i++){ const tt=i/60, f=(1-tp)+tp*tt, al=clamp((f-f0)/(f1-f0),0,1); g.addColorStop(tt,`rgba(0,0,0,${al*al*(3-2*al)})`); }
+    const fadeLow=(x,w,h,f0,f1,inv)=>{ if(f1<=f0) return; const lo=[mid[0]-u[0]*L/2,mid[1]-u[1]*L/2], hi=[mid[0]+u[0]*L/2,mid[1]+u[1]*L/2], g=x.createLinearGradient(lo[0],lo[1],hi[0],hi[1]), full=(1-tp)>=f1; if(full) return;      // f = the height there as a fraction of full height: clear below f0, solid above f1
+      for(let i=0;i<=60;i++){ const tt=i/60, f=(1-tp)+tp*tt, al0=clamp((f-f0)/(f1-f0),0,1), al=inv?1-al0:al0; g.addColorStop(tt,`rgba(0,0,0,${al*al*(3-2*al)})`); }
       x.save(); x.globalCompositeOperation='destination-in'; x.fillStyle=g; x.fillRect(bx,by,w,h); x.restore(); };
+    const footLine=(f0,f1)=>{ if(!(tp>0) || (1-tp)>=f1) return; const [Tc,tx]=mk(); tx.drawImage(A,bx,by,bw,bh); tx.globalCompositeOperation='destination-out'; for(const [ox2,oy2] of [[.8,0],[-.8,0],[0,.8],[0,-.8]]) tx.drawImage(A,bx+ox2,by+oy2,bw,bh);      // where a ramp runs out its edge is not lost: a thin line marks where the slope begins
+      fadeLow(tx,bw,bh,f0,f1,true); tx.globalCompositeOperation='source-in'; tx.fillStyle=INK; tx.fillRect(bx,by,bw,bh); cx.globalCompositeOperation='source-over'; cx.drawImage(Tc,bx,by,bw,bh); };
     const hatchRows=(x,X0,Y0,Wd,Ht,sp,lw,sd)=>{ x.strokeStyle=INK; x.lineCap='round'; x.lineWidth=lw; x.beginPath(); for(let Y=Y0+sp*.5,j=0;Y<Y0+Ht;Y+=sp,j++){ let X=X0+hash(j,c.seed,sd)*5; while(X<X0+Wd){ const run=3+hash(j,X|0,c.seed+sd)*9; x.moveTo(X,Y); x.lineTo(X+run,Y+(hash(X|0,j,c.seed+sd+1)-.5)*.4); X+=run+1+hash(X|0,j,c.seed+sd+2)*2.6; } } x.stroke(); };      // level broken strokes, the way the stamps throw their shadows
     const inked=(...src)=>{ d.globalCompositeOperation='source-over'; d.clearRect(bx,by,bw,bh); src.forEach(q=>d.drawImage(q,bx,by,bw,bh)); d.globalCompositeOperation='source-in'; d.fillStyle=ink; d.fillRect(bx,by,bw,bh);
       for(let i=0;i<8;i++){ const t=i*Math.PI/4; (od||cx).drawImage(D,bx+Math.cos(t)*1.4,by+Math.sin(t)*1.4,bw,bh); } };
@@ -864,7 +870,7 @@ function rebuildCliffs(){
       inked(B); cx.globalCompositeOperation='destination-out'; cx.drawImage(B,bx,by,bw,bh); cx.globalCompositeOperation='source-over'; cx.globalAlpha=1; cx.drawImage(E,bx,by,bw,bh); if(Dp>70) cx.drawImage(Fd,bx,by,bw,bh);
       { const reach=clamp(Dp*.75,6,46), [Ps,ps]=mk(), [Ph,ph]=mk(); ps.drawImage(B,bx,by,bw,bh); ps.globalCompositeOperation='destination-out'; ps.drawImage(B,bx+reach,by+reach*.2,bw,bh);      // in a hollow the left rim throws its shadow onto the floor beneath it
         hatchRows(ph,bx,by,bw,bh,1.5,.5,43); ps.globalCompositeOperation='source-in'; ps.drawImage(Ph,bx,by,bw,bh); cx.drawImage(Ps,bx,by,bw,bh); }
-      fadeLow(cx,bw,bh,.16,.165); fadeLow(ox,bw,bh,.2,.205); cx.drawImage(O,bx,by,bw,bh); cf.drawImage(C,bx,by,bw,bh); csx.drawImage(Wc,bx,by,bw,bh); csx.lineWidth=3.4; csx.strokeStyle='#000'; csx.stroke(built.get(c).path); continue; }      // a ramped pit's strokes stop where it runs out (a crisp end, as engraved lines do), the rim a little sooner
+      fadeLow(cx,bw,bh,.16,.165); fadeLow(ox,bw,bh,.2,.205); cx.drawImage(O,bx,by,bw,bh); footLine(.2,.205); cf.drawImage(C,bx,by,bw,bh); csx.drawImage(Wc,bx,by,bw,bh); csx.lineWidth=3.4; csx.strokeStyle='#000'; csx.stroke(built.get(c).path); continue; }      // a ramped pit's strokes stop where it runs out (a crisp end, as engraved lines do), the rim a little sooner
     od=ox;
     { d.globalCompositeOperation='source-over'; d.clearRect(bx,by,bw,bh); d.drawImage(A,bx,by,bw,bh); a.save(); a.setTransform(R,0,0,R,-bx*R,-by*R); a.globalCompositeOperation='source-over'; a.clearRect(bx,by,bw,bh);      // the outline drawn is the plateau's foot: its top stands that high above it (on a ramp, as high as the ramp is there), so the face comes down onto the outline
       if(!tp) a.drawImage(D,bx,by-H,bw,bh); else { const NS=48; for(let q=0;q<NS;q++){ const s0=q/NS, s1=(q+1)/NS+.004, f=(1-tp)+tp*((q+.5)/NS); a.save(); plane(a,s0,-H*f,true); a.clip(); plane(a,s1,-H*f,false); a.clip(); a.drawImage(D,bx,by-H*f,bw,bh); a.restore(); }
@@ -884,7 +890,7 @@ function rebuildCliffs(){
       if(!tp) for(let k=len*.55;k<=len;k+=2){ sh.globalAlpha=.05; sh.drawImage(A,bx+len+2+k-len*.55,by+len*.24,bw,bh); } sh.globalAlpha=1;
       hatchRows(hh,bx,by,sw,shh,1.55,.42,41); sh.globalCompositeOperation='source-in'; sh.drawImage(Hh,bx,by,sw,shh);
       fadeLow(sh,sw,shh,.14,.22); cf.globalCompositeOperation='source-over'; cf.drawImage(Sh,bx,by,sw,shh); }
-    fadeLow(cx,bw,bh,.14,.22); fadeLow(ox,bw,bh,.2,.27); cx.globalCompositeOperation='source-over'; cx.drawImage(O,bx,by,bw,bh); od=null;      // hatching thins out gradually; the edge goes sooner
+    fadeLow(cx,bw,bh,.14,.22); fadeLow(ox,bw,bh,.2,.27); cx.globalCompositeOperation='source-over'; cx.drawImage(O,bx,by,bw,bh); od=null; footLine(.2,.27);      // hatching thins out gradually; the edge goes sooner
     cf.globalCompositeOperation='destination-out'; cf.drawImage(A,bx,by,bw,bh); cf.globalCompositeOperation='source-over'; cf.drawImage(C,bx,by,bw,bh);
   }
 }
