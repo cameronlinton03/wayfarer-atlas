@@ -107,6 +107,9 @@ dialog::backdrop{background:#0007}
 .lybtns button{border:1px solid var(--line);background:transparent;color:inherit;border-radius:3px;width:22px;height:22px;padding:0;font-size:10px;line-height:1}
 dialog.wide{max-width:min(760px,calc(100vw - 32px));width:760px}
 #mapsList{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:12px;max-height:min(56vh,520px);overflow:auto;padding:2px}
+.keys{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:4px 22px;margin:8px 0}.keys h3{grid-column:1/-1;margin:10px 0 2px;font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}.keys div{display:flex;justify-content:space-between;gap:10px;font-size:14px;border-bottom:1px dotted var(--line);padding:2px 0}.keys kbd{font:12px/1.4 ui-monospace,monospace;background:var(--bg);border:1px solid var(--line);border-radius:3px;padding:0 5px;white-space:nowrap}
+.mapsbar{display:flex;gap:8px;margin:8px 0}.mapsbar input{flex:1;min-width:0;font:inherit;padding:4px 8px;border:1px solid var(--line);border-radius:4px;background:var(--bg)}.mapsbar select{font:inherit;padding:4px;border:1px solid var(--line);border-radius:4px;background:var(--bg)}
+.mapcard img{cursor:pointer}.mapcard .ren{font:inherit;font-weight:700;padding:1px 4px;border:1px solid var(--accent);border-radius:3px;width:100%}
 .mapcard{border:1px solid var(--line);border-radius:6px;padding:8px;display:flex;flex-direction:column;gap:6px;background:var(--vellum,transparent)}
 .mapcard.cur{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent)}
 .mapcard img,.mapcard .noimg{width:100%;aspect-ratio:8/5;object-fit:cover;border-radius:3px;background:#e6dcc0;display:block}
@@ -167,6 +170,7 @@ body.phone .note{top:8px;left:8px;transform:none;max-width:calc(100% - 200px);fo
     <button class="btn" id="rerollBtn" hidden title="Make this map again with the same settings and a new seed (Undo brings the last one back)">Reroll</button>
     <button class="btn" id="newBtn">New</button>
     <button class="btn" id="saveBtn">Save map file</button>
+    <button class="btn" id="keysBtn" title="Keys and mouse (?)" aria-label="Keys and mouse">?</button>
     <button class="btn primary" id="pngBtn">Export PNG</button>
     <input id="fileIn" type="file" accept=".json,application/json" hidden>
   </div>
@@ -195,10 +199,12 @@ body.phone .note{top:8px;left:8px;transform:none;max-width:calc(100% - 200px);fo
     </div>
   </form>
 </dialog>
+<dialog id="keysDlg" class="wide"><form method="dialog"><h2>Keys and mouse</h2><div id="keysList" class="keys"></div><div class="btnrow" style="justify-content:flex-end"><button class="btn primary" value="cancel">Done</button></div></form></dialog>
 <dialog id="mapsDlg" class="wide">
   <form method="dialog">
     <h2>Maps</h2>
     <p style="margin:0;color:var(--muted)" id="mapsNote">Every map is kept in this browser and saved as you work. Save a map file as well for anything you would hate to lose.</p>
+    <div class="mapsbar"><input type="search" id="mapsQ" placeholder="Find a map by name or kind" aria-label="Find a map"><select id="mapsSort" aria-label="Sort maps"><option value="recent">Recently changed</option><option value="name">Name A–Z</option><option value="old">Oldest first</option></select></div>
     <div id="mapsList"></div>
     <div class="btnrow" style="justify-content:flex-end"><button class="btn" type="button" id="openBtn">Open a map file…</button><button class="btn" value="new">New map</button><button class="btn primary" value="cancel">Done</button></div>
   </form>
@@ -479,7 +485,7 @@ const snap = () => ({gen:S.gen,relief:S.relief,elev:S.elev,w:S.w,h:S.h,kind:S.ki
 const UNDO_TOOL={land:'Draw land',cliff:'Draw cliff',river:'Draw river',street:'Draw street',road:'Draw road',trail:'Draw trail',elev:'Shape the land',wall:'Draw wall',fence:'Draw fence',realm:'Draw realm',label:'Add label',room:'Draw room',corridor:'Draw corridor',dwall:'Draw inner wall',floor:'Paint floor',reshape:'Reshape'};
 function undoLabel(){ const t=etool(); if(t==='select') return sel ? 'Change '+(sel.type==='multi' ? selItems().length+' things' : ({land:'landmass',cliff:'cliff',line:'line',stamp:'stamp',label:'label'})[sel.type]||'selection') : 'Change map';
   if(t==='paint') return opts.paintLayer==='water' ? 'Paint water' : 'Paint '+(TERRAIN[opts.terrain] ? TERRAIN[opts.terrain].name.toLowerCase() : 'ground'); if(t==='stamp') return 'Place '+kindLabel(opts.stamp); return UNDO_TOOL[t]||'Edit'; }
-function pushUndo(label){ undoStack.push({state:snap(),label:label||undoLabel()}); if(undoStack.length>60) undoStack.shift(); redoStack=[]; syncButtons(); queueSave(); }
+function pushUndo(label){ untouched=false; undoStack.push({state:snap(),label:label||undoLabel()}); if(undoStack.length>60) undoStack.shift(); redoStack=[]; syncButtons(); queueSave(); }
 function restore(s){ S={...s,theme:S.theme,hm:S.hm}; sel=null;      // the height view is a way of looking, not part of what is undone
   rebuildAll(); renderPanel(); syncButtons(); queueSave(); }
 function undo(){ if(!undoStack.length) return; const e=undoStack.pop(); redoStack.push({state:snap(),label:e.label}); restore(e.state); }
@@ -502,21 +508,25 @@ const store={ db:null, ok:true,
   get(id){ return new Promise(res=>{ if(!store.db){ try{ res(localStorage.getItem('wa-map-'+id)); }catch(e){ res(null); } return; } try{ const q=store.db.transaction('maps').objectStore('maps').get(id); q.onsuccess=()=>res(q.result||null); q.onerror=()=>res(null); }catch(e){ res(null); } }); },
   set(id,v){ return new Promise(res=>{ if(!store.db){ try{ localStorage.setItem('wa-map-'+id,v); res(true); }catch(e){ res(false); } return; } try{ const t=store.db.transaction('maps','readwrite'); t.objectStore('maps').put(v,id); t.oncomplete=()=>res(true); t.onerror=t.onabort=()=>res(false); }catch(e){ res(false); } }); },
   del(id){ return new Promise(res=>{ if(!store.db){ try{ localStorage.removeItem('wa-map-'+id); }catch(e){} res(); return; } try{ const t=store.db.transaction('maps','readwrite'); t.objectStore('maps').delete(id); t.oncomplete=t.onerror=t.onabort=()=>res(); }catch(e){ res(); } }); } };
-let lib=[], curId=null, saveTimer=0, saveDirty=false;      // lib: [{id,name,updated,w,h,thumb}], newest first
+let lib=[], curId=null, saveTimer=0, saveDirty=false, untouched=false, throwaway=false;      // throwaway: the open map is a blank sheet or the starting example; untouched: nothing has been done to it yet. Such a map is not kept in Maps      // lib: [{id,name,updated,w,h,thumb}], newest first
 const newId=()=>'m'+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
 function makeThumb(){ try{ const k=320/S.w, [c,x]=mkCanvas(320,Math.round(S.h*k)); x.scale(k,k); x.drawImage(base,0,0,S.w,S.h); drawVectors(x,k); return c.toDataURL('image/jpeg',.72); }catch(e){ return ''; } }
 function queueSave(){ saveDirty=true; clearTimeout(saveTimer); saveTimer=setTimeout(saveNow,1200); }
-async function saveNow(){ clearTimeout(saveTimer); if(!saveDirty || !curId || exporting) return; saveDirty=false; const id=curId, data=serialize(), entry={id,name:S.name||'Untitled map',updated:Date.now(),w:S.w,h:S.h,thumb:makeThumb()};
+async function saveNow(){ clearTimeout(saveTimer); if(!saveDirty || !curId || exporting) return; if(untouched && throwaway){ saveDirty=false; return; } saveDirty=false; const id=curId, data=serialize(), entry={id,name:S.name||'Untitled map',updated:Date.now(),created:(lib.find(m=>m.id===id)||{}).created||Date.now(),kind:mapKindName(),w:S.w,h:S.h,thumb:makeThumb()};      // an empty sheet nobody has drawn on (or the untouched example) is not kept in Maps
   const ok=await store.set(id,data); if(!ok){ if(store.ok) toast('This browser would not store the map. Use Save map file to keep it.'); store.ok=false; return; } store.ok=true;
   lib=[entry,...lib.filter(m=>m.id!==id)]; await store.set('__index',JSON.stringify(lib)); await store.set('__current',id); }
-async function openMap(id){ await saveNow(); const raw=await store.get(id); let d=null; try{ d=JSON.parse(raw); }catch(e){} if(!validState(d)){ toast('That map could not be read.'); return false; }
+const isBlankMap=d=>!(d.lands||[]).length && !(d.stamps||[]).length && !(d.lines||[]).length && !(d.cliffs||[]).length && !(d.paints||[]).length;
+async function leaveMap(){ if(untouched && throwaway && curId && lib.some(m=>m.id===curId)){ await store.del(curId); lib=lib.filter(m=>m.id!==curId); await store.set('__index',JSON.stringify(lib)); } untouched=false; throwaway=false; }      // leaving an untouched blank sheet or the example: it goes, rather than piling up in Maps
+async function openMap(id){ await saveNow(); await leaveMap(); const raw=await store.get(id); let d=null; try{ d=JSON.parse(raw); }catch(e){} if(!validState(d)){ toast('That map could not be read.'); return false; }
   curId=id; loadState(d); setTool('select'); $('note').hidden=true; await store.set('__current',id); return true; }
-async function addMap(state,tool){ await saveNow(); curId=newId(); loadState(state); if(tool) setTool(tool); saveDirty=true; await saveNow(); }      // a new entry in the library, opened straight away
+async function addMap(state,tool){ await saveNow(); await leaveMap(); curId=newId(); loadState(state); if(tool) setTool(tool); untouched=true; throwaway=isBlankMap(S); saveDirty=true; await saveNow(); }      // a new entry in the library, opened straight away
 async function deleteMap(id){ await store.del(id); lib=lib.filter(m=>m.id!==id); await store.set('__index',JSON.stringify(lib)); if(id===curId){ curId=null; saveDirty=false; if(lib.length) await openMap(lib[0].id); else await addMap(blankState(2400,1500),'land'); } }
 async function duplicateMap(id){ await saveNow(); const raw=await store.get(id), src=lib.find(m=>m.id===id); if(!raw || !src) return; let d=null; try{ d=JSON.parse(raw); }catch(e){ return; } d.name=(d.name||'Untitled map')+' copy'; const nid=newId(); await store.set(nid,JSON.stringify(d)); lib=[{...src,id:nid,name:d.name,updated:Date.now()},...lib]; await store.set('__index',JSON.stringify(lib)); }
-function renderMaps(){ const esc=t=>String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;'), when=t=>{ const d=new Date(t), now=new Date(); return d.toDateString()===now.toDateString() ? 'today '+d.toLocaleTimeString([],{hour:'numeric',minute:'2-digit'}) : d.toLocaleDateString([],{day:'numeric',month:'short',year:'numeric'}); };
-  $('mapsList').innerHTML=lib.map(m=>`<div class="mapcard${m.id===curId?' cur':''}">${m.thumb?`<img src="${m.thumb}" alt="">`:'<div class="noimg"></div>'}<b title="${esc(m.name)}">${esc(m.name)}</b><small>${m.w} × ${m.h} · ${when(m.updated)}${m.id===curId?' · open now':''}</small>
-    <div class="btnrow">${m.id===curId?'':`<button type="button" class="btn primary" data-open="${m.id}">Open</button>`}<button type="button" class="btn" data-dup="${m.id}">Duplicate</button><button type="button" class="btn danger" data-del="${m.id}">Delete</button></div></div>`).join('') || '<p>No maps yet.</p>';
+const mapKindName=()=>S.kind==='dungeon' ? (S.gen?'Generated dungeon':'Dungeon') : S.gen ? ({island:'Island',continent:'Continent',archipelago:'Archipelago',city:'City'}[S.gen.kind]||'Generated map') : 'Hand-drawn map';
+function renderMaps(){ const q=(($('mapsQ')||{}).value||'').trim().toLowerCase(), sort=($('mapsSort')||{}).value||'recent';
+  const shown=lib.filter(m=>!q || (m.name+' '+(m.kind||'')).toLowerCase().includes(q)).slice().sort((a,b)=>sort==='name' ? String(a.name).localeCompare(String(b.name)) : sort==='old' ? (a.created||a.updated)-(b.created||b.updated) : b.updated-a.updated); const esc=t=>String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;'), when=t=>{ const d=new Date(t), now=new Date(); return d.toDateString()===now.toDateString() ? 'today '+d.toLocaleTimeString([],{hour:'numeric',minute:'2-digit'}) : d.toLocaleDateString([],{day:'numeric',month:'short',year:'numeric'}); };
+  $('mapsList').innerHTML=shown.map(m=>`<div class="mapcard${m.id===curId?' cur':''}">${m.thumb?`<img src="${m.thumb}" alt="Open ${esc(m.name)}" title="${m.id===curId?'Open now':'Open'}" data-open="${m.id===curId?'':m.id}">`:'<div class="noimg"></div>'}<b title="${esc(m.name)}">${esc(m.name)}</b><small>${m.kind?esc(m.kind)+' · ':''}${m.w} × ${m.h} · ${when(m.updated)}${m.id===curId?' · open now':''}</small>
+    <div class="btnrow">${m.id===curId?'':`<button type="button" class="btn primary" data-open="${m.id}">Open</button>`}<button type="button" class="btn" data-ren="${m.id}">Rename</button><button type="button" class="btn" data-dup="${m.id}">Duplicate</button><button type="button" class="btn danger" data-del="${m.id}">Delete</button></div></div>`).join('') || (q ? '<p>No map matches that.</p>' : '<p>No maps yet. Start one with New map; it is kept here once you draw on it.</p>');
   $('mapsNote').textContent = store.db ? 'Every map is kept in this browser and saved as you work. Save a map file as well for anything you would hate to lose.' : 'This browser only offers a small store, so a few large maps may fill it. Save map files for anything you want to keep.'; }
 /* ---- Height. A generated map keeps the heights it was made from (S.height: a grid of one value per 20 units, in hundredths, and a mask: land, sea or lake) so the Heightmap view can show them. A map drawn by hand
    has none, and the view estimates one from its coast, cliffs and mountains. S.hm is whether the view is on. ---- */
@@ -2699,6 +2709,7 @@ window.addEventListener('keydown',e=>{
   else if(!mod && opts.tool==='stamp' && (e.key==='['||e.key===']')){ e.preventDefault(); stepShape(e.key===']'?1:-1); }
   else if(!mod && opts.tool==='stamp' && /^[1-9]$/.test(e.key) && favs[+e.key-1]){ e.preventDefault(); chooseStamp(favs[+e.key-1]); }
   else if(!mod && opts.tool==='stamp' && e.key.toLowerCase()==='x'){ opts.stampFlip=opts.stampFlip==='on'?'off':'on'; pend.key=''; renderPanel(); invalidate(); }
+  else if(!mod && e.key==='?'){ e.preventDefault(); openKeys(); }
   else if(!mod){ const mode=S.kind==='dungeon'?'d':'w', kk=e.key.toLowerCase(); if(kk==='c' && mode==='w'){ opts.paintLayer='cliff'; setTool('paint'); } else { const t=TOOLS.find(t=>t.key && t.key===kk && (!t.m || t.m===mode)); if(t) setTool(t.id); } }
 });
 window.addEventListener('keyup',e=>{ if(e.key===' ') spaceDown=false; });
@@ -2715,40 +2726,41 @@ const ICON = {
   border:'<path d="M3 17l4-8 5 5 4-9 5 7" stroke-dasharray="4 3"/>', stamp:'<path d="M4 20V11l4-4 4 4v9zM12 20v-6l4-3 4 3v6z"/>', label:'<path d="M5 6h14M12 6v13M9 19h6"/>', realm:'<path d="M4 9l5-5 8 2 3 7-4 7-9-1z" stroke-dasharray="3 2"/><path d="M8 10l2 2M12 8l2 2M9 14l2 2M13 12l2 2"/>', street:'<path d="M3 9h8V3M3 15h8v6M15 3v6h6M15 21v-6h6"/>', wall:'<path d="M3 18V9h3v3h3V9h3v3h3V9h3v3h3v6z"/>', fence:'<path d="M3 10h18M3 15h18M6 7v11M12 7v11M18 7v11"/>', measure:'<path d="M3 16l13-13 5 5-13 13zM7 12l2 2M10 9l2 2M13 6l2 2"/>',
 };
 const TOOLS = [      // m: 'w' world maps only, 'd' dungeons only, 'x' not offered (its job is done inside another tool; see etool)
-  {g:'Edit', id:'select', name:'Select', key:'v', hint:'Click to select, or drag a box around several things. Drag a selection to move it. Middle-click or hold Space to pan.'},
-  {id:'reshape', name:'Reshape', key:'e', hint:'Drag a coastline, river, road or cliff edge to pull it into a new shape.'},
-  {id:'pan', name:'Pan', key:'h', hint:'Drag to move around. Scroll or pinch to zoom. Middle-click or Space does the same from any tool.'},
+  {g:'Edit', id:'select', name:'Select', key:'v', hint:'Click to select; drag a box for several (Shift adds). Drag a selection to move it. Alt-click picks a locked thing.'},
+  {id:'reshape', name:'Reshape', key:'e', hint:'Pull a coast, river, road or cliff edge into a new shape, or switch to Cut to rub out part of a line.'},
+  {id:'pan', name:'Pan', key:'h', hint:'Drag to move around; scroll or pinch to zoom. From any tool, hold Space or drag with the middle button.'},
   {id:'measure', name:'Measure', key:'g', hint:'Drag along a route to read its length. Nothing is added to the map.'},
-  {g:'Shape', id:'land', m:'w', name:'Land', key:'l', hint:'Left-drag a loop to raise land. Right-drag a loop to carve sea or a lake.'},
-  {id:'paint', m:'w', name:'Terrain', key:'t', hint:'Paint ground (meadows, grasses, flowers, forest, stone, sand), water or cliffs. Pick which at the top of the panel.'},
+  {g:'Shape', id:'land', m:'w', name:'Land', key:'l', hint:'Drag a loop: left adds land, right carves sea or a lake.'},
+  {id:'paint', m:'w', name:'Terrain', key:'t', hint:'Paint ground, water depths, cliffs or elevation. Pick the mode at the top of the panel.'},
   {g:'Dungeon', id:'room', m:'d', name:'Room', key:'o', hint:'Drag to draw a room. Choose Rectangle, Ellipse, Polygon or Cave below. Right-drag cuts a hole out of the floor.'},
   {id:'corridor', m:'d', name:'Corridor', key:'i', hint:'Click along the passage, double-click or press Enter to finish. The width is in squares.'},
   {id:'dwall', m:'d', name:'Inner wall', key:'p', hint:'Draw an inner wall across a room. Click along it, double-click or press Enter to finish.'},
   {id:'floor', m:'d', name:'Floor', key:'f', hint:'Paint a floor texture over the rooms, or click a room to give it one. Right-drag rubs it out.'},
   {g:'Lines', id:'river', m:'w', name:'River', key:'r', hint:'Draw a river from source to mouth.'},
-  {id:'street', m:'w', name:'Street', key:'s', hint:'Draw a street, lane or country road. Where they meet or cross they join into one junction.'},
-  {id:'wall', m:'w', name:'Wall', key:'w', hint:'Draw a town wall, or a hedge, fence, field wall or palisade. Towers are set along a town wall; a street drawn across it makes a gate.'},
-  {id:'realm', m:'w', name:'Realm', key:'k', hint:'Draw a loop round a territory. It is marked along the inside of its edge, on land only.'},
-  {g:'Mark', id:'stamp', name:'Stamp', key:'m', hint:'Click to place one. Drag with trees or mountains to scatter many.'},
+  {id:'street', m:'w', name:'Street', key:'s', hint:'Draw a street; crossing streets join. Pick Road or Trail in the panel for ways between places.'},
+  {id:'wall', m:'w', name:'Wall', key:'w', hint:'Draw a town wall (towers are set along it), or a hedge, fence, field wall or palisade.'},
+  {id:'realm', m:'w', name:'Realm', key:'k', hint:'Draw a loop round a territory; its edge is marked on the inside, on land only.'},
+  {g:'Mark', id:'stamp', name:'Stamp', key:'m', hint:'Click to place. Trees, mountains and other scattering kinds can be dragged to lay down many.'},
   {id:'label', name:'Label', key:'a', hint:'Click where the name should go, then type it.'},
-  {id:'cliff', m:'x', name:'Cliffs', key:'', hint:'Left-drag raises the land into a plateau with cliffs. Right-drag lowers it again.'},
-  {id:'road', m:'x', name:'Road', key:'', hint:'Draw a road between places.'},
-  {id:'trail', m:'x', name:'Trail', key:'', hint:'Draw a dotted trail.'},
-  {id:'elev', m:'x', name:'Elevation', key:'', hint:'Left-drag raises the land, right-drag lowers it. The relief on the map and the height view follow.'},
+  {id:'cliff', m:'x', name:'Cliffs', key:'', hint:'Outline a plateau with the left button (the outline is its foot) or a pit with the right. Height, taper and direction are in the panel.'},
+  {id:'road', m:'x', name:'Road', key:'', hint:'Draw a road: a thin cased line that runs into other roads where they meet.'},
+  {id:'trail', m:'x', name:'Trail', key:'', hint:'Draw a trail: a dotted track or footpath.'},
+  {id:'elev', m:'x', name:'Elevation', key:'', hint:'Left-drag raises the land, right-drag lowers it. Slopes are shaded on the map and show in the height view.'},
   {id:'fence', m:'x', name:'Fence', key:'', hint:'Draw a hedge, fence, field wall or palisade, for plots and outworks.'},
 ];
 const etool = () => opts.tool==='paint' && opts.paintLayer==='cliff' ? 'cliff' : opts.tool==='paint' && opts.paintLayer==='elev' ? 'elev' : opts.tool==='wall' && opts.wallKind!=='town' ? 'fence' : opts.tool==='street' && opts.roadMode ? (opts.roadMode==='trail' ? 'trail' : 'road') : opts.tool;      // some tools do several jobs: the one being done right now
 
 let railBound=false;
 function buildRail(){ const mode=S.kind==='dungeon'?'d':'w'; let pend=null, h='';      // world tools and dungeon tools are offered by map kind; a hidden tool hands its heading to the next one shown
-  for(const t of TOOLS){ if(t.g) pend=t.g; if(t.m && t.m!==mode) continue; h+=`${pend?`<h3>${pend}</h3>`:''}<button class="tool" data-tool="${t.id}" title="${t.name} (${t.key.toUpperCase()})" aria-pressed="false"><svg viewBox="0 0 24 24">${ICON[t.id]}</svg>${t.name}</button>`; pend=null; }
+  for(const t of TOOLS){ if(t.g) pend=t.g; if(t.m && t.m!==mode) continue; h+=`${pend?`<h3>${pend}</h3>`:''}<button class="tool" data-tool="${t.id}" title="${t.name}${t.key?' ('+t.key.toUpperCase()+')':''}: ${t.hint.replace(/"/g,'&quot;')}" aria-pressed="false"><svg viewBox="0 0 24 24">${ICON[t.id]}</svg>${t.name}</button>`; pend=null; }
   $('rail').innerHTML=h; if(railBound) return; railBound=true;
   $('rail').addEventListener('click',e=>{ const b=e.target.closest('[data-tool]'); if(!b) return;
     if(PHONE && b.dataset.tool===opts.tool) document.body.classList.toggle('drawer-open');     // on a phone, tapping the tool you're on opens its settings
     else { setTool(b.dataset.tool); document.body.classList.remove('drawer-open'); } }); }
+function syncHint(){ const h=$('hint'); if(!h) return; const j=etool(); h.textContent = landBrushOn() ? 'Left-drag paints land. Right-drag paints sea over it.' : (TOOLS.find(t=>t.id===j)||TOOLS.find(t=>t.id===opts.tool)).hint; }      // the hint follows the job being done (Terrain > Elevation, Street > Trail ...), not just the tool
 function setTool(id){ opts.tool=id; draft=null; if(id!=='select') sel=null;
   document.querySelectorAll('.tool').forEach(b=>b.setAttribute('aria-pressed',b.dataset.tool===id));
-  $('hint').textContent = landBrushOn() ? 'Left-drag paints land. Right-drag paints sea over it.' : TOOLS.find(t=>t.id===id).hint; cv.style.cursor = id==='pan'?'grab': id==='select'?'default':'crosshair'; renderPanel(); invalidate(); }
+  syncHint(); cv.style.cursor = id==='pan'?'grab': id==='select'?'default':'crosshair'; renderPanel(); invalidate(); }
 
 const slider=(id,label,min,max,step,val,fmt)=>`<div class="row"><label for="${id}">${label}</label><input class="val" id="${id}Out" type="text" inputmode="decimal" value="${fmt(val)}" aria-label="${label}, type a value" title="Type a value, or use the arrow keys (Shift for bigger steps)"><input type="range" id="${id}" min="${min}" max="${max}" step="${step}" value="${val}" aria-label="${label}"></div>`;      // the slider spans the panel; the value above it can be typed into
 const pct=v=>Math.round(v*100), num=v=>Math.round(v), deg=v=>Math.round(v)+'°';
@@ -2797,7 +2809,7 @@ function dungToolPanel(t){ const chips=(id,items,cur,attr)=>`<div class="chips" 
   if(t!=='dwall'){ h+=`<p class="grp">This draws</p>${chips('roomCut',[[0,'Floor'],[1,'A hole in the floor']],opts.roomCut?1:0,'cut')}`; if(!opts.roomCut) h+=`<p class="grp">Floor</p>${chips('roomTex',FLOORS,opts.roomTex,'tex')}`; if(t==='room' && opts.roomShape!=='poly') h+=`<p>Right button does the opposite.</p>`; }
   h+=`</section>`; return h; }
 function dungSelPanel(o){ return `<section><h2>${o.mode==='sea'?'Hole in the floor':o.brush?'Corridor':o.sharp?'Room':'Cave or round room'}</h2>${o.mode==='sea'?'':`<p class="grp">Floor</p><div class="chips" id="selTex">${FLOORS.map(([k,n])=>`<button class="chip" data-tex="${k}" aria-pressed="${(o.tex||'none')===k}">${n}</button>`).join('')}</div>`}${o.brush?slider('selBrush','Width',20,600,2,o.size,num):''}${!o.sharp?slider('selRough','Edge',0,1,.01,o.rough,pct)+'<div class="ends"><span>smooth</span><span>rough</span></div>':''}</section>`; }
-function renderPanel(){
+function renderPanel(){ syncHint();
   const t=etool();
   const TERR_MODES=[['land','Ground'],['water','Water'],['cliff','Cliffs'],['elev','Elevation']], modeChips=()=>`<div class="chips" id="paintLayer">${TERR_MODES.map(([k,n])=>`<button class="chip" data-layer="${k}" aria-pressed="${opts.paintLayer===k}">${n}</button>`).join('')}</div>`;      // Terrain does four jobs, picked here
   const wallKindChips=()=>`<p class="grp">Kind</p><div class="chips" id="wallKind">${[['town','Town wall'],['hedge','Hedge'],['fence','Fence'],['wall','Field wall'],['palisade','Palisade']].map(([k,n])=>`<button class="chip" data-wk="${k}" aria-pressed="${opts.wallKind===k}">${n}</button>`).join('')}</div>`; let h = PHONE ? '<button class="btn" id="drawerX">Close settings</button>' : '';
@@ -2828,11 +2840,11 @@ function renderPanel(){
     ${opts.landMode==='brush'?slider('landBrush','Brush',20,600,2,opts.landBrush,num):''}${slider('landRough','Coastline',0,1,.01,opts.landRough,pct)}<div class="ends"><span>smooth</span><span>jagged</span></div>
     <p class="grp">Left button draws</p><div class="chips" id="landPrimary"><button class="chip" data-prim="land" aria-pressed="${opts.landPrimary==='land'}">Land</button><button class="chip" data-prim="sea" aria-pressed="${opts.landPrimary==='sea'}">Sea</button></div>
     <p>Right button does the opposite. On a touch screen, swap with these.</p></section>`;
-  if(t==='elev') h+=`<section id="terrChips"><h2>Terrain</h2>${modeChips()}${slider('elevBrush','Brush',40,900,5,opts.elevBrush,num)}${slider('elevAmt','Strength',2,100,1,Math.round(opts.elevAmt*100),v=>Math.round(v))}<div class="ends"><span>a rise</span><span>a great height</span></div><p>Left-drag raises the land, right-drag lowers it; go over a place again to build it up. Hills show as hachures on the map, and land raised to the shore becomes a sea cliff. Relief strength is in Map settings.</p>${(S.elev||[]).length?`<button class="btn" id="elevClear">Flatten all (${S.elev.length} strokes)</button>`:''}</section>`;
+  if(t==='elev') h+=`<section id="terrChips"><h2>Terrain</h2>${modeChips()}${slider('elevBrush','Brush',40,900,5,opts.elevBrush,num)}${slider('elevAmt','Strength',2,100,1,Math.round(opts.elevAmt*100),v=>Math.round(v))}<div class="ends"><span>a rise</span><span>a great height</span></div><p>Left-drag raises, right-drag lowers; go over a place again to build it up. Slopes facing away from the light are shaded, and land raised to the shore becomes a sea cliff. Strength: Map settings, Relief.</p>${(S.elev||[]).length?`<button class="btn" id="elevClear">Flatten all (${S.elev.length} strokes)</button>`:''}</section>`;
   if(t==='cliff') h+=`<section id="terrChips"><h2>Terrain</h2>${modeChips()}<p class="grp">Brush type</p><div class="chips" id="cliffModes"><button class="chip" data-cmode="outline" aria-pressed="${opts.cliffMode==='outline'}">Outline</button><button class="chip" data-cmode="brush" aria-pressed="${opts.cliffMode==='brush'}">Brush</button></div>
     ${opts.cliffMode==='brush'?slider('cliffBrush','Brush',20,600,2,opts.cliffBrush,num):''}${slider('cliffH','Height',-220,140,1,opts.cliffH,num)}<div class="ends"><span>deep pit</span><span>high cliff</span></div>${slider('cliffTaper','Taper',0,1,.01,opts.cliffTaper,pct)}<div class="ends"><span>even</span><span>ramps to nothing</span></div>${slider('cliffDir','Direction',-180,180,1,opts.cliffDir,deg)}<div class="ends"><span>the ramp runs towards</span><span></span></div>${slider('cliffRough','Edge',0,1,.01,opts.cliffRough,pct)}<div class="ends"><span>smooth</span><span>jagged</span></div>
     <p class="grp">Left button</p><div class="chips" id="cliffPrimary"><button class="chip" data-cprim="up" aria-pressed="${opts.cliffPrimary==='up'}">Raises</button><button class="chip" data-cprim="down" aria-pressed="${opts.cliffPrimary==='down'}">Lowers</button></div>
-    <p>Right button does the opposite. Below zero digs a pit. To change height, taper or direction later, pick the cliff with Select and drag its grip and arrow.</p></section>`;
+    <p>The right button does the opposite. Your outline is the plateau's foot; a pit sinks inside it. Change height, taper or direction later by selecting the cliff and dragging its grip or arrow.</p></section>`;
   if(t==='paint'){ const water=opts.paintLayer==='water', DEF=water?WATER:TERRAIN, cur=water?opts.water:opts.terrain, seen=new Set(), INKS=Object.fromEntries(Object.entries(DEF).filter(([k,v])=>!seen.has(v.tex)&&seen.add(v.tex))), groups=[...new Set(Object.values(INKS).map(v=>v.g))];   // paints that differ only in colour draw the same ink marks, so each mark is offered once
     h+=`<section id="terrChips"><h2>Terrain</h2>${modeChips()}
     ${groups.map(g=>`<p class="grp">${g}</p><div class="chips">${Object.entries(INKS).filter(([k,v])=>v.g===g).map(([k,v])=>`<button class="chip" data-terr="${k}" aria-pressed="${k===cur||DEF[cur]?.tex===v.tex}">${v.name}</button>`).join('')}</div>`).join('')}
@@ -2851,8 +2863,8 @@ function renderPanel(){
   if(t==='measure') h+=`<section><h2>Measure</h2><p style="font-size:17px;margin:0">${measured?'<b>'+fmtDist(pathLen(measured))+'</b> along the route':'Drag along a route on the map.'}</p><p class="grp">Map scale</p><label class="row wide" for="scaleN">100 map units =<input type="number" id="scaleN" min="0.01" step="any" value="${S.scale.per100}" style="width:5.5em"></label><label class="row wide" for="scaleU">Unit<select id="scaleU">${['miles','leagues','km','days','yards','feet','paces'].map(u=>`<option${u===S.scale.unit?' selected':''}>${u}</option>`).join('')}</select></label><p>A grid cell (${S.grid.size}) is ${fmtDist(S.grid.size)}. The whole sheet is ${fmtDist(S.w)} across. Scale bar stamps show this scale.</p></section>`;
   if(t==='pan') h+=`<section><h2>Pan</h2><p>Hold Space with any tool to pan without switching.</p></section>`;
   const setDetail=`<section><h2>Detail</h2>${PHONE?'<p>Phone mode draws at reduced detail.</p>':`<div class="chips" id="detailPick"><button class="chip" data-detail="1" aria-pressed="${R===1}">Normal</button><button class="chip" data-detail="${Math.min(2,maxScale())}" aria-pressed="${R>1}">High</button></div><p>High stays sharp when you zoom in, but painting and undo are slower.</p>`}</section>`;
-  const setRelief=`<section><h2>Relief</h2>${slider('reliefK','Strength',0,2,.05,S.relief ?? 1,pct)}<div class="ends"><span>none</span><span>strong</span></div><p>Hachures where the land slopes, and cliffs where it rises steeply from the sea. Shape the land with Terrain, Elevation.</p></section>`;
-  const setHm=`<section><h2>Heightmap</h2><div class="layer"><span>Show heights</span><label><input type="checkbox" id="hmOn" ${S.hm?'checked':''}>on</label></div>${S.height&&(S.height.pid||(S.gen&&['island','continent','archipelago'].includes(S.gen.kind)))?`<div class="chips"><button class="chip" data-hmv="relief" aria-pressed="${opts.hmView!=='plates'}">Relief</button><button class="chip" data-hmv="plates" aria-pressed="${opts.hmView==='plates'}">Tectonic plates</button></div>`:S.height?'<p>The tectonic plates were not kept with this map (it was made before they were saved), so only the relief can be shown. A newly generated map keeps them.</p>':''}<p>${S.height?'Draws the heights this map was generated from, as a shaded grey relief: sea level is mid-grey, lakes are tinted blue. Rivers and names stay.':'This map has no stored heights, so the view is estimated from its coast, cliffs and mountains.'}</p></section>`;
+  const setRelief=`<section><h2>Relief</h2>${slider('reliefK','Strength',0,2,.05,S.relief ?? 1,pct)}<div class="ends"><span>none</span><span>strong</span></div><p>Diagonal shading on slopes that face away from the light, and on ramps; cliffs where land rises steeply from the sea. Shape the land with Terrain, Elevation.</p></section>`;
+  const setHm=`<section><h2>Heightmap</h2><div class="layer"><span>Show heights</span><label><input type="checkbox" id="hmOn" ${S.hm?'checked':''}>on</label></div>${S.height&&(S.height.pid||(S.gen&&['island','continent','archipelago'].includes(S.gen.kind)))?`<div class="chips"><button class="chip" data-hmv="relief" aria-pressed="${opts.hmView!=='plates'}">Relief</button><button class="chip" data-hmv="plates" aria-pressed="${opts.hmView==='plates'}">Tectonic plates</button></div>`:S.height?'<p>The tectonic plates were not kept with this map (it was made before they were saved), so only the relief can be shown. A newly generated map keeps them.</p>':''}<p>${S.height?'The land as it is now, in grey: higher is lighter, sea level mid-grey, lakes blue. The generator\'s heights are kept where you have not changed the land; your edits, cliffs and Elevation strokes are added.':'Estimated from the coast, mountains, cliffs and Elevation strokes (this map has no generated heights).'}</p></section>`;
   const setRot=`<section><h2>Rotation</h2><div class="layer"><span>Snap to 15°</span><label><input type="checkbox" id="rotSnap" ${opts.rotSnap?'checked':''}>on</label></div><p>Applies to the rotation sliders and the turn handle. Hold Shift while turning with the handle to snap just that once.</p></section>`;
   const setGrid=`<section><h2>Grid</h2><label class="row wide" for="gridType">Type<select id="gridType"><option value="none">None</option><option value="hex">Hex</option><option value="square">Square</option></select></label>${slider('gridSize','Cell',20,200,2,S.grid.size,num)}</section>
   <hr><section><h2>Sheet</h2><label class="row wide" for="frameType">Border<select id="frameType"><option value="none">None</option><option value="line">Double line</option><option value="graduated">Chart border</option></select></label>${DUNG()?slider('dunHatch','Rock hatching',0,2,.05,S.dun.hatch,pct)+'<div class="layer"><span>Wall shadow</span><label><input type="checkbox" id="dunShadow" '+(S.dun.shadow?'checked':'')+'>show</label><span></span></div><p>The rock round the rooms is hatched, and a band of shading runs down the left inside of each wall.</p>':`<div class="layer"><span>Rhumb lines</span><label><input type="checkbox" id="rhumbOn" ${S.rhumb?'checked':''}>show</label><span></span></div><p>Rhumb lines run across the sea from every compass stamp. Compass, scale and cartouche are under Stamps, Furniture.</p>`}</section>`;
@@ -2996,10 +3008,24 @@ $('newDlg').addEventListener('close',()=>{ if($('newDlg').returnValue!=='ok') re
   const kind=document.querySelector('input[name=start]:checked').value;
   const sd=parseInt($('genSeed').value,10), made = kind==='blank' ? blankState(v[0],v[1]) : kind==='dungeon' ? blankDungeon(v[0],v[1]) : kind==='dungeongen' ? generateDungeon(v[0],v[1],{rooms:+$('dg_rooms').value,props:+$('dg_props').value,foes:+$('dg_foes').value,numbers:$('dg_numbers').checked,seed:Number.isFinite(sd)?sd:undefined}) : kind==='city' ? generateCity(v[0],v[1],{size:+$('city_size').value,density:+$('city_density').value,walls:$('city_walls').checked,river:$('city_river').checked,coast:$('city_coast').checked,seed:Number.isFinite(sd)?sd:undefined}) : generateMap(v[0],v[1],kind,{...genOpts,seed:Number.isFinite(sd)?sd:undefined}); if(kind==='city'){ opts.stampSet='city'; opts.stamp='house'; opts.lineRough=.08; } if(made.gen) genOpts.last=made.gen.seed;
   addMap(made, kind==='blank'?'land':kind==='dungeon'?'room':'select').then(()=>{ $('mapName').value=S.name; $('note').hidden=true; if(kind!=='blank'&&kind!=='dungeon') toast('Generated '+S.name+' (seed '+genOpts.last+'). It is in Maps with your others.'); }); });
+function openKeys(){ const mode=S.kind==='dungeon'?'d':'w', K=k=>k.split(' ').map(x=>`<kbd>${x}</kbd>`).join(' '), row=(a,b)=>`<div><span>${a}</span><span>${b}</span></div>`;      // every key and gesture in one place, built from the tool list so it never goes stale
+  const tools=TOOLS.filter(t=>t.key && (!t.m || t.m===mode)).map(t=>row(t.name,K(t.key.toUpperCase()))).join('')+(mode==='w'?row('Terrain, Cliffs',K('C')):'');
+  $('keysList').innerHTML=`<h3>Tools</h3>${tools}<h3>Anywhere</h3>${[['Undo',K('Ctrl Z')],['Redo',K('Ctrl Shift Z')+' or '+K('Ctrl Y')],['Pan','hold '+K('Space')+' and drag, or middle-drag'],['Zoom','scroll, or pinch'],['Fit the sheet in view','Fit button'],['This sheet',K('?')]].map(r=>row(...r)).join('')}
+    <h3>Selection</h3>${[['Add to the selection','Shift-click or Shift-drag'],['Pick a locked thing','Alt-click'],['Move a little / more',K('Arrows')+' / Shift '+K('Arrows')],['Duplicate',K('Ctrl D')],['Delete',K('Delete')],['Let go',K('Esc')]].map(r=>row(...r)).join('')}
+    <h3>Drawing</h3>${[['Do the opposite','right-drag (Land, Terrain, Room, Floor)'],['Finish a corridor or wall',K('Enter')+' or double-click'],['Take back the last point',K('Backspace')],['Cancel a drawing',K('Esc')]].map(r=>row(...r)).join('')}
+    <h3>Stamps</h3>${[['Next / previous shape',K(']')+' / '+K('[')],['Mirror',K('X')],['A favourite',K('1')+' to '+K('9')]].map(r=>row(...r)).join('')}
+    <h3>Sliders</h3>${[['Type a value','click the number'],['Step it',K('↑')+' '+K('↓')+', Shift for ten'],['Nudge it','mouse wheel over the slider']].map(r=>row(...r)).join('')}`; $('keysDlg').showModal(); }
+$('keysBtn').onclick=openKeys;
 $('mapsBtn').onclick=async()=>{ await saveNow(); renderMaps(); $('mapsDlg').showModal(); };
 $('mapsDlg').addEventListener('close',()=>{ if($('mapsDlg').returnValue==='new'){ syncGen(); $('newDlg').showModal(); } });
-$('mapsList').addEventListener('click',async e=>{ const b=e.target.closest('button'); if(!b) return;
-  if(b.dataset.open){ if(await openMap(b.dataset.open)) $('mapsDlg').close('cancel'); }
+$('mapsQ').addEventListener('input',renderMaps); $('mapsSort').addEventListener('change',renderMaps);
+async function renameMap(id,name){ name=name.trim()||'Untitled map'; if(id===curId){ S.name=name; $('mapName').value=name; untouched=false; saveDirty=true; await saveNow(); }
+  else { let d=null; try{ d=JSON.parse(await store.get(id)); }catch(e){} if(!d) return; d.name=name; await store.set(id,JSON.stringify(d)); lib=lib.map(m=>m.id===id?{...m,name}:m); await store.set('__index',JSON.stringify(lib)); } renderMaps(); }
+$('mapsList').addEventListener('click',async e=>{ const im=e.target.closest('img[data-open]'); if(im && im.dataset.open){ $('mapsDlg').close('cancel'); await openMap(im.dataset.open); return; }      // close first: the map opens behind it
+  const rb=e.target.closest('[data-ren]'); if(rb){ const card=rb.closest('.mapcard'), nm=card.querySelector('b'), m=lib.find(x=>x.id===rb.dataset.ren); if(!nm || !m) return; const inp=document.createElement('input'); inp.className='ren'; inp.value=m.name; nm.replaceWith(inp); inp.focus(); inp.select(); let done=false;
+    const commit=ok=>{ if(done) return; done=true; ok ? renameMap(m.id,inp.value) : renderMaps(); }; inp.addEventListener('keydown',ev=>{ if(ev.key==='Enter'){ ev.preventDefault(); commit(true); } else if(ev.key==='Escape'){ ev.preventDefault(); ev.stopPropagation(); commit(false); } }); inp.addEventListener('blur',()=>commit(true)); return; }
+  const b=e.target.closest('button'); if(!b) return;
+  if(b.dataset.open){ $('mapsDlg').close('cancel'); await openMap(b.dataset.open); }
   else if(b.dataset.dup){ await duplicateMap(b.dataset.dup); renderMaps(); }
   else if(b.dataset.del){ if(b.dataset.sure){ await deleteMap(b.dataset.del); renderMaps(); } else { b.dataset.sure='1'; b.textContent='Delete for good?'; setTimeout(()=>{ if(b.isConnected){ delete b.dataset.sure; b.textContent='Delete'; } },4000); } } });
 window.addEventListener('pagehide',()=>{ saveNow(); }); document.addEventListener('visibilitychange',()=>{ if(document.hidden) saveNow(); });
@@ -3008,7 +3034,7 @@ $('fSet').onclick=()=>{ document.body.classList.remove('menu-open'); document.bo
 $('fMenu').onclick=()=>{ document.body.classList.remove('drawer-open'); document.body.classList.toggle('menu-open'); };
 document.querySelector('.acts').addEventListener('click',()=>document.body.classList.remove('menu-open'));
 $('undoBtn').onclick=undo; $('redoBtn').onclick=redo; $('fitBtn').onclick=fitView; $('noteX').onclick=()=>$('note').hidden=true;
-$('mapName').addEventListener('input',e=>{ S.name=e.target.value; queueSave(); });
+$('mapName').addEventListener('input',e=>{ S.name=e.target.value; untouched=false; queueSave(); });
 
 /* ============================================================ random maps
    Works on a coarse grid of heights. Coasts come from layered noise bent by a second noise (so they wander like real ones),
@@ -3366,7 +3392,7 @@ async function start(){
   try{ const f=JSON.parse(await store.get('__favs')); if(Array.isArray(f)) favs=f.filter(k=>typeof k==='string' && Object.values(STAMP_GROUPS).some(g=>g.kinds.includes(k))); }catch(e){}      // the favourites list
   if(Array.isArray(idx) && idx.length){ lib=idx; const want=await store.get('__current'); if(!(await openMap(lib.some(m=>m.id===want)?want:lib[0].id))){ curId=newId(); loadState(blankState(2400,1500)); } setTool('land'); }
   else { let old=null; try{ old=JSON.parse(localStorage.getItem(STORE_KEY)); }catch(e){}                 // first run: carry over the single map earlier versions kept, or show the example
-    curId=newId(); if(validState(old)){ loadState(old); setTool('land'); } else { loadState(exampleMap()); $('note').hidden=false; setTool('select'); } saveDirty=true; setTimeout(saveNow,600); }
+    curId=newId(); if(validState(old)){ loadState(old); setTool('land'); } else { loadState(exampleMap()); $('note').hidden=false; setTool('select'); untouched=true; throwaway=true; } saveDirty=true; setTimeout(saveNow,600); }
   new ResizeObserver(()=>{ const first=!start.sized; resize(); if(first){ start.sized=true; fitView(); } }).observe(stage);
   if(document.fonts && document.fonts.ready) Promise.all([document.fonts.load('30px "IM Fell English"'),document.fonts.load('italic 30px "IM Fell English"'),document.fonts.load('30px "IM Fell English SC"'),document.fonts.load('italic 30px "IM Fell Double Pica"'),document.fonts.load('30px "IM Fell French Canon SC"'),document.fonts.load('30px "UnifrakturMaguntia"')]).catch(()=>{}).then(()=>{ sprites.clear(); invalidate(); });
   window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change',invalidate);
