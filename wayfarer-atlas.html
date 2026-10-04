@@ -1011,14 +1011,16 @@ function rebuildEco(){
     o.save(); o.setTransform(R,0,0,R,0,0); o.globalAlpha=.92; for(const m of marks){ const rn=mulberry(m[4]); (m[2]?ecoSapling:ecoShrub)(o,m[0],m[1],m[3],rn); } o.restore();
   }catch(e){ ecoFor=null; console.error('woodland edge',e); } }
 let landFor=null;      // what the land mask was last built from (see sameLand)
-const landSig=()=>({l:S.lands,c:S.cliffs,cv:layers.cliffs.v,lv:layers.lines.v,r:layers.lines.v?S.lines.filter(l=>l.kind==='river' && lyVisible(l)):[],R,w:S.w,h:S.h});
-const sameLand=(a,b)=>!!(a && b && a.l===b.l && a.c===b.c && a.cv===b.cv && a.lv===b.lv && a.R===b.R && a.w===b.w && a.h===b.h && a.r.length===b.r.length && a.r.every((o,i)=>o===b.r[i]));
+const landSig=()=>({m:mtnSig(),st:layers.stamps.v,l:S.lands,c:S.cliffs,cv:layers.cliffs.v,lv:layers.lines.v,r:layers.lines.v?S.lines.filter(l=>l.kind==='river' && lyVisible(l)):[],R,w:S.w,h:S.h});
+const sameLand=(a,b)=>!!(a && b && a.m===b.m && a.st===b.st && a.l===b.l && a.c===b.c && a.cv===b.cv && a.lv===b.lv && a.R===b.R && a.w===b.w && a.h===b.h && a.r.length===b.r.length && a.r.every((o,i)=>o===b.r[i]));
+function mtnClip(x){ const ms=layers.stamps.v ? S.stamps.filter(m=>MTN_BODY[m.kind]) : []; if(!ms.length) return; const P=new Path2D(); P.rect(-10,-10,S.w+20,S.h+20); for(const m of ms){ const b=MTN_BODY[m.kind], ry=m.size*b[1]*.36, cy=m.y+m.size*b[2]-ry*1.1, rx=m.size*b[0]*.8; P.moveTo(m.x+rx,cy); P.ellipse(m.x,cy,rx,ry,0,0,Math.PI*2); } x.clip(P,'evenodd'); }      // everywhere but the bodies of the mountains standing on the map
 function rebuildLand(fresh){ landVer++; landFor={...landSig(),fresh:!!fresh};
   lm.globalCompositeOperation='source-over'; lm.clearRect(0,0,S.w,S.h); lm.fillStyle='#000';
   for(const l of S.lands){ lm.globalCompositeOperation = l.mode==='sea' ? 'destination-out' : 'source-over'; lm.fill(landPath(l)); const b=built.get(l);
     if(b.core){ lm.lineWidth=b.cw; lm.lineCap=lm.lineJoin='round'; lm.strokeStyle='#000'; lm.stroke(b.core); } }
   /* cliffs do not make land: a plateau drawn across the coast is cut to the land it stands on, so it ends in a sea cliff at the shore */
-  if(layers.lines.v){ lm.globalCompositeOperation='destination-out'; for(const l of S.lines) if(l.kind==='river' && lyVisible(l)) lm.fill(riverPath(l,fresh)); }
+  if(layers.lines.v){ lm.save(); mtnClip(lm);      // a river runs under a mountain standing on it and comes out at its foot, rather than showing through the drawing
+    lm.globalCompositeOperation='destination-out'; for(const l of S.lines) if(l.kind==='river' && lyVisible(l)) lm.fill(riverPath(l,fresh)); lm.restore(); }
   lm.globalCompositeOperation='source-over';
   iv.globalCompositeOperation='source-over'; iv.fillStyle='#000'; iv.fillRect(0,0,S.w,S.h); iv.globalCompositeOperation='destination-out'; iv.drawImage(landMask,0,0,S.w,S.h);
   coastDirty=true;
@@ -1067,7 +1069,7 @@ function paintInto(T,p,replace){      // lays one stroke onto T at the stroke's 
 }
 let tintC,tnx;
 function buildTint(){ const W=S.w, H=S.h, key=[washVer,landVer,layers.terrain.v,R,W,H].join(); if(tintC.__key===key) return; tintC.__key=key;      // the washes are multiplied over everything at the end, so stamps, cliff faces and lettering take the colour of the ground they stand on instead of showing as bare paper
-  tnx.save(); tnx.globalAlpha=1; tnx.globalCompositeOperation='source-over'; tnx.clearRect(0,0,W,H); if(layers.terrain.v) drawWash(tnx,washSea,32); tnx.fillStyle=SEA_TINT; tnx.fillRect(0,0,W,H); tnx.globalCompositeOperation='destination-out'; tnx.drawImage(landMask,0,0,W,H); tnx.restore();
+  tnx.save(); tnx.globalAlpha=1; tnx.globalCompositeOperation='source-over'; tnx.clearRect(0,0,W,H); if(layers.terrain.v) drawWash(tnx,washSea,32); tnx.fillStyle=SEA_TINT; tnx.fillRect(0,0,W,H); tnx.globalCompositeOperation='destination-out'; tnx.drawImage(landMask,0,0,W,H); if(layers.lines.v){ tnx.fillStyle='#000'; for(const l of S.lines) if(l.kind==='river' && lyVisible(l)) tnx.fill(riverPath(l,false)); } tnx.restore();      // rivers are tinted in the base picture instead (compose), so the tint laid over everything does not show them through a mountain standing on them
   if(layers.terrain.v){ tc.save(); tc.globalAlpha=1; tc.globalCompositeOperation='source-over'; tc.clearRect(0,0,W,H); tc.restore(); drawWash(tc,washLand,20); tc.save(); tc.globalCompositeOperation='destination-in'; tc.drawImage(landMask,0,0,W,H); tc.restore(); tnx.drawImage(tmpC,0,0,W,H); } }
 function drawWash(T,c,rad=20){ T.save(); T.globalAlpha=1; T.globalCompositeOperation='source-over'; try{ T.filter=`blur(${Math.round(rad*R)}px)`; }catch(e){} T.drawImage(c,0,0,S.w,S.h); T.restore(); }
 function applyOp(o){ if('mode' in o){ landOp(cl,o,MASK_SCALE); if(o.mode==='sea'){ landOp(tx,o,1); landOp(wtx,o,WASH_SCALE/R); washVer++; } } else if(!o.w) paintInto(tx,o,true); }
@@ -1153,6 +1155,7 @@ function composeMap(full,live,dr){ const W=S.w,H=S.h;
   tc.globalAlpha=1; tc.globalCompositeOperation='copy'; tc.drawImage(landMask,0,0,W,H); tc.globalCompositeOperation='source-in'; tc.fillStyle=INK; tc.fillRect(0,0,W,H); tc.globalCompositeOperation='source-over';   // the land's shape in ink...
   for(let i=0;i<8;i++){ const a=i*Math.PI/4; bc.drawImage(tmpC,Math.cos(a)*1.5,Math.sin(a)*1.5,W,H); }                                                                 // ...nudged eight ways makes the coastline
   bc.drawImage(landLayer,0,0,W,H);
+  if(layers.lines.v && S.lines.some(l=>l.kind==='river')){ bc.save(); mtnClip(bc); bc.globalCompositeOperation='multiply'; bc.fillStyle=SEA_TINT; for(const l of S.lines) if(l.kind==='river' && lyVisible(l)) bc.fill(riverPath(l,false)); bc.restore(); }
   if(!exporting){ if(!prebaseC) prebaseC=mkCanvas(base.width,base.height)[0]; const px=prebaseC.getContext('2d'); px.save(); if(dr){ px.beginPath(); px.rect(dr[0]*R,dr[1]*R,dr[2]*R,dr[3]*R); px.clip(); } px.globalCompositeOperation='copy'; px.drawImage(base,0,0); px.restore(); prebaseOK=true; }      // the sheet as it is under the territories
   drawRealms(W,H);
   bc.drawImage(cliffC,0,0,W,H);
@@ -2417,7 +2420,8 @@ let cliffLandFor=null;
 function invalidate(){ if(dirty) return; dirty=true; requestAnimationFrame(()=>{ dirty=false;
   { const rs=layers.lines.v ? S.lines.filter(l=>l.kind==='realm' && lyVisible(l)) : []; if(rs.length!==realmSig.length || rs.some((l,i)=>l!==realmSig[i])) need.realms=true; }      // a territory was drawn, moved, reshaped or removed
   if(S.rhumb && rhumbFor!==S.stamps){ const sig=S.stamps.filter(s=>s.kind==='compass').map(s=>[s.x,s.y,s.rot,s.size].join()).join(';'); if(sig!==invalidate.sig){ invalidate.sig=sig; need.compose='full'; } rhumbFor=S.stamps; }
-  if(!act && S.kind!=='dungeon' && heightCache.grid && heightCache.grid.fs!==mtnSig()) need.compose=need.compose||'full';      // a mountain placed, moved or removed changes the relief (once it is let go)
+  if(!act && S.kind!=='dungeon' && heightCache.grid && heightCache.grid.fs!==mtnSig()) need.compose=need.compose||'full';
+  if(!act && S.kind!=='dungeon' && landFor && landFor.m!==mtnSig() && S.lines.some(l=>l.kind==='river')){ need.land=true; need.compose='full'; }      // mountains hide the rivers under them, so moving one reshapes the channels      // a mountain placed, moved or removed changes the relief (once it is let go)
   if(cliffLandFor!==S.cliffs){ cliffLandFor=S.cliffs; need.compose=need.compose||(act?'fast':'full'); }      // cliffs are part of the land, so changing them changes the coast
   if(need.land){ rebuildLand(need.compose==='full'); need.land=false; }
   if(need.compose){ compose(need.compose==='full'); need.compose=null; need.realms=false; }
@@ -2576,7 +2580,7 @@ function generateCity(W,H,G={}){ G={size:1,density:1,walls:true,river:true,coast
   const spot=(c,r0,r1,need,inside=true)=>{ let best=null, bc=need; for(let t=0;t<70;t++){ const a=rnd()*6.283, r=r0+rnd()*(r1-r0), q=[c[0]+Math.cos(a)*r,c[1]+Math.sin(a)*r]; if(inside!==inWall(q,1.1) || q[1]>coastY(q[0])-need-6 || rDist(q)<rw/2+need || !free(q,need) || q[0]<50||q[1]<50||q[0]>W-50||q[1]>H-50) continue; const cl=netClear(q); if(cl>bc && cl<need*2.6){ bc=cl; best=q; } } return best; };
   const turn=()=>Math.round((rnd()-.5)*40);
   { const n=7+Math.round(G.size*4), r0=15+G.size*3; for(let i=0;i<n;i++){ const a=i/n*6.283+rnd()*.3, r=r0+(i%2)*7, q=[C[0]+Math.cos(a)*r*1.25,C[1]+Math.sin(a)*r*.8]; st.stamps.push({kind:pick(['stall','stall','stall','cart','barrels','crates','stallrow']),x:Math.round(q[0]),y:Math.round(q[1]),size:Math.round(20+rnd()*5),rot:Math.round(a*180/Math.PI+90),v:rnd(),var:Math.floor(rnd()*3)}); } put('fountain',C,22,0); blocked.push({x:C[0],y:C[1],r:34}); } { const sz=92; for(let t=0;t<40;t++){ const q=spot(C,50,Math.max(190,Rw*.6),22); if(!q) continue; const rt=turn(), a=rt*Math.PI/180, cs3=[-.46,0,.46].map(f=>[q[0]+Math.cos(a)*f*sz,q[1]+Math.sin(a)*f*sz]);      // the cathedral is long (nave, towers and apse reach about 0.7 of its size from the middle): every part of it needs room, off the streets
-    if(!cs3.every(c=>free(c,sz*.26) && netClear(c)>sz*.17 && inWall(c,1.05))) continue; put('cathedral',q,sz,rt); cs3.forEach(c=>blocked.push({x:c[0],y:c[1],r:sz*.34})); break; } } { const q=spot(C,40,130,20); if(q) put('townhall',q,58,turn()); }
+    if(!cs3.every(c=>free(c,sz*.26) && netClear(c)>sz*.17 && inWall(c,1.05) && rDist(c)>rw/2+sz*.32 && c[1]<coastY(c[0])-sz*.3) || [-.72,.72].some(f=>{ const tq=[q[0]+Math.cos(a)*f*sz,q[1]+Math.sin(a)*f*sz]; return rDist(tq)<rw/2+10 || !inWall(tq,1.02); })) continue; put('cathedral',q,sz,rt); cs3.forEach(c=>blocked.push({x:c[0],y:c[1],r:sz*.34})); break; } } { const q=spot(C,40,130,20); if(q) put('townhall',q,58,turn()); }
   if(G.walls){ let ba=0, bd=-1; for(let i=0;i<24;i++){ const a=i/24*6.283, q=wp(a,.84), d=Math.min(rDist(q),...gates.map(g=>Math.hypot(g.g[0]-q[0],g.g[1]-q[1])))-(q[1]>coastY(q[0])-60?500:0); if(d>bd){ bd=d; ba=a; } } const q=wp(ba,.85); put('keep',q,84,turn()); const b=spot(q,60,120,16); if(b) put('barracks',b,50,turn());
     gates.forEach(g=>put('gatehouse',g.g,46,g.dir*180/Math.PI)); }
   for(let i=0,n=1+Math.round(G.size*1.6);i<n;i++){ const q=spot(C,Rw*.3,Rw*.82,19); if(q){ put('church',q,52,turn()); if(rnd()<.6){ const k=spot(q,34,50,13); if(k) put('cemetery',k,36,turn()); } } }
@@ -3452,13 +3456,16 @@ function generateMap(W,H,kind,G={}){ G={land:1,mountains:1,forests:1,rivers:1,to
   { let src=[]; for(let k=0;k<N;k++) if(isLand(k) && cd[k]>=4 && !ocean[k]) src.push(k);
     src.sort((a,b)=>(elev[b]+ridge[b]*.35+hash(b,1,seed)*.2)-(elev[a]+ridge[a]*.35+hash(a,1,seed)*.2));      // from the highest, most mountainous ground
     const want=G.rivers<=0?0:clamp(Math.round(landCount/500*G.rivers),1,18), used=[], emitted=new Uint8Array(N);
-    const flush=(cells,end)=>{ if(cells.length<6) return false; for(const m of cells){ riverCell[m]=1; emitted[m]=1; }
+    const flush=(cells,end)=>{ if(cells.length<6) return false;
       const keep=cells.filter((m,i)=>i%3===0||i===cells.length-1||cd[m]<=2), pts=keep.map(pos);      // every third cell, so the river curves instead of stepping from cell to cell, but every cell within two of the water so a chord never cuts across a bay
       for(let q=1;q<pts.length-1;q++){ const a=pts[q-1], b=pts[q+1], dx=b[0]-a[0], dy=b[1]-a[1], dl=Math.hypot(dx,dy)||1, w=(fbm(pts[q][0]*F*4,pts[q][1]*F*4,seed+606,2)-.5)*54*clamp((cd[keep[q]]-1)/3,0,1); pts[q]=[pts[q][0]-dy/dl*w,pts[q][1]+dx/dl*w]; }      // the line wanders a little to either side of its steepest-descent course, less near water
       const runs=[]; let cur=[]; for(const q of resample(pts,10,false)){ if(lakes.some(z=>inPoly(q,z))){ if(cur.length) runs.push({pts:cur,wet:true}); cur=[]; } else cur.push(q); } if(cur.length) runs.push({pts:cur,wet:end==='water'});      // never a river through a lake: where the line would enter one it ends at the shore, and picks up again on the far side
       const width=clamp(2.2+.3*Math.sqrt(acc[cells[Math.floor(cells.length*.6)]]),2.6,7.5); let any=false;
-      for(const r of runs){ if(r.pts.length<3) continue; const pp=r.pts; if(r.wet && pp.length>1){ const a=pp[pp.length-2], b=pp[pp.length-1]; pp.push([b[0]+(b[0]-a[0])*1.4,b[1]+(b[1]-a[1])*1.4]); }      // carried a little way into the water, where the river's end is trimmed to the shore
+      for(const r of runs){ if(r.pts.length<3) continue; const pp=r.pts; if(r.wet && pp.length>1){ const a=pp[pp.length-2], b=pp[pp.length-1], dl=Math.hypot(b[0]-a[0],b[1]-a[1])||1, ux=(b[0]-a[0])/dl, uy=(b[1]-a[1])/dl, dry=q=>{ const i=Math.round(q[0]/cs), j=Math.round(q[1]/cs); if(i<0||j<0||i>=nx||j>=ny) return false; const k=at(i,j); return !(ocean[k] && !isLand(k)) && !lakes.some(z=>inPoly(q,z)); };      // wet: the open sea, or inside a lake as drawn (a small lake's outline is smoothed in from its cells)      // carried on along its course until it is really in the water (the coast as drawn can lie a cell or two beyond the cells it was traced on), then a little further; the end is trimmed to the shore when drawn
+          for(let k=1;k<=24;k++){ const q=[b[0]+ux*10*k,b[1]+uy*10*k]; pp.push(q); if(!dry(q)) break; } const e=pp[pp.length-1]; pp.push([e[0]+ux*30,e[1]+uy*30]); }      // carried a little way into the water, where the river's end is trimmed to the shore
+        if(end==='join' && r===runs[runs.length-1]){ const e=pp[pp.length-1]; let best=null, bd=90; for(const o of st.lines) if(o.kind==='river') for(const q of o.pts){ const d=Math.hypot(q[0]-e[0],q[1]-e[1]); if(d<bd){ bd=d; best=q; } } if(best) pp.push([best[0],best[1]]); }      // a tributary runs right into the river it joins, not to a stop beside it
         st.lines.push({kind:'river',pts:pp,rough:.45,width,seed:(rnd()*1e9)|0}); any=true; }
+      if(any) for(const m of cells){ riverCell[m]=1; emitted[m]=1; }      // only a river actually drawn can be joined
       return any; };
     for(const s0 of src){ if(used.length>=want) break; if(emitted[s0] || !far(s0,used,150)) continue;
       let k=s0, cur=[], made=false, guard=0; while(k>=0 && guard++<900){
@@ -3466,6 +3473,9 @@ function generateMap(W,H,kind,G={}){ G={land:1,mountains:1,forests:1,rivers:1,to
         else { if(cur.length){ made=flush(cur,'water')||made; cur=[]; } while(k>=0 && !isLand(k) && !ocean[k]) k=down[k]; if(k<0 || ocean[k]) break; }      // into a lake: end at its shore, and pick up again where it drains
       }
       if(cur.length) made=flush(cur,'water')||made; if(made) used.push(s0); } }
+  { const wetAt=q=>{ const i=Math.round(q[0]/cs), j=Math.round(q[1]/cs); if(i<0||j<0||i>=nx||j>=ny) return true; return !lands.some(z=>inPoly(q,z)) || lakes.some(z=>inPoly(q,z)); }, rv=st.lines.filter(l=>l.kind==='river');      // a river that still ends on dry ground, short of any water and of any other river, is dropped rather than left as a stub
+    const dead=new Set(rv.filter(r=>{ const e=r.pts[r.pts.length-1]; if([[0,0],[18,0],[-18,0],[0,18],[0,-18]].some(d=>wetAt([e[0]+d[0],e[1]+d[1]]))) return false; return !rv.some(o=>o!==r && o.pts.some(q=>Math.hypot(q[0]-e[0],q[1]-e[1])<o.width+r.width+10)); }));
+    if(dead.size) st.lines=st.lines.filter(l=>!dead.has(l)); }
 
   /* settlements: best sites first, kept apart from each other */
   const towns=[], names=new Set(), syl=[['Bel','Cor','Dun','Eld','Fen','Gal','Har','Ist','Kel','Lor','Mar','Nor','Oss','Pen','Quen','Rav','Sel','Tor','Ul','Var','Wyn','Yar','Bra','Thal','Mor','Ash','Stor','Hal','Cael','Dro'],['a','e','i','o','u','ae','ia','en','or','an','el',''],['dor','wick','mere','ford','hold','gard','ton','mouth','vale','stead','haven','moor','crest','fell','reach','holm','by','wood','bridge','watch']];
