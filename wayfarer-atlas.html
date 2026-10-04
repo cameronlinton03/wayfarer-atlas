@@ -280,9 +280,9 @@ const WATER = {              // water paints: go on the sea and lakes, under the
   open: {name:'Open sea', g:'Depth', color:'#a9c9c6', tex:'water'},
   deep: {name:'Deep water', g:'Depth', color:'#7ba6b6', tex:'w_deep'},
   abyss: {name:'Abyss', g:'Depth', color:'#527a94', tex:'w_abyss'},
-  tropic: {name:'Tropical', g:'Warm', color:'#7fd2c6', tex:'w_shallow'},
-  lagoon: {name:'Lagoon', g:'Warm', color:'#a6e0c4', tex:'w_shallow'},
-  cold: {name:'Cold sea', g:'Cold', color:'#93a9b6', tex:'water'},
+  tropic: {name:'Tropical', g:'Warm', color:'#7fd2c6', tex:'w_tropic'},
+  lagoon: {name:'Lagoon', g:'Warm', color:'#a6e0c4', tex:'w_lagoon'},
+  cold: {name:'Cold sea', g:'Cold', color:'#93a9b6', tex:'w_cold'},
   icy:     {name:'Icy water',   g:'Cold',  color:'#c9dde4', tex:'floes'},
   storm:   {name:'Stormy',      g:'Rough', color:'#75909c', tex:'storm'},
   murk:    {name:'Murky',       g:'Rough', color:'#93a78c', tex:'murk'},
@@ -715,7 +715,7 @@ let synced={lands:null,paints:null}; const tcache=[];
 let cliffSolidC,csx, cleanC,cnx, cleanFor=null;
 let ecoC,ecx, ecoFor=null;
 let dgF,dgFx, dgT,dgTx, dgS,dgSx;
-let cliffC,cf, landVer=0, cliffBuilt={cliffs:null,landVer:-1};
+let cliffC,cf, landVer=0, cliffBuilt={cliffs:null,landVer:-1}, cliffOver=[], cliffVer=0;      // cliffOver: each plateau's top and face as a small picture {c,bx,by,bw,bh}: where one stands out over the water it is land, not sea (see buildTint)
 const tone=(hex,f)=>{ const n=parseInt(hex.slice(1),16); return '#'+[n>>16&255,n>>8&255,n&255].map(v=>Math.round(f>0?v+(255-v)*f:v*(1+f)).toString(16).padStart(2,'0')).join(''); };
 const withA=(hex,a)=>{ const n=parseInt(hex.slice(1),16); return `rgba(${n>>16&255},${n>>8&255},${n&255},${a})`; };
 /* Builds one seamless 256px ground tile. Each recipe layers soft colour patches, then small drawn marks. */
@@ -745,17 +745,20 @@ const INK_TILES = {
   sand(t){ t.wash(.28,'232,188,102'); t.grid(13,1,(a)=>t.dot(.55+a*.3,.5)); t.grid(2,1,(a,b)=>{ const w=11+a*7, h=2.4+b*2; t.line(.55,.62,()=>{ t.x.moveTo(-w,h*.5); t.x.quadraticCurveTo(-w*.25,-h,w,h*.35); }); t.line(.4,.4,()=>{ t.x.moveTo(-w*.1,h*.25); t.x.quadraticCurveTo(w*.35,-h*.15,w*.85,h*.6); }); }); },      // dune crests (a long arc, a fainter second line on its lee side to the right), not the sea's wave mark
   snow(t){ t.wash(.42,'255,255,255'); t.grid(5,.9,(a,b)=>{ if(a<.7) t.line(.45,.6,()=>{ t.x.moveTo(-6-b*3,0); t.x.quadraticCurveTo(0,-3,6+b*3,0); }); }); },
   ice(t){ t.wash(.27,'172,208,228'); t.grid(4,.9,(a,b,c)=>{ t.x.rotate(a*6.28); t.line(.5,.6,()=>{ t.x.moveTo(-18,0); t.x.lineTo(-5,(b-.5)*6); t.x.lineTo(6,(c-.5)*6); t.x.lineTo(18,0); t.x.moveTo(6,(c-.5)*6); t.x.lineTo(10,(c-.5)*6+9); }); }); },
-  w_shallow(t){ t.grid(14,1,(a)=>t.dot(.45+a*.2,.38)); },
+  w_shallow(t){ t.grid(17,1,(a)=>t.dot(.5+a*.25,.55)); },      // shallows: close stipple, as sandbanks are marked on a chart
+  w_tropic(t){ t.wash(.2,'70,165,140'); t.grid(12,.8,(a,b)=>{ const L=2.6+b*1.6; t.line(.62,.7,()=>{ t.x.moveTo(-2*L,0); t.x.quadraticCurveTo(-L,-L*1.1,0,0); t.x.quadraticCurveTo(L,-L*1.1,2*L,0); }); }); },      // warm water: a green wash and close scalloped ripples
+  w_lagoon(t){ t.wash(.17,'110,195,150'); t.grid(14,.5,(a,b)=>{ if(a<.8){ const L=2+b*2.5; t.line(.5,.6,()=>{ t.x.moveTo(-L,0); t.x.lineTo(L,0); }); } else t.dot(.6,.5); }); },      // a lagoon: still water, short level dashes and a few dots
+  w_cold(t){ t.wash(.2,'80,100,140'); t.grid(10,.9,(a,b)=>{ const L=3+a*3; t.line(.68,.7,()=>{ t.x.moveTo(-L,0); t.x.lineTo(-L*.4,-2-b*1.5); t.x.lineTo(L*.1,0); t.x.lineTo(L*.7,-1.8-b); t.x.lineTo(L*1.2,0); }); }); },      // cold sea: a grey-blue wash and short angular chop
   w_deep(t){ t.wash(.16); t.grid(8,.3,(a)=>{ const L=7+a*6; t.line(.48,.72,()=>{ t.x.moveTo(-L,0); t.x.lineTo(L,(a-.5)*.3); }); }); t.grid(3,.9,(a)=>t.ripple(6+a*5,.45)); },      // depth is read from the lining: open sea has wave marks, deep water broken level lines, the abyss close-set lines and a darker wash
   w_abyss(t){ t.wash(.27); t.grid(12,.15,(a)=>{ const L=5+a*4; t.line(.5,.7,()=>{ t.x.moveTo(-L,0); t.x.lineTo(L,(a-.5)*.3); }); }); },
-  floes(t){ t.wash(.04); t.grid(3,1.2,(a,b,c)=>{ if(c<.12) return; const H=k=>{ const v=Math.sin((a*91.7+b*37.3+c*13.1+k)*12.9898)*43758.5453; return v-Math.floor(v); }, r=6+b*b*16, n=7+Math.floor(H(1)*4), a0=a*6.283;      // ice floes: angular broken plates of every size, the shaded (right) edge drawn heavier, a few chips about them; not round bubbles
+  floes(t){ t.wash(.1,'150,176,196'); t.grid(4,1.1,(a,b,c)=>{ if(c<.1) return; const H=k=>{ const v=Math.sin((a*91.7+b*37.3+c*13.1+k)*12.9898)*43758.5453; return v-Math.floor(v); }, r=7+b*b*14, n=7+Math.floor(H(1)*4), a0=a*6.283;      // ice floes: angular broken plates of every size, the shaded (right) edge drawn heavier, a few chips about them; not round bubbles
     const P=Array.from({length:n},(_,k)=>{ const an=a0+(k+(H(k+2)-.5)*.7)/n*6.283, rr=r*(.5+H(k+9)*.6); return [Math.cos(an)*rr,Math.sin(an)*rr*.8]; });
-    t.line(.45,.75,()=>{ P.forEach((q,k)=>k?t.x.lineTo(q[0],q[1]):t.x.moveTo(q[0],q[1])); t.x.closePath(); });
-    t.line(.9,.6,()=>{ for(let k=0;k<n;k++){ const p1=P[k], p2=P[(k+1)%n], nx=p2[1]-p1[1], ny=-(p2[0]-p1[0]); if(nx+ny*.4>0){ t.x.moveTo(p1[0],p1[1]); t.x.lineTo(p2[0],p2[1]); } } });
+    t.line(.72,.8,()=>{ P.forEach((q,k)=>k?t.x.lineTo(q[0],q[1]):t.x.moveTo(q[0],q[1])); t.x.closePath(); });
+    t.line(1,.75,()=>{ for(let k=0;k<n;k++){ const p1=P[k], p2=P[(k+1)%n], nx=p2[1]-p1[1], ny=-(p2[0]-p1[0]); if(nx+ny*.4>0){ t.x.moveTo(p1[0],p1[1]); t.x.lineTo(p2[0],p2[1]); } } });
     if(r>6) t.line(.3,.55,()=>{ let x0=1e9,x1=-1e9; P.forEach(q=>{ x0=Math.min(x0,q[0]); x1=Math.max(x1,q[0]); }); for(let x=x0+(x1-x0)*.55;x<x1-1;x+=1.6){ let y0=1e9,y1=-1e9; for(let k=0;k<n;k++){ const p1=P[k], p2=P[(k+1)%n]; if((p1[0]-x)*(p2[0]-x)>0 || p1[0]===p2[0]) continue; const y=p1[1]+(p2[1]-p1[1])*(x-p1[0])/(p2[0]-p1[0]); y0=Math.min(y0,y); y1=Math.max(y1,y); } if(y1-y0>2){ t.x.moveTo(x,y0+1); t.x.lineTo(x+.6,y1-1); } } });      // a few upright strokes in the shaded part of a big floe
     if(H(20)<.6) t.line(.4,.6,()=>{ for(let k=0;k<2;k++){ const x=(H(30+k)-.5)*r*3, y=(H(40+k)-.5)*r*2.4, q=.6+H(50+k); t.x.moveTo(x,y); t.x.lineTo(x+q,y-q*.4); t.x.lineTo(x+q*.4,y+q*.5); t.x.closePath(); } }); }); },
   storm(t){ t.wash(.07); t.grid(7,.9,(a,b)=>{ const L=7+a*7; t.line(.7,.9,()=>{ t.x.moveTo(-L,0); t.x.quadraticCurveTo(-L/2,-4-b*2,0,0); t.x.quadraticCurveTo(L/2,-4,L,0); }); }); },
-  murk(t){ t.wash(.12); t.grid(12,1,(a)=>{ if(a<.6) t.dot(.55,.45); }); },
+  murk(t){ t.wash(.2); t.grid(16,1,(a,b)=>{ if(a<.8) t.dot(.5+b*.35,.6); }); },
 };
 const washes={};
 function washOf(type){ const d=TERRAIN[type]||WATER[type]; if(!d || !INK_TILES[d.tex]) return null; if(!(d.tex in washes)){ let w=null; const no=()=>{}; INK_TILES[d.tex]({x:null,grid:no,dot:no,line:no,tuft:no,ripple:no,wash(al,rgb='86,70,50'){ w=`rgba(${rgb},${al})`; }}); washes[d.tex]=w; } return washes[d.tex]; }      // the wash colour a paint lays down, read from its recipe
@@ -795,7 +798,7 @@ function initBuffers(){
   [waterC,wx]=full();                           // water paint strokes; sits on the sea, under the coast and the land
   [tintC,tnx]=half();      // every colour wash, land and sea, as one layer laid over the finished drawing (see buildTint)
   [cliffSolidC,csx]=full(); [cleanC,cnx]=full(); cleanFor=null; [ecoC,ecx]=full(); ecoFor=null; [reliefC,rfx]=full(); reliefFor=null; realmColC=realmInkC=prebaseC=null; prebaseOK=false; realmLayerKey=''; realmLayerParts=null; realmCache.clear(); alphaReads.clear(); landFor=null; baseIsMap=false;      // the woodland edge (see rebuildEco)      // where cliff faces and edges are; and the ground marks with the cut ones taken out
-  [cliffC,cf]=full(); cliffBuilt={cliffs:null,landVer:-1};   // cliff faces, drawn over the land
+  [cliffC,cf]=full(); cliffBuilt={cliffs:null,landVer:-1}; cliffOver=[]; cliffVer++;   // cliff faces, drawn over the land
   { const mk=()=>{ const a=mkCanvas(W*WASH_SCALE,H*WASH_SCALE); a[1].setTransform(WASH_SCALE,0,0,WASH_SCALE,0,0); return a; }; [washLand,wtx]=mk(); [washSea,wwx]=mk(); }
   [terrainC,tx]=full();                         // every ground paint stroke, already textured, in the order it was painted
   [clipC,cl]=mkCanvas(mw,mh); for(const k in scratch) delete scratch[k];   // the land a brush stroke is allowed to land on
@@ -840,15 +843,15 @@ function cliffAxis(c){ landPath(c); const bb=built.get(c).bb, a=(c.dir ?? -90)*M
 function cliffHead(c){ const x=cliffAxis(c), r=(.2+.8*(c.taper||0))*x.L/2; return [x.mid[0]+x.u[0]*r, x.mid[1]+x.u[1]*r]; }   // where the taper arrow's head sits
 function cliffGrip(c){ const x=cliffAxis(c); return [x.mid[0], x.bb[3]+22/view.k]; }   // the up/down grip under a selected cliff
 function rebuildCliffs(){
-  cf.globalCompositeOperation='source-over'; cf.clearRect(0,0,S.w,S.h); cliffBuilt={cliffs:S.cliffs,landVer}; csx.clearRect(0,0,S.w,S.h); cleanFor=null;
+  cf.globalCompositeOperation='source-over'; cf.clearRect(0,0,S.w,S.h); cliffBuilt={cliffs:S.cliffs,landVer}; csx.clearRect(0,0,S.w,S.h); cleanFor=null; if(cliffOver.length) cliffVer++; cliffOver=[];
   if(!layers.cliffs.v) return;
-  const downs=S.cliffs.filter(c=>c.mode==='down'), ink=INK;
+  const downs=S.cliffs.filter(c=>c.mode==='down'), ink=INK, rivs=layers.lines.v ? S.lines.filter(l=>l.kind==='river' && lyVisible(l)) : [];
   const shape=(x,c)=>{ landPath(c); const b=built.get(c); x.fillStyle=x.strokeStyle='#000'; x.fill(b.path); if(b.core){ x.lineWidth=b.cw; x.lineCap=x.lineJoin='round'; x.stroke(b.core); } };
   for(const c of S.cliffs){ if(c.mode==='down') continue;
     const {bb,u,mid,L}=cliffAxis(c), H=c.h ?? 26, tp=c.taper||0, pad=6, bx=Math.floor(bb[0]-pad), by=Math.floor(bb[1]-pad-Math.max(H,0)), bw=Math.ceil(bb[2]-bb[0]+pad*2), bh=Math.ceil(bb[3]-bb[1]+pad*2+Math.max(H,0));      // a plateau rises above its outline, so the box reaches up by its height
     if(bw<2||bh<2||Math.abs(H)<3) continue;
     const mk=()=>{ const q=mkCanvas(bw*R,bh*R); q[1].setTransform(R,0,0,R,-bx*R,-by*R); return q; }, [A,a]=mk(), [B,b]=mk(), [C,cx]=mk(), [D,d]=mk(), [O,ox]=mk(); let od=null;      // O: the outline of a plateau on a layer of its own, so a ramp can lose its edge before it loses its hatching
-    shape(a,c); a.globalCompositeOperation='destination-out'; downs.forEach(dn=>shape(a,dn)); a.globalCompositeOperation='destination-in'; a.drawImage(landMask,0,0,S.w,S.h);   // A = the raised (or sunken) area, on land only
+    shape(a,c); a.globalCompositeOperation='destination-out'; downs.forEach(dn=>shape(a,dn)); a.globalCompositeOperation='destination-in'; const [Lm,lx]=mk(); lx.drawImage(landMask,0,0,S.w,S.h); if(H>0 && rivs.length){ lx.fillStyle=lx.strokeStyle='#000'; lx.lineWidth=1.6; lx.lineJoin='round'; for(const l of rivs){ const rp=riverPath(l,false); lx.fill(rp); lx.stroke(rp); } } a.drawImage(Lm,bx,by,bw,bh); a.globalCompositeOperation='source-over';   // A = the raised (or sunken) area, on land only (a river does not cut a plateau in two: it runs under it, as it does under a mountain)
     const plane=(x,sj,dy,keep)=>{ const q=[mid[0]+u[0]*(sj-.5)*L, mid[1]+u[1]*(sj-.5)*L+dy], v=[-u[1],u[0]], G=1e5, g=keep?G:-G;     // half of the map on one side of the taper line
       x.beginPath(); x.moveTo(q[0]+v[0]*G,q[1]+v[1]*G); x.lineTo(q[0]-v[0]*G,q[1]-v[1]*G); x.lineTo(q[0]-v[0]*G+u[0]*g,q[1]-v[1]*G+u[1]*g); x.lineTo(q[0]+v[0]*G+u[0]*g,q[1]+v[1]*G+u[1]*g); x.closePath(); };
     /* A taper that ramps to nothing really does: the height at the low end is H x (1 - taper), and wherever the height is down to a few units the whole drawing (rim, face and shadow) is faded out
@@ -923,7 +926,25 @@ function rebuildCliffs(){
       b.drawImage(A,bx,by+j,bw,bh); b.restore(); }
     b.globalCompositeOperation='destination-out'; b.drawImage(A,bx,by,bw,bh);                                    // B = the rock face
     { const [T,t]=mk(), [T2,t2]=mk(), k=2; b.globalCompositeOperation='source-over'; t.drawImage(B,bx,by,bw,bh); t.globalCompositeOperation='destination-in'; t.drawImage(B,bx+k,by,bw,bh); t.drawImage(B,bx-k,by,bw,bh);      // slivers of face thinner than about 4 units across (a wiggle on a steep side) are dropped: shrink sideways, grow back, keep within the face
-      t2.drawImage(T,bx,by,bw,bh); t2.drawImage(T,bx+k,by,bw,bh); t2.drawImage(T,bx-k,by,bw,bh); t2.globalCompositeOperation='destination-in'; t2.drawImage(B,bx,by,bw,bh); b.clearRect(bx,by,bw,bh); b.drawImage(T2,bx,by,bw,bh); }
+      t2.drawImage(T,bx,by,bw,bh); t2.drawImage(T,bx+k,by,bw,bh); t2.drawImage(T,bx-k,by,bw,bh); t2.globalCompositeOperation='destination-in'; t2.drawImage(B,bx,by,bw,bh);
+      { const kv=1.2; t.globalCompositeOperation='copy'; t.drawImage(T2,bx,by,bw,bh); t.globalCompositeOperation='destination-in'; t.drawImage(T2,bx,by+kv,bw,bh); t.drawImage(T2,bx,by-kv,bw,bh); t.globalCompositeOperation='source-over';      // and specks under about 2.5 units tall, the same way up and down
+        const [T3,t3]=mk(); t3.drawImage(T,bx,by,bw,bh); t3.drawImage(T,bx,by+kv,bw,bh); t3.drawImage(T,bx,by-kv,bw,bh); t3.globalCompositeOperation='destination-in'; t3.drawImage(T2,bx,by,bw,bh); t2.globalCompositeOperation='copy'; t2.drawImage(T3,bx,by,bw,bh); t2.globalCompositeOperation='source-over'; }
+      const [N,nx]=mk(), [K,kx]=mk(); nx.fillStyle='#000'; nx.fillRect(bx,by,bw,bh); nx.globalCompositeOperation='destination-out'; nx.drawImage(Lm,bx,by,bw,bh);      /* but a sliver that stands at the water's edge is kept: dropped, it would go back to being shore, with the coastline drawn round it beside the cliff's own edge */
+      for(let i=0;i<8;i++){ const an=i*Math.PI/4; kx.drawImage(N,bx+Math.cos(an)*3,by+Math.sin(an)*3,bw,bh); } kx.globalCompositeOperation='destination-in'; kx.drawImage(B,bx,by,bw,bh); kx.globalCompositeOperation='destination-out'; kx.drawImage(T2,bx,by,bw,bh);
+      b.clearRect(bx,by,bw,bh); b.drawImage(T2,bx,by,bw,bh); a.drawImage(K,bx,by,bw,bh); for(const [o1,o2] of [[.7,0],[-.7,0],[0,.7],[0,-.7]]) a.drawImage(K,bx+o1,by+o2,bw,bh); b.globalCompositeOperation='destination-out'; b.drawImage(A,bx,by,bw,bh); b.globalCompositeOperation='source-over';
+      { const [J,jx]=mk(), [K2,k2]=mk(), ring=(x,src,r)=>{ for(let i=0;i<8;i++){ const an=i*Math.PI/4; x.drawImage(src,bx+Math.cos(an)*r,by+Math.sin(an)*r,bw,bh); } };      /* and a thread of ground left between the face and the water is taken into the face: the cliff comes down to the water's edge, instead of its foot and the shore running side by side as two lines */
+        ring(jx,B,3.5); ring(k2,N,3.5); k2.globalCompositeOperation='destination-in'; k2.drawImage(J,bx,by,bw,bh); k2.drawImage(Lm,bx,by,bw,bh); k2.globalCompositeOperation='destination-out'; k2.drawImage(A,bx,by,bw,bh); b.drawImage(K2,bx,by,bw,bh);
+        jx.globalCompositeOperation='copy'; jx.drawImage(N,bx,by,bw,bh); jx.globalCompositeOperation='source-over'; ring(jx,N,4); ring(jx,N,8);
+        { const w=A.width, h=A.height, IA=a.getImageData(0,0,w,h), IB=b.getImageData(0,0,w,h), IN=nx.getImageData(0,0,w,h).data, IJ=jx.getImageData(0,0,w,h).data, da=IA.data, db=IB.data, gw=7*R, fl=new Uint8Array(w*h); let ch=false;      /* along a shore the top's edge is the coast's own ragged line lifted, so beside the real coast it leaves scraps a few units wide (bits of ground, face and half-covered points), each of which would get an outline of its own. Row by row, a scrap lying between the top and the water, or in a narrow gap in the top near the water, is made top */
+          for(const vert of [false,true]){ const n1=vert?w:h, n2=vert?h:w, at=(i,k)=>(vert?k*w+i:i*w+k)*4+3, cls=new Uint8Array(n2);      // (across, then up and down)
+            for(let i=0;i<n1;i++){ let any=false; for(let k=0;k<n2;k++){ const o=at(i,k); cls[k]=da[o]>=128?1:IN[o]>=128?2:db[o]>=128?3:0; if(cls[k]===1) any=true; } if(!any) continue;
+              for(let k=0;k<n2;k++){ if(cls[k]!==2) continue; let e=k; while(e<n2 && cls[e]===2) e++; if(e-k<=5*R && ((k>0 && cls[k-1]===1) || (e<n2 && cls[e]===1))) for(let q=k;q<e;q++) cls[q]=0; k=e-1; }      // a pocket of water a few units across against the top counts as a scrap too
+              let pt=0, pk=-1, face=false; for(let k=0;k<n2;k++){ const t=cls[k]; if(t===3){ face=true; continue; } if(!t) continue; const gap=k-pk-1;      // between top and water, a gap with a real piece of face in it is left alone
+                if(pt && gap>0 && (t!==pt ? !face && gap<=gw : t===1 && gap<=gw && IJ[at(i,(k+pk)>>1)]>=128)){ ch=true; for(let q=pk+1;q<k;q++){ const o=at(i,q); da[o-3]=da[o-2]=da[o-1]=0; da[o]=255; db[o]=0; fl[o>>2]=1; } }
+                pt=t; pk=k; face=false; } } }
+          if(ch) for(let y=1;y<h-1;y++) for(let x=1;x<w-1;x++){ if(!fl[y*w+x]) continue; for(let dy=-1;dy<=1;dy++) for(let dx=-1;dx<=1;dx++){ const o=((y+dy)*w+x+dx)*4+3; if(da[o]>60 && da[o]<255){ da[o]=255; db[o]=0; } } }      // and the soft edge the scrap had is made solid with it, or a ghost of its outline is left
+
+          if(ch){ a.putImageData(IA,0,0); b.putImageData(IB,0,0); b.globalCompositeOperation='destination-out'; b.drawImage(A,bx,by,bw,bh); b.globalCompositeOperation='source-over'; } } } }      // (it joins the top, so the plateau's rim runs along the shore as one line)
     inked(A,B); ox.globalCompositeOperation='destination-out'; ox.drawImage(A,bx,by,bw,bh); ox.drawImage(B,bx,by,bw,bh); ox.globalCompositeOperation='source-over';      // outline round top and face together: only the ring, never the fill
     rock(b,.3); cx.drawImage(B,bx,by,bw,bh); csx.drawImage(B,bx,by,bw,bh); csx.lineWidth=3.4; csx.strokeStyle='#000'; csx.stroke(built.get(c).path); csx.save(); csx.translate(0,-H*(1-tp/2)); csx.stroke(built.get(c).path); csx.restore();      // the foot and (near enough) the rim
     inked(A);                                                                                                      // rim line round the top
@@ -939,7 +960,12 @@ function rebuildCliffs(){
       sh.globalCompositeOperation='destination-in'; sh.drawImage(landMask,0,0,S.w,S.h); sh.globalCompositeOperation='source-over';
       fadeLow(sh,sw,shh,.14,.22); cf.globalCompositeOperation='source-over'; cf.drawImage(Sh,bx,by,sw,shh); }
     fadeLow(cx,bw,bh,.14,.22); fadeLow(ox,bw,bh,.2,.27); cx.globalCompositeOperation='source-over'; cx.drawImage(O,bx,by,bw,bh); od=null; footLine(.2,.27);      // hatching thins out gradually; the edge goes sooner
-    cf.globalCompositeOperation='destination-out'; cf.drawImage(A,bx,by,bw,bh); cf.globalCompositeOperation='source-over'; cf.drawImage(C,bx,by,bw,bh);
+    cf.globalCompositeOperation='destination-out'; cf.drawImage(A,bx,by,bw,bh); cf.globalCompositeOperation='source-over';
+    { const [F,fx]=mk(), [G,gx]=mk(); gx.fillStyle='#000'; gx.fillRect(bx,by,bw,bh); gx.globalCompositeOperation='destination-out'; gx.drawImage(landMask,0,0,S.w,S.h); gx.globalCompositeOperation='source-over';      /* a plateau by the shore stands up in front of the water behind it: where its top reaches out past the coast (or over a river) it is drawn as land (paper and plain ground), so the water, its lining and the coastline do not show through it */
+      fx.drawImage(G,bx,by,bw,bh); for(const r of [3.5,7]) for(let i=0;i<8;i++){ const an=i*Math.PI/4; fx.drawImage(G,bx+Math.cos(an)*r,by+Math.sin(an)*r,bw,bh); } fx.globalCompositeOperation='destination-in'; fx.drawImage(A,bx,by,bw,bh);      // spread a little way in over the shore, so the coastline and its shading under the top are covered too
+      fx.globalCompositeOperation='source-in'; fx.fillStyle=pat.paper||PAPER(); fx.fillRect(bx,by,bw,bh); fx.globalCompositeOperation='source-atop'; fx.drawImage(ageC,0,0,S.w,S.h); fx.fillStyle=pat.land; fx.fillRect(bx,by,bw,bh); fx.globalCompositeOperation='source-over'; fadeLow(fx,bw,bh,.2,.27); cf.drawImage(F,bx,by,bw,bh);      // on a ramp it goes where the rim goes
+      gx.clearRect(bx,by,bw,bh); gx.drawImage(A,bx,by,bw,bh); gx.drawImage(B,bx,by,bw,bh); cliffOver.push({c:G,bx,by,bw,bh}); cliffVer++; }
+    cf.drawImage(C,bx,by,bw,bh);
   }
 }
 function cleanInk(){      // a tuft, pebble or crack that a coast, river bank or cliff edge would slice through is taken out whole, so no mark is ever left cut in half
@@ -1013,14 +1039,18 @@ function rebuildEco(){
 let landFor=null;      // what the land mask was last built from (see sameLand)
 const landSig=()=>({m:mtnSig(),st:layers.stamps.v,l:S.lands,c:S.cliffs,cv:layers.cliffs.v,lv:layers.lines.v,r:layers.lines.v?S.lines.filter(l=>l.kind==='river' && lyVisible(l)):[],R,w:S.w,h:S.h});
 const sameLand=(a,b)=>!!(a && b && a.m===b.m && a.st===b.st && a.l===b.l && a.c===b.c && a.cv===b.cv && a.lv===b.lv && a.R===b.R && a.w===b.w && a.h===b.h && a.r.length===b.r.length && a.r.every((o,i)=>o===b.r[i]));
-function mtnClip(x){ const ms=layers.stamps.v ? S.stamps.filter(m=>MTN_BODY[m.kind]) : []; if(!ms.length) return; const P=new Path2D(); P.rect(-10,-10,S.w+20,S.h+20); for(const m of ms){ const b=MTN_BODY[m.kind], ry=m.size*b[1]*.36, cy=m.y+m.size*b[2]-ry*1.1, rx=m.size*b[0]*.8; P.moveTo(m.x+rx,cy); P.ellipse(m.x,cy,rx,ry,0,0,Math.PI*2); } x.clip(P,'evenodd'); }      // everywhere but the bodies of the mountains standing on the map
+function riverMask(fresh){      /* the rivers as a mask, less the bodies of the mountains standing on the map: a river runs under a mountain and comes out at its foot. A body is the mountain's own outline, near enough (broad at the foot, narrowing to the summit), and bodies that overlap count once */
+  tc.save(); tc.globalAlpha=1; tc.globalCompositeOperation='source-over'; tc.clearRect(0,0,S.w,S.h); tc.fillStyle='#000'; for(const l of S.lines) if(l.kind==='river' && lyVisible(l)) tc.fill(riverPath(l,fresh));
+  if(layers.stamps.v){ tc.globalCompositeOperation='destination-out'; for(const m of S.stamps){ const b=MTN_BODY[m.kind]; if(!b) continue; const y0=m.y+m.size*b[2], hh=m.size*b[1]*.68, W=m.size*b[0]*.88, yT=y0-hh;
+      tc.beginPath(); tc.moveTo(m.x-W,y0); tc.quadraticCurveTo(m.x-W*.42,y0-hh*.4,m.x-W*.08,yT); tc.lineTo(m.x+W*.08,yT); tc.quadraticCurveTo(m.x+W*.42,y0-hh*.4,m.x+W,y0); tc.quadraticCurveTo(m.x,y0+m.size*.06,m.x-W,y0); tc.closePath(); tc.fill(); } }
+  tc.restore(); return tmpC; }
 function rebuildLand(fresh){ landVer++; landFor={...landSig(),fresh:!!fresh};
   lm.globalCompositeOperation='source-over'; lm.clearRect(0,0,S.w,S.h); lm.fillStyle='#000';
   for(const l of S.lands){ lm.globalCompositeOperation = l.mode==='sea' ? 'destination-out' : 'source-over'; lm.fill(landPath(l)); const b=built.get(l);
     if(b.core){ lm.lineWidth=b.cw; lm.lineCap=lm.lineJoin='round'; lm.strokeStyle='#000'; lm.stroke(b.core); } }
   /* cliffs do not make land: a plateau drawn across the coast is cut to the land it stands on, so it ends in a sea cliff at the shore */
-  if(layers.lines.v){ lm.save(); mtnClip(lm);      // a river runs under a mountain standing on it and comes out at its foot, rather than showing through the drawing
-    lm.globalCompositeOperation='destination-out'; for(const l of S.lines) if(l.kind==='river' && lyVisible(l)) lm.fill(riverPath(l,fresh)); lm.restore(); }
+  if(layers.lines.v){ lm.save();      // a river runs under a mountain standing on it and comes out at its foot, rather than showing through the drawing
+    lm.globalCompositeOperation='destination-out'; lm.drawImage(riverMask(fresh),0,0,S.w,S.h); lm.restore(); }
   lm.globalCompositeOperation='source-over';
   iv.globalCompositeOperation='source-over'; iv.fillStyle='#000'; iv.fillRect(0,0,S.w,S.h); iv.globalCompositeOperation='destination-out'; iv.drawImage(landMask,0,0,S.w,S.h);
   coastDirty=true;
@@ -1068,9 +1098,10 @@ function paintInto(T,p,replace){      // lays one stroke onto T at the stroke's 
   else if(col){ const tw=tint(); T.save(); T.globalAlpha=p.op ?? 1; T.globalCompositeOperation='destination-over'; T.drawImage(tw,...wsrc,...bb); T.restore(); }      // a stroke still being painted shows its wash straight away
 }
 let tintC,tnx;
-function buildTint(){ const W=S.w, H=S.h, key=[washVer,landVer,layers.terrain.v,R,W,H].join(); if(tintC.__key===key) return; tintC.__key=key;      // the washes are multiplied over everything at the end, so stamps, cliff faces and lettering take the colour of the ground they stand on instead of showing as bare paper
-  tnx.save(); tnx.globalAlpha=1; tnx.globalCompositeOperation='source-over'; tnx.clearRect(0,0,W,H); if(layers.terrain.v) drawWash(tnx,washSea,32); tnx.fillStyle=SEA_TINT; tnx.fillRect(0,0,W,H); tnx.globalCompositeOperation='destination-out'; tnx.drawImage(landMask,0,0,W,H); if(layers.lines.v){ tnx.fillStyle='#000'; for(const l of S.lines) if(l.kind==='river' && lyVisible(l)) tnx.fill(riverPath(l,false)); } tnx.restore();      // rivers are tinted in the base picture instead (compose), so the tint laid over everything does not show them through a mountain standing on them
-  if(layers.terrain.v){ tc.save(); tc.globalAlpha=1; tc.globalCompositeOperation='source-over'; tc.clearRect(0,0,W,H); tc.restore(); drawWash(tc,washLand,20); tc.save(); tc.globalCompositeOperation='destination-in'; tc.drawImage(landMask,0,0,W,H); tc.restore(); tnx.drawImage(tmpC,0,0,W,H); } }
+function buildTint(){ const W=S.w, H=S.h, key=[washVer,landVer,cliffVer,layers.terrain.v,R,W,H].join(); if(tintC.__key===key) return; tintC.__key=key;      // the washes are multiplied over everything at the end, so stamps, cliff faces and lettering take the colour of the ground they stand on instead of showing as bare paper
+  tnx.save(); tnx.globalAlpha=1; tnx.globalCompositeOperation='source-over'; tnx.clearRect(0,0,W,H); if(layers.terrain.v) drawWash(tnx,washSea,32); tnx.fillStyle=SEA_TINT; tnx.fillRect(0,0,W,H); tnx.globalCompositeOperation='destination-out'; tnx.drawImage(landMask,0,0,W,H); for(const o of cliffOver) tnx.drawImage(o.c,o.bx,o.by,o.bw,o.bh); if(layers.lines.v){ tnx.fillStyle='#000'; for(const l of S.lines) if(l.kind==='river' && lyVisible(l)) tnx.fill(riverPath(l,false)); } tnx.restore();      // rivers are tinted in the base picture instead (compose), so the tint laid over everything does not show them through a mountain standing on them
+  if(layers.terrain.v){ tc.save(); tc.globalAlpha=1; tc.globalCompositeOperation='source-over'; tc.clearRect(0,0,W,H); tc.restore(); drawWash(tc,washLand,20); tc.save(); tc.globalCompositeOperation='destination-in'; tc.drawImage(landMask,0,0,W,H); tc.restore(); tnx.drawImage(tmpC,0,0,W,H);
+    for(const o of cliffOver){ const [Q,q]=mkCanvas(o.bw*R,o.bh*R); q.setTransform(R,0,0,R,-o.bx*R,-o.by*R); drawWash(q,washLand,20); q.globalCompositeOperation='destination-in'; q.drawImage(o.c,o.bx,o.by,o.bw,o.bh); tnx.save(); tnx.globalCompositeOperation='destination-out'; tnx.drawImage(o.c,o.bx,o.by,o.bw,o.bh); tnx.restore(); tnx.drawImage(Q,o.bx,o.by,o.bw,o.bh); } } }      // a plateau standing out over water is ground: it takes the land's wash
 function drawWash(T,c,rad=20){ T.save(); T.globalAlpha=1; T.globalCompositeOperation='source-over'; try{ T.filter=`blur(${Math.round(rad*R)}px)`; }catch(e){} T.drawImage(c,0,0,S.w,S.h); T.restore(); }
 function applyOp(o){ if('mode' in o){ landOp(cl,o,MASK_SCALE); if(o.mode==='sea'){ landOp(tx,o,1); landOp(wtx,o,WASH_SCALE/R); washVer++; } } else if(!o.w) paintInto(tx,o,true); }
 function syncWater(){         // water strokes don't depend on the land, so they are kept up to date on their own
@@ -1114,6 +1145,14 @@ function rebuildCoast(){
   { for(const [d,alpha] of [[30,.5],[14,1]]){ rc.globalCompositeOperation='source-over'; rc.clearRect(0,0,w,h); grow(rc,d); rc.globalCompositeOperation='destination-out'; rc.drawImage(halfC,0,0); cc.globalAlpha=alpha; cc.drawImage(ringC,0,0); } }   // sketch: a band hugging the shore, darker close in
   cc.globalAlpha=1;
   cc.globalCompositeOperation='source-over';
+  { /* Narrow water (a small lake, a strait, a river-like inlet) would be lined right across and come out darker than the open sea. Narrow water is what disappears when the land is grown by D and
+       shrunk back again; there the band is only a thin one along each shore, and the middle is left clear. */
+    const D=24, [n1,x1]=mkCanvas(w,h), [n2,x2]=mkCanvas(w,h), growOf=(x,src,d)=>{ for(const f of [1,.55]) for(let i=0;i<16;i++){ const a=i*Math.PI/8; x.drawImage(src,Math.cos(a)*d*f*R/2,Math.sin(a)*d*f*R/2); } x.drawImage(src,0,0); };
+    growOf(x1,halfC,D); x2.fillStyle='#000'; x2.fillRect(0,0,w,h); x2.globalCompositeOperation='destination-out'; x2.drawImage(n1,0,0);      // n2: open water, well clear of any shore
+    x1.clearRect(0,0,w,h); growOf(x1,n2,D+1.5);      // n1: all the water that open water reaches
+    x2.globalCompositeOperation='source-over'; x2.fillRect(0,0,w,h); x2.globalCompositeOperation='destination-out'; x2.drawImage(n1,0,0); x2.drawImage(halfC,0,0);      // n2: the narrow water
+    cc.globalCompositeOperation='destination-out'; cc.drawImage(n2,0,0); cc.globalCompositeOperation='source-over';
+    rc.globalCompositeOperation='source-over'; rc.clearRect(0,0,w,h); grow(rc,7); rc.globalCompositeOperation='destination-out'; rc.drawImage(halfC,0,0); rc.globalCompositeOperation='destination-in'; rc.drawImage(n2,0,0); rc.globalCompositeOperation='source-over'; cc.drawImage(ringC,0,0); }
   ic.globalCompositeOperation='source-over'; ic.clearRect(0,0,S.w,S.h);
   ic.globalCompositeOperation='destination-out'; ic.drawImage(invC,0,0,S.w,S.h); ic.globalCompositeOperation='source-over';
   if(layers.lines.v){ const rivers=S.lines.filter(l=>l.kind==='river' && lyVisible(l));      // no shore lining or shading inside a river: where a thin river meets the sea the band stops at its mouth (same visibility rule as rebuildLand, which carves them)
@@ -1150,12 +1189,14 @@ function composeMap(full,live,dr){ const W=S.w,H=S.h;
   if(layers.terrain.v) drawLayer(bc,waterC,live && live.w ? live : null);
   if(!coastDirty){ { tc.globalAlpha=1; tc.globalCompositeOperation='copy'; tc.drawImage(coastC,0,0,W,H); tc.globalCompositeOperation='source-in'; tc.fillStyle=pat.lining; tc.fillRect(0,0,W,H); tc.globalCompositeOperation='source-over'; bc.drawImage(tmpC,0,0,W,H); }   // the shore band becomes engraver's water lining
   }
-  if(S.rhumb && layers.stamps.v){ const far=Math.hypot(W,H); bc.strokeStyle=INK; for(const st of S.stamps){ if(st.kind!=='compass') continue;                                       // rhumb lines run out from every compass across the sea; the land is laid over them next
-      for(let k=0;k<32;k++){ const a=(st.rot||0)*Math.PI/180+k*Math.PI/16; bc.globalAlpha=k%4===0?.62:k%2===0?.45:.28; bc.lineWidth=k%4===0?1:.7; bc.beginPath(); bc.moveTo(st.x+Math.sin(a)*st.size*.45,st.y-Math.cos(a)*st.size*.45); bc.lineTo(st.x+Math.sin(a)*far,st.y-Math.cos(a)*far); bc.stroke(); } } bc.globalAlpha=1; }
+  if(S.rhumb && layers.stamps.v){ const far=Math.hypot(W,H); tc.save(); tc.globalAlpha=1; tc.globalCompositeOperation='source-over'; tc.clearRect(0,0,W,H); tc.strokeStyle=INK; for(const st of S.stamps){ if(st.kind!=='compass') continue;                                       // rhumb lines run out from every compass across the sea; the land is laid over them next
+      for(let k=0;k<32;k++){ const a=(st.rot||0)*Math.PI/180+k*Math.PI/16; tc.globalAlpha=k%4===0?.62:k%2===0?.45:.28; tc.lineWidth=k%4===0?1:.7; tc.beginPath(); tc.moveTo(st.x+Math.sin(a)*st.size*.45,st.y-Math.cos(a)*st.size*.45); tc.lineTo(st.x+Math.sin(a)*far,st.y-Math.cos(a)*far); tc.stroke(); } }
+    tc.globalAlpha=1; tc.globalCompositeOperation='destination-out'; tc.fillStyle=tc.strokeStyle='#000'; tc.lineCap=tc.lineJoin='round'; for(const l of S.lands){ if(l.mode!=='sea') continue; tc.fill(landPath(l)); const q=built.get(l); if(q.core){ tc.lineWidth=q.cw; tc.stroke(q.core); } }      // a sea chart's lines do not run across lakes and carved inlets
+    tc.restore(); bc.drawImage(tmpC,0,0,W,H); }
   tc.globalAlpha=1; tc.globalCompositeOperation='copy'; tc.drawImage(landMask,0,0,W,H); tc.globalCompositeOperation='source-in'; tc.fillStyle=INK; tc.fillRect(0,0,W,H); tc.globalCompositeOperation='source-over';   // the land's shape in ink...
   for(let i=0;i<8;i++){ const a=i*Math.PI/4; bc.drawImage(tmpC,Math.cos(a)*1.5,Math.sin(a)*1.5,W,H); }                                                                 // ...nudged eight ways makes the coastline
   bc.drawImage(landLayer,0,0,W,H);
-  if(layers.lines.v && S.lines.some(l=>l.kind==='river')){ bc.save(); mtnClip(bc); bc.globalCompositeOperation='multiply'; bc.fillStyle=SEA_TINT; for(const l of S.lines) if(l.kind==='river' && lyVisible(l)) bc.fill(riverPath(l,false)); bc.restore(); }
+  if(layers.lines.v && S.lines.some(l=>l.kind==='river')){ tc.save(); tc.globalAlpha=1; tc.globalCompositeOperation='source-over'; tc.clearRect(0,0,W,H); tc.fillStyle=SEA_TINT; for(const l of S.lines) if(l.kind==='river' && lyVisible(l)) tc.fill(riverPath(l,false)); tc.globalCompositeOperation='destination-out'; tc.drawImage(landMask,0,0,W,H); tc.restore(); bc.save(); bc.globalCompositeOperation='multiply'; bc.drawImage(tmpC,0,0,W,H); bc.restore(); }      // only where the river is open (not under a mountain)
   if(!exporting){ if(!prebaseC) prebaseC=mkCanvas(base.width,base.height)[0]; const px=prebaseC.getContext('2d'); px.save(); if(dr){ px.beginPath(); px.rect(dr[0]*R,dr[1]*R,dr[2]*R,dr[3]*R); px.clip(); } px.globalCompositeOperation='copy'; px.drawImage(base,0,0); px.restore(); prebaseOK=true; }      // the sheet as it is under the territories
   drawRealms(W,H);
   bc.drawImage(cliffC,0,0,W,H);
@@ -1481,7 +1522,11 @@ const EX=x=>x*ENG_M;
 function engJt(v,a=.4){ const h=Math.sin(v[0]*12.9898+v[1]*78.233)*43758.5453, g=Math.sin(v[0]*39.346+v[1]*11.135)*24634.6345; return [v[0]+((h-Math.floor(h))-.5)*a, v[1]+((g-Math.floor(g))-.5)*a]; }
 function engPath(c,q,close){ c.beginPath(); q.forEach((p,i)=>i?c.lineTo(p[0],p[1]):c.moveTo(p[0],p[1])); if(close) c.closePath(); }
 function engShade(c,q,dir='d',sp=.9,o={}){ let x0=1e9,x1=-1e9,y0=1e9,y1=-1e9; for(const p of q){ x0=Math.min(x0,p[0]); x1=Math.max(x1,p[0]); y0=Math.min(y0,p[1]); y1=Math.max(y1,p[1]); } sp*=.7/ENG_K;
-  c.save(); engPath(c,q,1); c.clip(); if(o.clipX!==undefined){ c.beginPath(); c.rect(o.clipX,y0-1,x1-o.clipX+1,y1-y0+2); c.clip(); } const lw=o.lw||.25;
+  c.save(); engPath(c,q,1); c.clip(); const lw=o.lw||.25;
+  if(o.fade && o.clipX!==undefined){ const H=y1-y0, w=x1-o.clipX; let i=0; sp*=2.4;      /* a shaded side that thins away instead of ending as a block of grey: every stroke is laid at the edge, every second runs further in, every fourth furthest, each ending a little raggedly */
+    for(let x=x0-H;x<x1;x+=sp,i++){ const cls=i%4===0?0:i%2===0?1:2, X=o.clipX+w*[0,.36,.66][cls]+(((i*7919)%13)/13-.5)*w*.12, t0=Math.max(0,(X-x)/H); if(t0<.97) engScratch(c,[x+H*t0,y1-H*t0],[x+H,y0],lw*1.25); }
+    c.restore(); return; }
+  if(o.clipX!==undefined){ c.beginPath(); c.rect(o.clipX,y0-1,x1-o.clipX+1,y1-y0+2); c.clip(); }
   if(dir==='h') for(let y=y0+sp*.5;y<y1;y+=sp) engScratch(c,[x0,y],[x1,y],lw);
   else if(dir==='v') for(let x=x0+sp*.5;x<x1;x+=sp) engScratch(c,[x,y0],[x,y1],lw);
   else { const H=y1-y0; for(let x=x0-H;x<x1;x+=sp) engScratch(c,[x,y1],[x+H,y0],lw); if(dir==='x') for(let x=x0;x<x1+H;x+=sp*1.3) engScratch(c,[x,y1],[x-H,y0],lw); }
@@ -2041,7 +2086,7 @@ const SKETCH_DRAW = {
     for(let k=0;k<=n;k++) engInk(c,[[x0+k*w,y0-1.8],[x0+k*w,y0]],.36,false,{gap:0,rough:0}); engInk(c,[[x0-1.4,y1+1.2],[x1+1.4,y1+1.2]],.28,false,{gap:.02});
     for(const s of [-1,1]){ engLimb(c,[[s*.5,-13.4,1.4],[s*5.4,-3,1.1],[s*10.6,4.6,.15]].map(p=>[ENG_M*p[0],p[1],p[2]]),{sq:1,sp:.5,thr:s>0?-.4:.6,ang:1.3,raw:1}); engInk(c,[[s*2,-9.6],[s*.4,-7.4]].map(p=>[p[0],p[1]]),.3,false); }      // a pair of dividers stepping off the distance
     engInk(c,[[-3.6,-7],[3.6,-7]],.5,false,{gap:0}); const h=engArc(0,-14.4,1.7,1.7,0,Math.PI*2,14); engPath(c,h,1); c.fillStyle=PAPER(); c.fill(); engInk(c,h,.5,true,{gap:0}); engDot(c,0,-14.4,.5); engPoly(c,[[-.7,-16],[.7,-16],[.5,-18.4],[-.5,-18.4]],{raw:1,j:0,lw:.36,ink:1}); },
-  cartouche(c,n){ const curl=(x,y,s,d)=>{ const L=[]; for(let t=0;t<=1.001;t+=.08){ const a=t*Math.PI*2.6, r=2.4*(1-t*.78); L.push([ENG_M*(x+s*(Math.cos(a)*r-2.4)),y+d*Math.sin(a)*r]); } engInk(c,L,.5,false,{gap:0,rough:.05}); };
+  cartouche(c,n){ const curl=(x,y,s,d)=>{ const L=[]; for(let t=0;t<=1.001;t+=.025){ const a=t*Math.PI*2.6, r=2.4*(1-t*.78); L.push([ENG_M*(x+s*(Math.cos(a)*r-2.4)),y+d*Math.sin(a)*r]); } engInk(c,L,.5,false,{gap:0,rough:.05}); };
     if(n%3===0){      // a ribbon scroll: the tails fold away behind the panel
       for(const s of [-1,1]){ const t=engPoly(c,[[s*13,-2.4],[s*19.6,-4],[s*17.4,.4],[s*19.6,4.6],[s*13,6]],{raw:1,j:.15,lw:.55}); engShade(c,t,'d',1.7); engPoly(c,[[s*13,5.4],[s*15.6,7.4],[s*15.6,-1.2],[s*13,-2.4]],{raw:1,j:.1,lw:.45,ink:1}); }
       const top=[], bot=[]; for(let i=0;i<=12;i++){ const x=-15.6+i*2.6, w=Math.sin(i/12*Math.PI*2)*.9; top.push([x,-6.4+w]); bot.push([x,5.6+w]); } const q=top.concat(bot.reverse()); engPath(c,q,1); c.fillStyle=PAPER(); c.fill(); engInk(c,q,.55,true,{gap:0,rough:.08});
@@ -2055,8 +2100,8 @@ const SKETCH_DRAW = {
 /* ---- dungeon stamps, all seen from above. Drawn in the usual 40-unit box, and sized so that one box is the object's footprint in grid squares (see DUN_FOOT):
    a door spans one square, a table two. Raised things take their shading on the right, as everywhere else on the atlas. ---- */
 const dQ=(x0,y0,x1,y1)=>[[x0,y0],[x1,y0],[x1,y1],[x0,y1]];
-function dBox(c,x0,y0,x1,y1,o={}){ const q=engPoly(c,dQ(x0,y0,x1,y1),{j:.3,lw:o.lw||.55}); if(o.sh!==false){ const xs=q.map(p=>p[0]), a=Math.min(...xs), b=Math.max(...xs); engShade(c,q,'d',o.sp||.8,{clipX:a+(b-a)*(o.at||.64)}); } return q; }
-function dRing(c,x,y,r,o={}){ const X=EX(x), q=engArc(X,y,r,o.ry||r,0,Math.PI*2,Math.max(16,Math.round(r*2))); engPath(c,q,1); c.fillStyle=PAPER(); c.fill(); if(o.sh!==false) engShade(c,q,'d',o.sp||.8,{clipX:X+r*(o.at??.3)}); engInk(c,q,o.lw||.55,true,{gap:.03,rough:.07}); return q; }
+function dBox(c,x0,y0,x1,y1,o={}){ const q=engPoly(c,dQ(x0,y0,x1,y1),{j:.3,lw:o.lw||.55}); if(o.sh!==false){ const xs=q.map(p=>p[0]), a=Math.min(...xs), b=Math.max(...xs); engShade(c,q,'d',o.sp||.8,{clipX:a+(b-a)*(o.at||.56),fade:true}); } return q; }
+function dRing(c,x,y,r,o={}){ const X=EX(x), q=engArc(X,y,r,o.ry||r,0,Math.PI*2,Math.max(16,Math.round(r*2))); engPath(c,q,1); c.fillStyle=PAPER(); c.fill(); if(o.sh!==false) engShade(c,q,'d',o.sp||.8,{clipX:X+r*(o.at??.15),fade:true}); engInk(c,q,o.lw||.55,true,{gap:.03,rough:.07}); return q; }
 function dPost(c,x,y,w=2.4,h=3.8){ engPoly(c,dQ(x-w,y-h,x+w,y+h),{ink:true,j:.12,lw:.4}); }
 function dJambs(c){ dPost(c,-19,0); dPost(c,19,0); }
 function dDoorLeaf(c,x0,x1){ dBox(c,x0,-3,x1,3,{sh:false,lw:.5}); engInk(c,[[EX(x0+2),0],[EX(x1-2),0]],.28,false,{gap:.2}); }
@@ -2084,7 +2129,7 @@ Object.assign(SKETCH_DRAW,{
   treasure(c){ dBox(c,-13,-9,13,9,{lw:.65}); engInk(c,[[EX(-13),-3],[EX(13),-3]],.4,false,{gap:.05}); dBox(c,-2,-5,2,-1,{lw:.4,sh:false}); engInk(c,[[EX(-9),-9],[EX(-9),9]],.35,false,{gap:.1}); engInk(c,[[EX(9),-9],[EX(9),9]],.35,false,{gap:.1}); },
   dbarrel(c){ dRing(c,0,0,13); for(const r of [8.5,4.2]) engInk(c,engArc(EX(0),0,r,r,0,Math.PI*2,18),.3,true,{gap:.15,rough:.04}); for(let k=0;k<8;k++){ const a=k/8*Math.PI; engScratch(c,[EX(Math.cos(a)*13),Math.sin(a)*13],[EX(-Math.cos(a)*13),-Math.sin(a)*13],.18); } },
   altar(c){ dBox(c,-17,-10,17,10,{lw:.7}); dBox(c,-13,-6,13,6,{lw:.4,sh:false}); engInk(c,[[EX(0),-5],[EX(0),5]],.5,false,{gap:0}); engInk(c,[[EX(-4),-1.5],[EX(4),-1.5]],.5,false,{gap:0}); engDot(c,-9,0,1.1); engDot(c,9,0,1.1); },
-  sarcophagus(c){ const q=engPoly(c,[[-9,-19],[9,-19],[11,-6],[8,19],[-8,19],[-11,-6]],{j:.35,lw:.7}); engShade(c,q,'d',.8,{clipX:EX(1)}); engPoly(c,[[-6,-15],[6,-15],[7,-5],[5,15],[-5,15],[-7,-5]],{j:.3,lw:.4,open:true}); engInk(c,[[EX(0),-12],[EX(0),6]],.45,false,{gap:0}); engInk(c,[[EX(-3.5),-7],[EX(3.5),-7]],.45,false,{gap:0}); },
+  sarcophagus(c){ const q=engPoly(c,[[-9,-19],[9,-19],[11,-6],[8,19],[-8,19],[-11,-6]],{j:.35,lw:.7}); engShade(c,q,'d',.8,{clipX:EX(1)-4,fade:true}); engPoly(c,[[-6,-15],[6,-15],[7,-5],[5,15],[-5,15],[-7,-5]],{j:.3,lw:.4,open:true}); engInk(c,[[EX(0),-12],[EX(0),6]],.45,false,{gap:0}); engInk(c,[[EX(-3.5),-7],[EX(3.5),-7]],.45,false,{gap:0}); },
   throne(c){ dBox(c,-9,-6,9,9,{lw:.65}); dBox(c,-11,-12,11,-6,{lw:.7}); dBox(c,-13,-6,-9,9,{lw:.5,sh:false}); dBox(c,9,-6,13,9,{lw:.5}); for(let y=-3;y<9;y+=2.4) engScratch(c,[EX(-8),y],[EX(8),y],.2); },
   fireplace(c){ dBox(c,-19,-6,19,6,{lw:.7}); engPoly(c,dQ(-12,-3,12,6),{j:.3,lw:.55}); for(let k=0;k<14;k++){ const x=-10+engR()*20, y=-1.5+engR()*6; engScratch(c,[EX(x),y],[EX(x+1.2+engR()*1.5),y+(engR()-.5)],.3); } engDot(c,-4,2.2,1.4); engDot(c,3,1.2,1.1); },
   idol(c){ dBox(c,-11,-11,11,11,{lw:.65}); dRing(c,0,1.5,6.2,{lw:.55}); engInk(c,engArc(EX(0),-3.2,3.6,3.6,0,Math.PI*2,10),.45,true,{gap:.1}); },
@@ -2131,18 +2176,21 @@ const HEADS={
   minotaur(c,hy){ for(const s of [-1,1]){ mBody(c,[[s*3.4,hy-.4],[s*9.6,hy-1],[s*8,hy+2.6],[s*3.6,hy+2.4]],{sp:.7,lw:.4}); engStroke(c,[[s*3.6,hy-2],[s*10,hy-5],[s*12.6,hy-12],[s*9.6,hy-17.4]],1.1,.2); } mBody(c,mRing(0,hy+1,3.8,4.2,8),{sp:.45,dark:.15}); mHead(c,0,hy-1,0,-1,8,3.6,{dark:.25,fur:.9}); for(let k=0;k<4;k++) engInk(c,[[EX(-1.5+k),hy-8.4],[EX(-1.2+k*.8),hy-6.6]],.26,false,{gap:0}); for(let k=0;k<5;k++) engInk(c,[[EX(-2+k),hy+2],[EX(-2.4+k),hy+5]],.3,false,{gap:0}); },
   lizard(c,hy){ for(let k=-3;k<=3;k++){ const a=Math.PI/2+k*.34; engInk(c,[[EX(Math.cos(a)*3),hy+Math.sin(a)*2.4],[EX(Math.cos(a)*9.6),hy+Math.sin(a)*8]],.5,false,{gap:0}); } for(let k=-3;k<3;k++){ const a1=Math.PI/2+k*.34, a2=a1+.34; engInk(c,[[EX(Math.cos(a1)*8.2),hy+Math.sin(a1)*6.8],[EX(Math.cos(a2)*8.2),hy+Math.sin(a2)*6.8]],.3,false,{gap:0}); } mBody(c,mRing(0,hy+1,3,3.4,7),{sp:.45}); mHead(c,0,hy-1,0,-1,9,2.4,{dark:.1}); engDot(c,-.9,hy-9,.5); engDot(c,.9,hy-9,.5); },
 };
-function mHand(c,x,y){ engPoly(c,[[x-1.4,y+1],[x-1.3,y-.9],[x-.2,y-1.7],[x+1.1,y-1.2],[x+1.7,y+.2],[x+1.2,y+1.3],[x-.2,y+1.6]],{j:.1,lw:.55}); engInk(c,[[EX(x-.6),y-1.5],[EX(x-.4),y-.1]],.22,false,{gap:0}); engInk(c,[[EX(x+.2),y-1.6],[EX(x+.35),y-.1]],.22,false,{gap:0}); engInk(c,[[EX(x+.9),y-.5],[EX(x+1.1),y+.8]],.22,false,{gap:0}); engInk(c,[[EX(x+.4),y+.2],[EX(x+.6),y+1.2]],.22,false,{gap:0}); }      // a gripping hand: a small knuckled mitten, shaded on the right, not a ring
+function mHand(c,x,y){ mBody(c,[[x-1.25,y+.9,1],[x-1.3,y-.7],[x-.3,y-1.45,1],[x+1,y-1.1],[x+1.45,y+.1,1],[x+1,y+1.15],[x-.2,y+1.35]],{sp:.6,lw:.5,dark:.04,thr:.3}); for(const k of [-.55,.1,.75]) engInk(c,[[EX(x+k-.1),y-1.15+Math.abs(k)*.3],[EX(x+k+.05),y-.2]],.3,false,{gap:0}); }      // a gripping hand: a small fist with its knuckles marked, shaded on the right, not a pale ring
 function mMan(c,o={}){ const sw=o.sw||8.5, hn=o.hunch||0, hL=o.hl||[-3,-12], hR=o.hr2||[3,-12], el=o.elbow||1.5, k=o.k||1.22;      // a figure from above, drawn large: pack and cloak behind, shoulders, arms bent forward round the weapon, and a head of its own kind (HEADS)
   c.save(); c.translate(0,3); c.scale(k,k);
   if(o.tail) mLimb(c,[[0,3,3.6],[2,9,3],[-2,15,2.2],[1,21,1.4],[-1,26,.5]],{dark:.2,sp:.5}); if(o.tailThick) mLimb(c,[[0,3,5],[1,10,4],[-1,17,2.8],[1,24,1.2],[0,28,.4]],{dark:.2,sp:.5});
   if(o.pack){ mBody(c,[[-sw*.55,1],[sw*.55,1],[sw*.62,10],[0,12],[-sw*.62,10]],{sp:.8,dark:.15}); engInk(c,[[EX(-sw*.3),1],[EX(-sw*.3),11]],.3,false,{gap:0}); engInk(c,[[EX(sw*.3),1],[EX(sw*.3),11]],.3,false,{gap:0}); engInk(c,[[EX(-sw*.5),5],[EX(sw*.5),5]],.4,false,{gap:0}); }
   if(o.cloak!==false && !o.pack) mBody(c,[[-sw*.85,0],[sw*.85,0],[sw*.78,7],[sw*.4,11],[0,9.4],[-sw*.4,12],[-sw*.78,7]],{sp:.8,dark:.25,thr:.1});
   if(o.shield){ mBody(c,mRing(-sw-3.6,-7,5.8,5.8,9),{sp:.55}); engInk(c,engArc(EX(-sw-3.6),-7,3.6,3.6,0,Math.PI*2,9),.3,true,{gap:.1}); engInk(c,[[EX(-sw-7.2),-7],[EX(-sw),-7]],.3,false,{gap:0}); engInk(c,[[EX(-sw-3.6),-10.6],[EX(-sw-3.6),-3.4]],.3,false,{gap:0}); }      // straps across the boss; a lone dark dot on a round shield reads as an eye
-  if(o.mantle) mFur(c,0,-.6,sw*1.12,sw*.66,8,{dark:.2,thr:.1}); mBody(c,mRing(0,-.4,sw*.94,sw*.5,10),{sp:.62}); engInk(c,[[EX(-sw*.8),-2],[EX(-sw*.35),-3.6],[EX(sw*.35),-3.6],[EX(sw*.8),-2]],.4,false,{gap:.1}); if(o.belly){ mBody(c,mRing(0,5,sw*.74,5.6,8),{sp:.7}); engInk(c,[[EX(-sw*.74),4.4],[EX(sw*.74),4.4]],.7,false,{gap:0}); }
+  if(o.mantle) mFur(c,0,-.6,sw*1.12,sw*.66,8,{dark:.2,thr:.1}); mBody(c,[[-sw*.98,-.9,1],[-sw*.86,-3.3],[-sw*.4,-4.3],[0,-3.7],[sw*.4,-4.3],[sw*.86,-3.3],[sw*.98,-.9,1],[sw*.84,2.6],[sw*.36,4.3],[0,3.7],[-sw*.36,4.3],[-sw*.84,2.6]],{sp:.56,dark:.14});      // the back and shoulders from above: square at the shoulders, hollow between the blades
+    engInk(c,[[EX(0),-3.2],[EX(0),3.4]],.34,false,{gap:.25}); for(const sx of [-1,1]){ engInk(c,[[EX(sx*sw*.2),-2.6],[EX(sx*sw*.42),-.4],[EX(sx*sw*.3),2.6]],.32,false,{gap:.15}); engInk(c,[[EX(sx*sw*.62),-3.6],[EX(sx*sw*.7),-1],[EX(sx*sw*.6),2.4]],.42,false,{gap:.08}); for(let q=0;q<3;q++) engScratch(c,[EX(sx*sw*(.72+q*.07)),-2.6+q*.5],[EX(sx*sw*(.74+q*.07)),1.4-q*.4],.26); } if(o.belly){ mBody(c,mRing(0,5,sw*.74,5.6,8),{sp:.7}); engInk(c,[[EX(-sw*.74),4.4],[EX(sw*.74),4.4]],.7,false,{gap:0}); }
   if(o.spikes) for(const sx of [-1,1]) for(let q=0;q<3;q++) engPoly(c,[[sx*(sw*.62+q*2)-1,-2-q*.6],[sx*(sw*.66+q*2),-6.6-q*.6],[sx*(sw*.62+q*2)+1,-2-q*.6]],{j:.1,lw:.3,ink:true});
   if(o.ragged) for(let q=0;q<9;q++){ const a=-2.8+q*.7; engInk(c,[[EX(Math.cos(a)*sw*.95),Math.sin(a)*sw*.52-.4],[EX(Math.cos(a)*sw*1.15+(q%2?.8:-.8)),Math.sin(a)*sw*.6+1.2]],.4,false,{gap:0}); }
   if(o.dorsal) for(let q=0;q<6;q++) engPoly(c,[[-1.2,-1+q*1.9],[0,-3.4+q*1.9],[1.2,-1+q*1.9]],{j:.05,lw:.3,ink:true});
-  mLimb(c,[[-sw*.82,-1.6,3.6],[-sw-el,-6.2,3],[hL[0],hL[1],2.2]],{dark:.1}); mLimb(c,[[sw*.82,-1.6,3.6],[sw+el,-6.2,3],[hR[0],hR[1],2.2]],{dark:.1}); mHand(c,hL[0],hL[1]); mHand(c,hR[0],hR[1]); if(o.claws){ mClaw(c,hL[0],hL[1],hL[0]<-8?-.6:-.2,-1); mClaw(c,hR[0],hR[1],.2,-1); }
+  for(const [sx,h] of [[-1,hL],[1,hR]]){ const S0=[sx*sw*.8,-1.4], E=[sx*(sw+el),-6.2], mid=(a,b,t)=>[a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t], u=mid(S0,E,.5), f1=mid(E,h,.45), f2=mid(E,h,.82), d=Math.hypot(h[0]-E[0],h[1]-E[1])||1, nx=-(h[1]-E[1])/d, ny=(h[0]-E[0])/d;      // an arm: thick at the shoulder and upper arm, a hard elbow, a lean forearm with a strap at the wrist
+      mLimb(c,[[S0[0],S0[1],3.3],[u[0],u[1],3.5],[E[0],E[1],2.5],[f1[0],f1[1],2.3],[h[0],h[1],1.6]],{dark:.26,sp:.5,lw:.5});
+      for(const q of [f2,mid(E,h,.7)]) engInk(c,[[EX(q[0]-nx*1.1),q[1]-ny*1.1],[EX(q[0]+nx*1.1),q[1]+ny*1.1]],.4,false,{gap:0}); engInk(c,[[EX(E[0]-sx*.9),E[1]+.9],[EX(E[0]+sx*.5),E[1]-.7]],.35,false,{gap:0}); mHand(c,h[0],h[1]); } if(o.claws){ mClaw(c,hL[0],hL[1],hL[0]<-8?-.6:-.2,-1); mClaw(c,hR[0],hR[1],.2,-1); }
   if(o.w) mWpn(c,o.w,hR[0],hR[1],o.wa??0,o.wl||16); if(o.w2) mWpn(c,o.w2,hL[0],hL[1],o.wa2??-.1,o.wl||16);
   HEADS[o.head||'ogre'](c,-3.4-hn); c.restore(); }
 Object.assign(SKETCH_DRAW,{
@@ -2224,11 +2272,11 @@ Object.assign(SKETCH_DRAW,{
   bench(c){ dBox(c,-19,-5,19,5,{lw:.6}); for(const x of [-12,12]) engInk(c,[[EX(x),-5],[EX(x),5]],.4,false,{gap:.1}); engScratch(c,[EX(-17),0],[EX(17),0],.22); },
   wardrobe(c){ dBox(c,-13,-9,13,9,{lw:.7}); engInk(c,[[EX(0),-9],[EX(0),9]],.4,false,{gap:0}); engDot(c,-2,0,.7); engDot(c,2,0,.7); for(const sx of [-1,1]) engPoly(c,dQ(sx*10-2.4,-6,sx*10+2.4,6),{j:.2,lw:.3,open:true}); },
   weaponrack(c){ dBox(c,-17,-4,17,4,{lw:.6}); for(let k=0;k<5;k++){ const x=-13+k*6.5; mLine(c,[x,-3],[x+(k%2?1:-1),-14],.6); engPoly(c,[[x-1.2+(k%2?1:-1),-14],[x+(k%2?1:-1),-17.4],[x+1.2+(k%2?1:-1),-14]],{j:.1,lw:.3,ink:true}); } },
-  anvil(c){ dRing(c,0,0,12,{lw:.6,sh:false}); for(let k=0;k<3;k++) engInk(c,engArc(EX(0),0,4+k*3.2,4+k*3.2,.4+k,2.4+k,6),.25,false,{gap:.2}); const q=engPoly(c,[[-11,-5],[5,-5],[9,-3.4],[19,-1],[19,1],[9,3.4],[5,5],[-11,5]],{j:.3,lw:.75}); engShade(c,q,'d',1,{clipX:-1}); engPoly(c,dQ(-8,-2,-3,2),{j:.2,lw:.4,open:true}); },
+  anvil(c){ dRing(c,0,0,12,{lw:.6,sh:false}); for(let k=0;k<3;k++) engInk(c,engArc(EX(0),0,4+k*3.2,4+k*3.2,.4+k,2.4+k,6),.25,false,{gap:.2}); const q=engPoly(c,[[-11,-5],[5,-5],[9,-3.4],[19,-1],[19,1],[9,3.4],[5,5],[-11,5]],{j:.3,lw:.75}); engShade(c,q,'d',1,{clipX:-4,fade:true}); engPoly(c,dQ(-8,-2,-3,2),{j:.2,lw:.4,open:true}); },
   forge(c){ dBox(c,-16,-12,16,12,{lw:.75,sp:1}); engPoly(c,dQ(-11,-7,11,7),{j:.3,lw:.55}); for(let k=0;k<26;k++){ const x=-10+engR()*20, y=-6+engR()*12; engDot(c,x,y,.5+engR()*.5); } for(let k=0;k<6;k++){ const x=-8+engR()*16, y=-4+engR()*8; engInk(c,[[EX(x),y],[EX(x+3),y-2]],.4,false,{gap:0}); } },
   cauldron(c){ dRing(c,0,0,13,{lw:.8}); dRing(c,0,0,10,{sh:false,lw:.5}); for(let k=0;k<3;k++) engInk(c,engArc(EX(-3+k*2.4),-1+k*.8,2+k*.8,2+k*.8,0,Math.PI*2,8),.35,true,{gap:.1,rough:.03}); for(const s of [-1,1]) engDot(c,s*14,0,1.4); for(let k=0;k<8;k++){ const x=-8+engR()*16,y=-8+engR()*16; if(x*x+y*y<64) engScratch(c,[EX(x),y],[EX(x+2.4),y],.22); } },
   wellshaft(c){ dRing(c,0,0,14,{lw:.8}); dRing(c,0,0,9.6,{sh:false,lw:.5}); for(let k=0;k<12;k++){ const a=k/12*Math.PI*2; engInk(c,[[EX(Math.cos(a)*9.6),Math.sin(a)*9.6],[EX(Math.cos(a)*14),Math.sin(a)*14]],.3,false,{gap:0}); } const q=engArc(EX(0),0,9.4,9.4,0,Math.PI*2,16); c.save(); engPath(c,q,1); c.clip(); engShade(c,q,'d',2.6,{clipX:-30}); engShade(c,[[EX(-10),-10],[EX(-3),-10],[EX(-3),10],[EX(-10),10]],'d',1.4); c.restore(); },
-  basin(c){ const o=[0,1,2,3,4,5,6,7].map(i=>{ const a=i/8*Math.PI*2+Math.PI/8; return [Math.cos(a)*18,Math.sin(a)*18]; }); const q=engPoly(c,o,{j:.25,lw:.8}); engShade(c,q,'d',1.1,{clipX:9}); engPoly(c,o.map(p=>[p[0]*.78,p[1]*.78]),{j:.2,lw:.5,open:true}); for(let r=13;r>2;r-=3.4) engInk(c,engArc(EX(0),0,r,r,0,Math.PI*2,16),.28,true,{gap:.25,rough:.04}); dRing(c,0,0,3.4,{lw:.6}); engDot(c,0,0,1.2); },
+  basin(c){ const o=[0,1,2,3,4,5,6,7].map(i=>{ const a=i/8*Math.PI*2+Math.PI/8; return [Math.cos(a)*18,Math.sin(a)*18]; }); const q=engPoly(c,o,{j:.25,lw:.8}); engShade(c,q,'d',1.1,{clipX:6,fade:true}); engPoly(c,o.map(p=>[p[0]*.78,p[1]*.78]),{j:.2,lw:.5,open:true}); for(let r=13;r>2;r-=3.4) engInk(c,engArc(EX(0),0,r,r,0,Math.PI*2,16),.28,true,{gap:.25,rough:.04}); dRing(c,0,0,3.4,{lw:.6}); engDot(c,0,0,1.2); },
   cage(c){ dBox(c,-13,-13,13,13,{lw:.7,sh:false}); for(let k=-9;k<=9;k+=3) { engInk(c,[[EX(k),-13],[EX(k),13]],.4,false,{gap:.05}); engInk(c,[[EX(-13),k],[EX(13),k]],.4,false,{gap:.05}); } engPoly(c,dQ(-4,-4,4,4),{j:.2,lw:.5,open:true}); },
   rack(c){ dBox(c,-8,-19,8,19,{lw:.65}); for(const y of [-17,17]) { dRing(c,0,y,4.6,{lw:.55,sh:false}); engInk(c,[[EX(-4.6),y],[EX(4.6),y]],.4,false,{gap:0}); } for(let y=-10;y<=10;y+=3.4) engInk(c,[[EX(-8),y],[EX(8),y]],.3,false,{gap:.1}); engInk(c,[[EX(-3),-6],[EX(3),6]],.5,false,{gap:.1}); },
   firepit(c){ for(let k=0;k<9;k++){ const a=k/9*Math.PI*2; engPoly(c,mRing(Math.cos(a)*11,Math.sin(a)*11,3.4,3,5,k),{j:.15,lw:.45,shade:'d',sp:.5}); } const q=[]; for(let i=0;i<10;i++){ const a=i/10*Math.PI*2, r=i%2?3.6:7.4; q.push([Math.cos(a)*r,Math.sin(a)*r,i%2?1:0]); } mBody(c,q,{sp:.9,thr:.2,lw:.4}); engDot(c,0,0,1.6); mLine(c,[-5,5],[6,-5],1.2); mLine(c,[5,5],[-6,-5],1.2); },
