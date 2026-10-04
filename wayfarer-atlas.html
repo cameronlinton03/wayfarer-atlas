@@ -646,7 +646,7 @@ function reliefDraw(g,k,o,rect){ if(!(k>0) || !g.er) return;
     const gx=(at(X+10,Y)-at(X-10,Y))/20, gy=(at(X,Y+10)-at(X,Y-10))/20, sl=Math.hypot(gx,gy); if(sl<.0008) continue;
     const ux=-gx/sl, steep=clamp((sl-.0045)/.0065,0,1); tone[y*tw+x]=steep*Math.max(0,ux)*k; }      // slopes turned to the right (downhill that way) are in shadow; the lit ones stay almost clear
   for(const c of S.cliffs){ const Hc=c.h ?? 26, tp=c.taper||0; if(c.mode!=='up' || !(tp>0) || Math.abs(Hc)<3) continue;      /* a ramp's surface is shaded like any hillside: one that falls away to the right (from the light) is hatched, one that rises to the right stays bright */
-    const ax=cliffAxis(c), steep=clamp(Math.abs(Hc)*CLIFF_K*tp/ax.L/.0025,0,1), down=Hc>0 ? [-ax.u[0],-ax.u[1]] : ax.u, t0=steep*(.1+.9*Math.max(0,down[0]))*k; if(t0<=.02) continue;      // a plateau's ramp runs down toward its low end, a pit's floor down toward its deep end
+    const ax=cliffAxis(c), steep=clamp(Math.abs(Hc)*CLIFF_K*tp/ax.L/.0025,0,1), down=Hc>0 ? [-ax.u[0],-ax.u[1]] : ax.u, t0=Math.min(.112,steep*(.1+.9*Math.max(0,down[0]))*k); if(t0<=.02) continue;      // a plateau's ramp runs down toward its low end, a pit's floor down toward its deep end
     const lift=Math.max(Hc,0); for(let y=Math.max(cy0,Math.floor((ax.bb[1]-lift)/TC));y<=Math.min(cy1,Math.ceil(ax.bb[3]/TC));y++) for(let x=Math.max(cx0,Math.floor(ax.bb[0]/TC));x<=Math.min(cx1,Math.ceil(ax.bb[2]/TC));x++){ const q=y*tw+x; if(tone[q]<0) continue;
       const X=x*TC, Y=y*TC, sj=clamp(((X-ax.mid[0])*ax.u[0]+(Y-ax.mid[1])*ax.u[1])/ax.L+.5,0,1), fr=(1-tp)+tp*sj, hl=Hc>0 ? Hc*fr : 0; if(fr<.17) continue; if(inLand(c,[X,Y+hl])) tone[q]=Math.max(tone[q],t0*clamp((fr-.17+(hash(x,y,77)-.5)*.16)/.18,0,1)); } }      // not past where the ramp runs out (the drawing stops there too)      // a plateau's top stands above its outline by the height there
   const SP=4, DIRS=Array.from({length:12},(_,a)=>[Math.cos(a/12*Math.PI*2),Math.sin(a/12*Math.PI*2)]);
@@ -902,9 +902,9 @@ function rebuildCliffs(){
         /* the floor's tone: darker the deeper the pit is there (on a ramp, the depth at that point along it), and fading in from the floor's edge toward its middle, so a deep pit grades into black instead of ending in a hard blob, and a shallow one stays clean */
         const EW=E.width, EH=E.height, ED=e.getImageData(0,0,EW,EH), ea=ED.data, FD=fx.getImageData(0,0,EW,EH).data, BD=b.getImageData(0,0,EW,EH).data, inF=new Uint8Array(EW*EH); for(let p=0;p<EW*EH;p++) inF[p]=BD[p*4+3]>=128?0:1;
         const g2=edt2(inF,EW,EH), ramp=clamp(Dp*.25,8,40)*R, AD=a.getImageData(0,0,EW,EH).data, dep=new Float32Array(EW*EH);      // dep: how far below the rim each point of the hollow lies (down its wall)
-        for(let px=0;px<EW;px++){ let top=-1; for(let py=0;py<EH;py++){ const p=py*EW+px; if(AD[p*4+3]>=128){ if(top<0) top=py; dep[p]=(py-top)/R; } else top=-1; } }
-        for(let p=0,n=EW*EH;p<n;p++){ const o=p*4+3; let on=false; if(AD[o]>=128){ const X=bx+(p%EW+.5)/R, Y=by+(Math.floor(p/EW)+.5)/R, sa=tp>0 ? clamp(((X-mid[0])*u[0]+(Y-mid[1])*u[1])/L+.5,0,1) : 1, dl=Dp*((1-tp)+tp*sa), q=clamp((dl-60)/110,0,1);      // q: how far the pit is past seeing to the bottom
-            let dk; if(inF[p]){ const t=clamp(dep[p]/Math.max(1,dl),0,1); dk=q*clamp((t-.3)/.7,0,1)**1.4; }      // a deep pit's wall darkens toward its foot,
+        const vis=new Float32Array(EW*EH); for(let px=0;px<EW;px++){ let top=-1; for(let py=0;py<=EH;py++){ const p=py*EW+px, inA=py<EH && AD[p*4+3]>=128; if(inA){ if(top<0) top=py; dep[p]=(py-top)/R; } else if(top>=0){ let wl=py-top; for(let y=top;y<py;y++) if(!inF[y*EW+px]){ wl=y-top; break; } for(let y=top;y<py;y++) vis[y*EW+px]=Math.max(1,wl/R); top=-1; } } }      // vis: how much of the wall shows in this column, down to the floor (or the bottom of the hollow, if no floor shows)
+        for(let p=0,n=EW*EH;p<n;p++){ const o=p*4+3; let on=false; if(AD[o]>=128){ const X=bx+(p%EW+.5)/R, Y=by+(Math.floor(p/EW)+.5)/R, sa=tp>0 ? clamp(((X-mid[0])*u[0]+(Y-mid[1])*u[1])/L+.5,0,1) : 1, dl=Dp*((1-tp)+tp*sa), q=clamp((dl-45)/135,0,1);      // q: how far the pit is past seeing to the bottom
+            let dk; if(inF[p]){ const t=clamp(dep[p]/Math.min(Math.max(1,dl),vis[p]),0,1); dk=q*clamp((t-.3)/.7,0,1)**1.4; }      // a deep pit's wall darkens toward its foot,
             else { const base=clamp((dl-25)/150,0,1), r=clamp(Math.sqrt(g2[p])/ramp,0,1); dk=Math.max(q,base*(.45+.55*r*r*(3-2*r))); }      // into a floor as dark as the foot of the wall (a shallower floor fades in from its edge)
             on=dk>.94 || (FD[o]>28 && dk>FD[o-3]/255); }
           ea[o-3]=ea[o-2]=ea[o-1]=0; ea[o]=on?255:0; }
@@ -915,7 +915,7 @@ function rebuildCliffs(){
       fadeLow(cx,bw,bh,.16,.165); fadeLow(ox,bw,bh,.2,.205); cx.drawImage(O,bx,by,bw,bh); footLine(.2,.205); cf.drawImage(C,bx,by,bw,bh); csx.drawImage(Wc,bx,by,bw,bh); csx.lineWidth=3.4; csx.strokeStyle='#000'; csx.stroke(built.get(c).path); continue; }      // a ramped pit's strokes stop where it runs out (a crisp end, as engraved lines do), the rim a little sooner
     od=ox;
     { d.globalCompositeOperation='source-over'; d.clearRect(bx,by,bw,bh); d.drawImage(A,bx,by,bw,bh); a.save(); a.setTransform(R,0,0,R,-bx*R,-by*R); a.globalCompositeOperation='source-over'; a.clearRect(bx,by,bw,bh);      // the outline drawn is the plateau's foot: its top stands that high above it (on a ramp, as high as the ramp is there), so the face comes down onto the outline
-      if(!tp) a.drawImage(D,bx,by-H,bw,bh); else { const NS=48; for(let q=0;q<NS;q++){ const s0=q/NS, s1=(q+1)/NS+.004, f=(1-tp)+tp*((q+.5)/NS); a.save(); plane(a,s0,-H*f,true); a.clip(); plane(a,s1,-H*f,false); a.clip(); a.drawImage(D,bx,by-H*f,bw,bh); a.restore(); }
+      if(!tp) a.drawImage(D,bx,by-H,bw,bh); else { const NS=48; for(let q=0;q<NS;q++){ const s0=q/NS, s1=(q+1)/NS+Math.max(.004,(4+H*tp/NS*2)/L), f=(1-tp)+tp*((q+.5)/NS); a.save(); plane(a,s0,-H*f,true); a.clip(); plane(a,s1,-H*f,false); a.clip(); a.drawImage(D,bx,by-H*f,bw,bh); a.restore(); }      // slices overlap by more than the step in height between them, or faint seams show across the top
         a.save(); plane(a,0,-H*(1-tp),false); a.clip(); a.drawImage(D,bx,by-H*(1-tp),bw,bh); a.restore(); a.save(); plane(a,1,-H,true); a.clip(); a.drawImage(D,bx,by-H,bw,bh); a.restore(); }      // and anything past either end of the axis
       a.restore(); }
     for(let j=1.5;j<=H;j+=1.5){ b.save();
@@ -929,10 +929,14 @@ function rebuildCliffs(){
     inked(A);                                                                                                      // rim line round the top
     cx.globalCompositeOperation='destination-out'; cx.drawImage(A,bx,by,bw,bh); ox.globalCompositeOperation='destination-out'; ox.drawImage(A,bx,by,bw,bh); ox.globalCompositeOperation='source-over';      // the top itself stays clear so the ground shows
     { const len=clamp(H*1.15,8,70), sw=bw+len+6, shh=bh+len*.3+6, mkS=()=>{ const q=mkCanvas(sw*R,shh*R); q[1].setTransform(R,0,0,R,-bx*R,-by*R); return q; }, [Sh,sh]=mkS(), [Hh,hh]=mkS();      // the shadow the height throws: its outline swept away from the light, minus the plateau itself, kept to the land
-      for(let k=2;k<=len;k+=2){ sh.save(); sh.translate(k,k*.24); if(tp>0){ const sj=1-(1-k/len)/tp; if(sj>1){ sh.restore(); break; } if(sj>0){ plane(sh,sj,0,true); sh.clip(); } }      // only the part of the plateau that stands at least this high throws a shadow this long
-        sh.drawImage(A,bx,by,bw,bh); sh.drawImage(B,bx,by,bw,bh); sh.restore(); } sh.globalCompositeOperation='destination-out'; sh.drawImage(A,bx,by,bw,bh); sh.drawImage(B,bx,by,bw,bh);
-      if(!tp) for(let k=len*.55;k<=len;k+=2){ sh.globalAlpha=.05; sh.drawImage(A,bx+len+2+k-len*.55,by+len*.24,bw,bh); } sh.globalAlpha=1;
-      hatchRows(hh,bx,by,sw,shh,1.55,.42,41); sh.globalCompositeOperation='source-in'; sh.drawImage(Hh,bx,by,sw,shh);
+      const sweep=lim=>{ const [M,m]=mkS(); for(let k=2;k<=lim;k+=2){ m.save(); m.translate(k,k*.24); if(tp>0){ const sj=1-(1-k/len)/tp; if(sj>1){ m.restore(); break; } if(sj>0){ plane(m,sj,0,true); m.clip(); } }      // only the part of the plateau that stands at least this high throws a shadow this long
+          m.drawImage(A,bx,by,bw,bh); m.drawImage(B,bx,by,bw,bh); m.restore(); } m.globalCompositeOperation='destination-out'; m.drawImage(A,bx,by,bw,bh); m.drawImage(B,bx,by,bw,bh); return M; };
+      /* engraved, not a grey patch: level lines, every one of them close under the cliff, every second further out, every fourth at the tip, so the shadow thins away instead of ending on a hard edge */
+      const masks=[sweep(len*.42),sweep(len*.72),sweep(len)], sp=1.5;
+      masks.forEach((M,lv)=>{ hh.save(); hh.setTransform(1,0,0,1,0,0); hh.clearRect(0,0,Hh.width,Hh.height); hh.restore(); hh.strokeStyle=INK; hh.lineCap='round'; hh.lineWidth=.42; hh.beginPath();
+        for(let Y=by+sp*.5,jr=0;Y<by+shh;Y+=sp,jr++){ const cls=jr%4===0?2:jr%2===0?1:0; if(cls!==lv) continue; let X=bx+hash(jr,c.seed,41)*3; while(X<bx+sw){ const run=14+hash(jr,X|0,c.seed+41)*30; hh.moveTo(X,Y); hh.lineTo(X+run,Y+(hash(X|0,jr,c.seed+42)-.5)*.4); X+=run+.8+hash(X|0,jr,c.seed+43)*1.2; } }
+        hh.stroke(); hh.globalCompositeOperation='destination-in'; hh.drawImage(M,bx,by,sw,shh); hh.globalCompositeOperation='source-over'; sh.drawImage(Hh,bx,by,sw,shh); });
+      sh.globalCompositeOperation='destination-in'; sh.drawImage(landMask,0,0,S.w,S.h); sh.globalCompositeOperation='source-over';
       fadeLow(sh,sw,shh,.14,.22); cf.globalCompositeOperation='source-over'; cf.drawImage(Sh,bx,by,sw,shh); }
     fadeLow(cx,bw,bh,.14,.22); fadeLow(ox,bw,bh,.2,.27); cx.globalCompositeOperation='source-over'; cx.drawImage(O,bx,by,bw,bh); od=null; footLine(.2,.27);      // hatching thins out gradually; the edge goes sooner
     cf.globalCompositeOperation='destination-out'; cf.drawImage(A,bx,by,bw,bh); cf.globalCompositeOperation='source-over'; cf.drawImage(C,bx,by,bw,bh);
@@ -1013,8 +1017,7 @@ function rebuildLand(fresh){ landVer++; landFor={...landSig(),fresh:!!fresh};
   lm.globalCompositeOperation='source-over'; lm.clearRect(0,0,S.w,S.h); lm.fillStyle='#000';
   for(const l of S.lands){ lm.globalCompositeOperation = l.mode==='sea' ? 'destination-out' : 'source-over'; lm.fill(landPath(l)); const b=built.get(l);
     if(b.core){ lm.lineWidth=b.cw; lm.lineCap=lm.lineJoin='round'; lm.strokeStyle='#000'; lm.stroke(b.core); } }
-  if(layers.cliffs.v) for(const c of S.cliffs){ if(c.mode!=='up' || (c.h ?? 26)<=0) continue; lm.globalCompositeOperation='source-over'; lm.fill(landPath(c)); const b=built.get(c);      // a raised cliff stands on land of its own: where it reaches past the coast the landmass grows to meet it (a pit or a lowered area does not)
-    if(b.core){ lm.lineWidth=b.cw; lm.lineCap=lm.lineJoin='round'; lm.strokeStyle='#000'; lm.stroke(b.core); } }
+  /* cliffs do not make land: a plateau drawn across the coast is cut to the land it stands on, so it ends in a sea cliff at the shore */
   if(layers.lines.v){ lm.globalCompositeOperation='destination-out'; for(const l of S.lines) if(l.kind==='river' && lyVisible(l)) lm.fill(riverPath(l,fresh)); }
   lm.globalCompositeOperation='source-over';
   iv.globalCompositeOperation='source-over'; iv.fillStyle='#000'; iv.fillRect(0,0,S.w,S.h); iv.globalCompositeOperation='destination-out'; iv.drawImage(landMask,0,0,S.w,S.h);
@@ -2415,7 +2418,7 @@ function invalidate(){ if(dirty) return; dirty=true; requestAnimationFrame(()=>{
   { const rs=layers.lines.v ? S.lines.filter(l=>l.kind==='realm' && lyVisible(l)) : []; if(rs.length!==realmSig.length || rs.some((l,i)=>l!==realmSig[i])) need.realms=true; }      // a territory was drawn, moved, reshaped or removed
   if(S.rhumb && rhumbFor!==S.stamps){ const sig=S.stamps.filter(s=>s.kind==='compass').map(s=>[s.x,s.y,s.rot,s.size].join()).join(';'); if(sig!==invalidate.sig){ invalidate.sig=sig; need.compose='full'; } rhumbFor=S.stamps; }
   if(!act && S.kind!=='dungeon' && heightCache.grid && heightCache.grid.fs!==mtnSig()) need.compose=need.compose||'full';      // a mountain placed, moved or removed changes the relief (once it is let go)
-  if(cliffLandFor!==S.cliffs){ cliffLandFor=S.cliffs; need.land=true; need.compose=need.compose||(act?'fast':'full'); }      // cliffs are part of the land, so changing them changes the coast
+  if(cliffLandFor!==S.cliffs){ cliffLandFor=S.cliffs; need.compose=need.compose||(act?'fast':'full'); }      // cliffs are part of the land, so changing them changes the coast
   if(need.land){ rebuildLand(need.compose==='full'); need.land=false; }
   if(need.compose){ compose(need.compose==='full'); need.compose=null; need.realms=false; }
   else if(need.realms){ need.realms=false; if(S.kind!=='dungeon' && !S.hm){ if(prebaseOK && prebaseC && prebaseC.width===base.width && prebaseC.height===base.height) composeRealmsOnly(); else compose(false); } }      // only the territories changed
