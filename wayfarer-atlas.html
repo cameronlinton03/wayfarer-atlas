@@ -474,7 +474,7 @@ function blankState(w,h){ return {w,h,kind:'world',hm:false,height:null,relief:1
 const layers = { terrain:{name:'Ground & water paint',v:true}, cliffs:{name:'Cliffs',v:true}, lines:{name:'Rivers, roads, borders',v:true,lock:false}, stamps:{name:'Stamps',v:true,lock:false}, labels:{name:'Labels',v:true,lock:false} };
 const opts = { tool:'land', reshape:'pull', reach:160, cliffMode:'outline', cliffBrush:120, cliffRough:.4, cliffH:26, cliffPrimary:'up', paintLayer:'land', water:'deep', landPrimary:'land', hard:.6, bop:1, landMode:'outline', landBrush:140, landRough:0.55, terrain:'grass', brush:110, scatter:60,
   stampSizes:Object.fromEntries(Object.entries(STAMP_GROUPS).map(([g,v])=>[g,v.size])), lineRough:0.35, lineWidth:{river:4,road:3.2,trail:2.2,border:2.5,realm:2.5,street:8,wall:7,fence:3,dwall:5}, fenceStyle:'hedge', realmCol:'madder', realmOp:55, realmTier:'country', realmGid:null, realmBrush:false, realmErase:false, realmSize:160, realmFill:'edge',
-  wallKind:'town', roadMode:false, rotSnap:false, cliffTaper:0, cliffDir:-90, elevBrush:240, elevAmt:.22, stampOpacity:100, scatterDensity:1, scatterGap:.5, sizeVar:.18, floorMode:'paint', floorTex:'flag', floorBrush:90, settingsOpen:false, historyOpen:false, roomShape:'rect', roomCut:false, roomTex:'flag', corrW:1, snap:true, snapFine:false, caveRough:.55,  stamp:'town', stampRot:0, stampSet:'world', stampFlip:'shuffle', stampMode:'place', fillDensity:1, stampVar:'shuffle', stampTint:{}, labelStyle:'place', labelSize:30 };
+  wallKind:'town', roadMode:false, rotSnap:false, cliffTaper:0, cliffDir:-90, elevBrush:180, elevAmt:.45, stampOpacity:100, scatterDensity:1, scatterGap:.5, sizeVar:.18, floorMode:'paint', floorTex:'flag', floorBrush:90, settingsOpen:false, historyOpen:false, roomShape:'rect', roomCut:false, roomTex:'flag', corrW:1, snap:true, snapFine:false, caveRough:.55,  stamp:'town', stampRot:0, stampSet:'world', stampFlip:'shuffle', stampMode:'place', fillDensity:1, stampVar:'shuffle', stampTint:{}, labelStyle:'place', labelSize:30 };
 let sel = null;                        // {type:'land'|'line'|'stamp'|'label', obj}
 let undoStack=[], redoStack=[], editing=false;
 /* Layers: rivers, roads, borders, realms, stamps and labels each sit on one layer (S.layers, bottom first). A layer can be hidden, locked,
@@ -497,9 +497,9 @@ function restoreNeeds(a,b){      // what stepping from state a to b needs drawn 
   let realms=false; if(a.lines!==b.lines){ const A=new Set(a.lines), B=new Set(b.lines); for(const [L,O] of [[a.lines,B],[b.lines,A]]) for(const l of L) if(!O.has(l)){ if(l.kind==='realm') realms=true; else if(l.kind==='river' || l.kind==='dwall') return 'full'; } }
   return realms ? 'realms' : 'none'; }
 function restore(s){ const was=S; S={...s,theme:S.theme,hm:S.hm}; sel=null;      // the height view is a way of looking, not part of what is undone
-  if(!(landFor && landFor.fresh && sameLand(landSig(),landFor))) rebuildAll();      // the land is rebuilt (and everything that hangs on it) only when the step changed what shapes it
-  else { const how=restoreNeeds(was,S); if(how==='full') compose(true); else if(how==='realms') need.realms=true; invalidate(); }
-  renderPanel(); syncButtons(); queueSave(); }
+  if(!(landFor && landFor.fresh && sameLand(landSig(),landFor))){ need.land=true; need.compose='full'; }      // the land is rebuilt (and everything that hangs on it) only when the step changed what shapes it
+  else { const how=restoreNeeds(was,S); if(how==='full') need.compose='full'; else if(how==='realms') need.realms=true; }
+  invalidate(); renderPanel(); syncButtons(); queueSave(); }      // the redrawing waits for the next frame, so several steps taken at once (Undo held down, a jump in the history) are drawn once, not once each
 function undo(){ if(!undoStack.length) return; const e=undoStack.pop(); redoStack.push({state:snap(),label:e.label}); restore(e.state); }
 function redo(){ if(!redoStack.length) return; const e=redoStack.pop(); undoStack.push({state:snap(),label:e.label}); restore(e.state); }
 function goTo(i){ const n=undoStack.length; i=Math.max(0,Math.min(n+redoStack.length,i)); if(i===n) return;      // jump to the picture after the i-th action (0 = as it began), redrawing once however far it is
@@ -700,7 +700,7 @@ function migrate(d){   // maps saved before trees and mountains became stamps
   d.paints.forEach((p,i)=>{ const o=old[p.type]; if(o) add=add.concat(scatterAlong(o[0],p.pts,p.size,o[1],o[2],i+2)); else if(p.type==='erase'||TERRAIN[p.type]||WATER[p.type]) keep.push(p); });
   d.paints=keep; d.stamps=d.stamps.filter(s=>SKETCH_DRAW[s.kind]).concat(add);
   const sparse=(pts,closed)=>{ let len=0; for(let i=1;i<pts.length;i++) len+=dist(pts[i-1],pts[i]); return pts.length>=(closed?3:2) && len/pts.length>16; };   // hand-written shapes get the same point spacing as drawn ones
-  d.lands=d.lands.map(l=>!l.brush && !l.sharp && sparse(l.pts,true) ? {...l,pts:resample(l.pts,10,true)} : l); d.lines=d.lines.map(l=>sparse(l.pts,false) ? {...l,pts:resample(l.pts,10,false)} : l);
+  d.lands=d.lands.map(l=>!l.brush && !l.sharp && sparse(l.pts,true) ? {...l,pts:resample(l.pts,10,true)} : l); d.lines=d.lines.map(l=>!l.sharp && !l.brush && sparse(l.pts,false) ? {...l,pts:resample(l.pts,10,false).map(q=>[Math.round(q[0]*10)/10,Math.round(q[1]*10)/10])} : l);      // (never a dungeon wall, which keeps its corners, nor a brushed territory, whose stroke is its shape)
   if(!d.tick){ let n=0; d.lands=d.lands.map(l=>({...l,t:++n})); d.paints=d.paints.map(p=>({...p,t:++n})); d.tick=n; }   // t = the order things were made in
   return d; }
 function loadState(d){ d=migrate(d); S={gen:d.gen||null,relief:Number.isFinite(d.relief)?d.relief:1,elev:Array.isArray(d.elev)?d.elev:[],tiers:Array.isArray(d.tiers)&&d.tiers.length?d.tiers.filter(t=>t&&t.id).map(t=>({id:String(t.id),name:String(t.name||'Tier'),one:String(t.one||t.name||'Territory')})):DEFAULT_TIERS.map(t=>({...t})),w:d.w,h:d.h,kind:d.kind==='dungeon'?'dungeon':'world',dun:{...DUN_DEF,...(d.dun||{})},fpaint:Array.isArray(d.fpaint)?d.fpaint:[],name:d.name||'Untitled map',cliffs:Array.isArray(d.cliffs)?d.cliffs:[],lands:d.lands,paints:d.paints,lines:d.lines,stamps:d.stamps,labels:d.labels,grid:d.grid||{type:'none',size:60},tick:d.tick||0,theme:'sketchp',frame:['line','graduated'].includes(d.frame)?d.frame:'none',rhumb:!!d.rhumb,height:d.height && d.height.v ? d.height : null,hm:!!d.hm,scale:d.scale && d.scale.per100>0 ? {per100:+d.scale.per100,unit:String(d.scale.unit||'miles')} : {per100:10,unit:'miles'},
@@ -1116,11 +1116,12 @@ function paintInto(T,p,replace){      // lays one stroke onto T at the stroke's 
   else if(col){ const tw=tint(); T.save(); T.globalAlpha=p.op ?? 1; T.globalCompositeOperation='destination-over'; T.drawImage(tw,...wsrc,...bb); T.restore(); }      // a stroke still being painted shows its wash straight away
 }
 let tintC,tnx;
-function buildTint(){ const W=S.w, H=S.h, key=[washVer,landVer,cliffVer,layers.terrain.v,R,W,H].join(); if(tintC.__key===key) return; tintC.__key=key;      // the washes are multiplied over everything at the end, so stamps, cliff faces and lettering take the colour of the ground they stand on instead of showing as bare paper
+const tintKey=()=>[washVer,landVer,cliffVer,layers.terrain.v,R,S.w,S.h].join();
+function buildTint(box){ const W=S.w, H=S.h, key=tintKey(); if(tintC.__key===key) return; tintC.__key=key; tnx.save(); tc.save(); if(box){ for(const x of [tnx,tc]){ x.beginPath(); x.rect(...box); x.clip(); } }      // box: only that part is worked again (a paint stroke changes the washes only round itself); everything drawn below is the same either way      // the washes are multiplied over everything at the end, so stamps, cliff faces and lettering take the colour of the ground they stand on instead of showing as bare paper
   tnx.save(); tnx.globalAlpha=1; tnx.globalCompositeOperation='source-over'; tnx.clearRect(0,0,W,H); if(layers.terrain.v) drawWash(tnx,washSea,32); tnx.fillStyle=SEA_TINT; tnx.fillRect(0,0,W,H); tnx.globalCompositeOperation='destination-out'; tnx.drawImage(landMask,0,0,W,H); for(const o of cliffOver) tnx.drawImage(o.c,o.bx,o.by,o.bw,o.bh); if(layers.lines.v){ tnx.fillStyle='#000'; for(const l of S.lines) if(l.kind==='river' && lyVisible(l)) tnx.fill(riverPath(l,false)); } tnx.restore();      // rivers are tinted in the base picture instead (compose), so the tint laid over everything does not show them through a mountain standing on them
   if(layers.terrain.v){ tc.save(); tc.globalAlpha=1; tc.globalCompositeOperation='source-over'; tc.clearRect(0,0,W,H); tc.restore(); drawWash(tc,washLand,20); tc.save(); tc.globalCompositeOperation='destination-in'; tc.drawImage(landMask,0,0,W,H); tc.restore(); tnx.drawImage(tmpC,0,0,W,H);
     for(const o of cliffOver){ const [Q,q]=mkCanvas(o.bw*R,o.bh*R); q.setTransform(R,0,0,R,-o.bx*R,-o.by*R); drawWash(q,washLand,20); q.globalCompositeOperation='destination-in'; q.drawImage(o.c,o.bx,o.by,o.bw,o.bh); tnx.save(); tnx.globalCompositeOperation='destination-out'; tnx.drawImage(o.c,o.bx,o.by,o.bw,o.bh); tnx.restore(); tnx.drawImage(Q,o.bx,o.by,o.bw,o.bh); } }
-  for(const o of cliffFlood){ const [Q,q]=mkCanvas(o.bw*R,o.bh*R); q.setTransform(R,0,0,R,-o.bx*R,-o.by*R); q.fillStyle=SEA_TINT; q.fillRect(o.bx,o.by,o.bw,o.bh); q.globalCompositeOperation='destination-in'; q.drawImage(o.c,o.bx,o.by,o.bw,o.bh); tnx.save(); tnx.globalCompositeOperation='destination-out'; tnx.drawImage(o.c,o.bx,o.by,o.bw,o.bh); tnx.restore(); tnx.drawImage(Q,o.bx,o.by,o.bw,o.bh); } }      // a flooded hollow is water: the sea's tint, not the land's wash      // a plateau standing out over water is ground: it takes the land's wash
+  for(const o of cliffFlood){ const [Q,q]=mkCanvas(o.bw*R,o.bh*R); q.setTransform(R,0,0,R,-o.bx*R,-o.by*R); q.fillStyle=SEA_TINT; q.fillRect(o.bx,o.by,o.bw,o.bh); q.globalCompositeOperation='destination-in'; q.drawImage(o.c,o.bx,o.by,o.bw,o.bh); tnx.save(); tnx.globalCompositeOperation='destination-out'; tnx.drawImage(o.c,o.bx,o.by,o.bw,o.bh); tnx.restore(); tnx.drawImage(Q,o.bx,o.by,o.bw,o.bh); } tc.restore(); tnx.restore(); }      // a flooded hollow is water: the sea's tint, not the land's wash      // a plateau standing out over water is ground: it takes the land's wash
 function drawWash(T,c,rad=20){ T.save(); T.globalAlpha=1; T.globalCompositeOperation='source-over'; try{ T.filter=`blur(${Math.round(rad*R)}px)`; }catch(e){} T.drawImage(c,0,0,S.w,S.h); T.restore(); }
 function applyOp(o){ if('mode' in o){ landOp(cl,o,MASK_SCALE); if(o.mode==='sea'){ landOp(tx,o,1); landOp(wtx,o,WASH_SCALE/R); washVer++; } } else if(!o.w) paintInto(tx,o,true); }
 function syncWater(){         // water strokes don't depend on the land, so they are kept up to date on their own
@@ -1166,7 +1167,7 @@ function rebuildCoast(){
   cc.globalCompositeOperation='source-over';
   { /* Narrow water (a small lake, a strait, a river-like inlet) would be lined right across and come out darker than the open sea. Narrow water is what disappears when the land is grown by D and
        shrunk back again; there the band is only a thin one along each shore, and the middle is left clear. */
-    const D=24, [n1,x1]=mkCanvas(w,h), [n2,x2]=mkCanvas(w,h), growOf=(x,src,d)=>{ for(const f of [1,.55]) for(let i=0;i<16;i++){ const a=i*Math.PI/8; x.drawImage(src,Math.cos(a)*d*f*R/2,Math.sin(a)*d*f*R/2); } x.drawImage(src,0,0); };
+    const D=34, [n1,x1]=mkCanvas(w,h), [n2,x2]=mkCanvas(w,h), growOf=(x,src,d)=>{ for(const f of [1,.55]) for(let i=0;i<16;i++){ const a=i*Math.PI/8; x.drawImage(src,Math.cos(a)*d*f*R/2,Math.sin(a)*d*f*R/2); } x.drawImage(src,0,0); };
     growOf(x1,halfC,D); x2.fillStyle='#000'; x2.fillRect(0,0,w,h); x2.globalCompositeOperation='destination-out'; x2.drawImage(n1,0,0);      // n2: open water, well clear of any shore
     x1.clearRect(0,0,w,h); growOf(x1,n2,D+1.5);      // n1: all the water that open water reaches
     x2.globalCompositeOperation='source-over'; x2.fillRect(0,0,w,h); x2.globalCompositeOperation='destination-out'; x2.drawImage(n1,0,0); x2.drawImage(halfC,0,0);      // n2: the narrow water
@@ -1185,15 +1186,32 @@ function liveBox(a,s){      // the box a stroke being painted has touched since 
   const from=Math.max(0,(a.drawn||0)-1), pts=a.pts.slice(from); if(!pts.length) return null; const pad=s.size/2+(1-(s.hard ?? .85))*s.size*.5+12;
   const xs=pts.map(q=>q[0]), ys=pts.map(q=>q[1]), x0=Math.floor((Math.min(...xs)-pad)/4)*4, y0=Math.floor((Math.min(...ys)-pad)/4)*4; return boxAnd([x0,y0,Math.ceil((Math.max(...xs)+pad)/4)*4-x0,Math.ceil((Math.max(...ys)+pad)/4)*4-y0],[0,0,S.w,S.h]); }      // on multiples of 4, so a stroke's pixels line up as they do when it is drawn whole
 function compose(full){
-  if(S.kind==='dungeon'){ baseIsMap=false; return composeDungeon(full); }
-  if(S.hm){ baseIsMap=false; composeHeight(); return; }      // the height view replaces the finished map (rivers, roads and names are still drawn over it)
-  const W=S.w,H=S.h, live = act && act.type==='paint' && act.pts.length ? act.stroke : null;
+  if(S.kind==='dungeon'){ baseIsMap=false; composed=null; return composeDungeon(full); }
+  if(S.hm){ baseIsMap=false; composed=null; composeHeight(); return; }      // the height view replaces the finished map (rivers, roads and names are still drawn over it)
+  const W=S.w,H=S.h, live = act && act.type==='paint' && act.pts.length ? act.stroke : null, pb = full && !live ? paintBox() : null;      // pb: all that changed since the sheet was last drawn whole is a paint stroke or two
   if(full){ if(coastDirty) rebuildCoast(); syncTerrain(); syncWater(); }
   if(cliffBuilt.cliffs!==S.cliffs || (full && cliffBuilt.landVer!==landVer)) rebuildCliffs();
-  const el = !full && act && act.type==='elev' ? act : null, dr = !full && (live || el) && baseIsMap && !exporting && !coastDirty ? liveBox(act,live || {size:el.stroke.size+200,hard:1}) : null; if(live || el) act.drawn=act.pts.length;      // the Elevation brush changes the ground within its radius; the relief there can reach about 100 further (sea cliffs, slopes)
-  if(dr){ if(!dr[2] || !dr[3]) return; buildTint(); realmLayers(W,H); if(el) relief(false,dr); liveClip=live ? {p:live,r:dr} : null; for(const x of [lc,bc]){ x.save(); x.beginPath(); x.rect(...dr); x.clip(); } tc.save(); tc.beginPath(); tc.rect(dr[0]-4,dr[1]-4,dr[2]+8,dr[3]+8); tc.clip(); }      // the rest of the sheet is as it was
+  const el = !full && act && act.type==='elev' ? act : null; let dr = !full && (live || el) && baseIsMap && !exporting && !coastDirty ? liveBox(act,live || {size:el.stroke.size+200,hard:1}) : null; if(live || el) act.drawn=act.pts.length;      // the Elevation brush changes the ground within its radius; the relief there can reach about 100 further (sea cliffs, slopes)
+  if(dr){ if(!dr[2] || !dr[3]) return; buildTint(); realmLayers(W,H); if(el) relief(false,dr); liveClip=live ? {p:live,r:dr} : null; }
+  else if(pb && pb.sig===sheetSig()){      /* Letting go of the brush: only the stroke's own surroundings are drawn again, with everything a whole redraw would do. The ground marks, the woodland edge and the relief keep sheets of
+       their own and use the shared scratch sheet, so they are brought up to date first, before anything is clipped; then the washes round the stroke, then the picture inside the box. */
+    let ok=true; if(layers.terrain.v){ const inkOK=cleanFor && cleanFor.p===S.paints && cleanFor.l===S.lands && cleanFor.c===S.cliffs && cleanFor.v===landVer && cleanFor.cv===cleanC; if(!inkOK && !cleanInk()) ok=false;
+      const ecoOK=e=>e && e.l===S.lands && e.c===S.cliffs && e.v===landVer && e.cv===ecoC && e.cl===layers.cliffs.v && e.ln===layers.lines.v; if(ok && !(ecoOK(ecoFor) && ecoFor.p===S.paints)){ if(!pb.ground && ecoOK(ecoFor)) ecoFor={...ecoFor,p:S.paints}; else rebuildEco(); } }      // water paint leaves the woodland edge as it is
+    if(ok){ relief(true,null); if(tintC.__key===composed.tint) buildTint(pb.tint); else buildTint(); realmLayers(W,H); dr=pb.box; } }
+  if(dr){ for(const x of [lc,bc]){ x.save(); x.beginPath(); x.rect(...dr); x.clip(); } tc.save(); tc.beginPath(); tc.rect(dr[0]-4,dr[1]-4,dr[2]+8,dr[3]+8); tc.clip(); }      // the rest of the sheet is as it was
   try{ composeMap(full,live,dr); } finally{ if(dr){ lc.restore(); bc.restore(); tc.restore(); liveClip=null; } }
-  baseIsMap=true; }
+  baseIsMap=true; if(full) composed={sig:sheetSig(),refs:sheetRefs(),paints:S.paints,tint:tintC.__key}; }
+/* What the finished sheet was last drawn whole from. If the next whole redraw finds everything the same but for a few paint strokes added at the end of the list (or taken off it: undo), it need only
+   redraw round those strokes: paint changes nothing further away than its own soft edge, the reach of the woodland edge, and the blur of its wash. */
+let composed=null;
+const sheetSig=()=>[landVer,cliffVer,R,S.w,S.h,S.relief,S.rhumb,layers.terrain.v,layers.cliffs.v,layers.lines.v,layers.stamps.v,S.layers.map(L=>L.id+(L.v!==false?1:0)).join('|'),mtnSig(),S.rhumb?S.stamps.filter(q=>q.kind==='compass').map(q=>[q.x,q.y,q.rot,q.size].join()).join(';'):''].join('~');
+const sheetRefs=()=>[S.lands,S.cliffs,S.lines,S.tiers,S.elev,S.height];
+function paintBox(){ if(!composed || !baseIsMap || exporting || coastDirty || composed.sig!==sheetSig()) return null; const rf=sheetRefs(); if(!composed.refs.every((o,i)=>o===rf[i])) return null;
+  const a=composed.paints, b=S.paints, small=a.length<=b.length?a:b, big=small===a?b:a, n=big.length-small.length; if(!n || n>12 || !small.every((o,i)=>o===big[i])) return null;
+  const B=[1e9,1e9,-1e9,-1e9], T=[1e9,1e9,-1e9,-1e9]; let ground=false; for(const q of big.slice(small.length)){ if(!q.pts || !q.pts.length) return null; if(!q.w) ground=true; const F=(1-(q.hard ?? .85))*q.size*.5, pad=q.size/2+F+104, tp=q.size/2+F+(q.w?232:152);      // the picture: brush, soft edge and the woodland edge's reach; the washes: brush, soft edge and three times the blur
+    for(const r of q.pts){ B[0]=Math.min(B[0],r[0]-pad); B[1]=Math.min(B[1],r[1]-pad); B[2]=Math.max(B[2],r[0]+pad); B[3]=Math.max(B[3],r[1]+pad); T[0]=Math.min(T[0],r[0]-tp); T[1]=Math.min(T[1],r[1]-tp); T[2]=Math.max(T[2],r[0]+tp); T[3]=Math.max(T[3],r[1]+tp); } }
+  const fit=Q=>{ const x0=Math.max(0,Math.floor(Q[0]/4)*4), y0=Math.max(0,Math.floor(Q[1]/4)*4), x1=Math.min(S.w,Math.ceil(Q[2]/4)*4), y1=Math.min(S.h,Math.ceil(Q[3]/4)*4); return [x0,y0,x1-x0,y1-y0]; }, box=fit(B), tint=fit(T);
+  if(box[2]<=0 || box[3]<=0 || box[2]*box[3]>S.w*S.h*.6) return null; return {box,tint,ground,sig:composed.sig}; }
 function composeMap(full,live,dr){ const W=S.w,H=S.h;
   lc.globalAlpha=1; lc.globalCompositeOperation='source-over'; { lc.fillStyle=pat.paper||PAPER(); lc.fillRect(0,0,W,H); lc.drawImage(ageC,0,0,W,H); } lc.fillStyle=pat.land; lc.fillRect(0,0,W,H);
   const inkOK=cleanFor && cleanFor.p===S.paints && cleanFor.l===S.lands && cleanFor.c===S.cliffs && cleanFor.v===landVer && cleanFor.cv===cleanC;
@@ -1210,7 +1228,7 @@ function composeMap(full,live,dr){ const W=S.w,H=S.h;
   }
   if(S.rhumb && layers.stamps.v){ const far=Math.hypot(W,H); tc.save(); tc.globalAlpha=1; tc.globalCompositeOperation='source-over'; tc.clearRect(0,0,W,H); tc.strokeStyle=INK; for(const st of S.stamps){ if(st.kind!=='compass') continue;                                       // rhumb lines run out from every compass across the sea; the land is laid over them next
       for(let k=0;k<32;k++){ const a=(st.rot||0)*Math.PI/180+k*Math.PI/16; tc.globalAlpha=k%4===0?.62:k%2===0?.45:.28; tc.lineWidth=k%4===0?1:.7; tc.beginPath(); tc.moveTo(st.x+Math.sin(a)*st.size*.45,st.y-Math.cos(a)*st.size*.45); tc.lineTo(st.x+Math.sin(a)*far,st.y-Math.cos(a)*far); tc.stroke(); } }
-    tc.globalAlpha=1; tc.globalCompositeOperation='destination-out'; tc.fillStyle=tc.strokeStyle='#000'; tc.lineCap=tc.lineJoin='round'; for(const l of S.lands){ if(l.mode!=='sea') continue; tc.fill(landPath(l)); const q=built.get(l); if(q.core){ tc.lineWidth=q.cw; tc.stroke(q.core); } }      // a sea chart's lines do not run across lakes and carved inlets
+    tc.globalAlpha=1; tc.globalCompositeOperation='destination-out'; tc.fillStyle=tc.strokeStyle='#000'; tc.lineCap=tc.lineJoin='round'; for(const l of S.lands){ if(l.mode!=='sea') continue; tc.fill(landPath(l)); const q=built.get(l); if(q.core){ tc.lineWidth=q.cw; tc.stroke(q.core); } } if(layers.lines.v) for(const l of S.lines) if(l.kind==='river' && lyVisible(l)) tc.fill(riverPath(l,false));      // a sea chart's lines do not run across lakes and carved inlets, nor up the rivers
     tc.restore(); bc.drawImage(tmpC,0,0,W,H); }
   tc.globalAlpha=1; tc.globalCompositeOperation='copy'; tc.drawImage(landMask,0,0,W,H); tc.globalCompositeOperation='source-in'; tc.fillStyle=INK; tc.fillRect(0,0,W,H); tc.globalCompositeOperation='source-over';   // the land's shape in ink...
   for(let i=0;i<8;i++){ const a=i*Math.PI/4; bc.drawImage(tmpC,Math.cos(a)*1.5,Math.sin(a)*1.5,W,H); }                                                                 // ...nudged eight ways makes the coastline
@@ -1359,10 +1377,11 @@ function distField(){ const ds=.33, w=Math.max(2,Math.round(S.w*ds)), h=Math.max
   for(let y=0;y<h;y++) for(let xx=0;xx<w;xx++){ const i=y*w+xx; let v=d[i]; if(!v) continue; if(xx>0) v=Math.min(v,d[i-1]+3); if(y>0){ v=Math.min(v,d[i-w]+3); if(xx>0) v=Math.min(v,d[i-w-1]+4); if(xx<w-1) v=Math.min(v,d[i-w+1]+4); } d[i]=v; }
   for(let y=h-1;y>=0;y--) for(let xx=w-1;xx>=0;xx--){ const i=y*w+xx; let v=d[i]; if(!v) continue; if(xx<w-1) v=Math.min(v,d[i+1]+3); if(y<h-1){ v=Math.min(v,d[i+w]+3); if(xx<w-1) v=Math.min(v,d[i+w+1]+4); if(xx>0) v=Math.min(v,d[i+w-1]+4); } d[i]=v; }
   return (px,py)=>d[Math.min(h-1,Math.max(0,Math.round(py*ds)))*w+Math.min(w-1,Math.max(0,Math.round(px*ds)))]/3/ds; }
-function dgHatch(c,at,reach,fast){ const W=S.w, H=S.h, Ld=Math.hypot(W,H), cx=W/2, cy=H/2, passes=[[.95,4.6,1,.75],[-.55,5.8,.62,.7],[.95,2.6,.3,.8]];
-  c.save(); c.globalAlpha=.9; c.lineCap='round'; passes.forEach(([ang,sp,rf,lw],pi)=>{ if(fast && pi<2) return; const ux=Math.cos(ang), uy=Math.sin(ang), nx=-uy, ny=ux; let i=0;
-    for(let t=-Ld/2;t<Ld/2;t+=sp*(.85+((i*7919+pi*131)%97)/97*.3),i++){ engSeed=(pi*7919+i*104729+11)%2147483000+1; const thr=reach*rf*(.74+.3*engR()); let run=null, last=null;
-      for(let q=-Ld/2;q<=Ld/2;){ const x=cx+nx*t+ux*q, y=cy+ny*t+uy*q; let step=2.5;
+function dgHatch(c,at,reach,fast,box){ const W=S.w, H=S.h, Ld=Math.hypot(W,H), cx=W/2, cy=H/2, passes=[[.95,4.6,1,.75],[-.55,5.8,.62,.7],[.95,2.6,.3,.8]];      // box [x,y,w,h]: only the lines crossing it are worked, and only along the stretch that crosses it
+  c.save(); c.globalAlpha=.9; c.lineCap='round'; passes.forEach(([ang,sp,rf,lw],pi)=>{ if(fast && pi<2) return; const ux=Math.cos(ang), uy=Math.sin(ang), nx=-uy, ny=ux; let i=0, t0=-1e9, t1=1e9, q0=-Ld/2, q1=Ld/2;
+    if(box){ t0=q0=1e9; t1=q1=-1e9; for(const [x,y] of [[box[0],box[1]],[box[0]+box[2],box[1]],[box[0],box[1]+box[3]],[box[0]+box[2],box[1]+box[3]]]){ const tt=(x-cx)*nx+(y-cy)*ny, qq=(x-cx)*ux+(y-cy)*uy; t0=Math.min(t0,tt); t1=Math.max(t1,tt); q0=Math.min(q0,qq); q1=Math.max(q1,qq); } t0-=3; t1+=3; q0=Math.max(-Ld/2,q0-6); q1=Math.min(Ld/2,q1+6); }
+    for(let t=-Ld/2;t<Ld/2;t+=sp*(.85+((i*7919+pi*131)%97)/97*.3),i++){ if(t<t0 || t>t1) continue; engSeed=(pi*7919+i*104729+11)%2147483000+1; const thr=reach*rf*(.74+.3*engR()); let run=null, last=null;
+      for(let q=q0;q<=q1;){ const x=cx+nx*t+ux*q, y=cy+ny*t+uy*q; let step=2.5;
         if(x<-20||y<-20||x>W+20||y>H+20){ step=Math.max(2.5,Math.min(Ld/2-q,Math.abs(x<0?-x:x>W?x-W:0),20)); }
         else { const d=at(x,y); if(d>0&&d<thr&&x>=0&&y>=0&&x<=W&&y<=H){ if(!run) run=[x,y]; last=[x,y]; } else { if(run){ if(dist(run,last)>1.5) engScratch(c,run,last,lw); run=null; } step=d>=thr?Math.max(2.5,(d-thr)*.8):d===0?4:2.5; } }
         q+=step; }
@@ -1377,8 +1396,8 @@ function dgTex(c,tex,seed,bb,cell){ c.save(); c.strokeStyle=INK; c.fillStyle=INK
   c.restore(); }
 /* Painted floor: each stroke replaces whatever floor texture lay under it (a 'none' or rub-out stroke just clears it), is cut to the floor, and keeps its own seed. Worked in the
    stroke's box only, so many strokes stay quick. */
-function dgPaint(cell){ const W=S.w, H=S.h;
-  for(const s of S.fpaint){ if(!s.pts.length) continue; const pad=s.size/2+2, xs=s.pts.map(q=>q[0]), ys=s.pts.map(q=>q[1]), x0=Math.max(0,Math.floor(Math.min(...xs)-pad)), y0=Math.max(0,Math.floor(Math.min(...ys)-pad)), x1=Math.min(W,Math.ceil(Math.max(...xs)+pad)), y1=Math.min(H,Math.ceil(Math.max(...ys)+pad)), w=x1-x0, h=y1-y0; if(w<=0||h<=0) continue;
+function dgPaint(cell,box){ const W=S.w, H=S.h;
+  for(const s of S.fpaint){ if(!s.pts.length) continue; const pad=s.size/2+2, xs=s.pts.map(q=>q[0]), ys=s.pts.map(q=>q[1]), x0=Math.max(0,Math.floor(Math.min(...xs)-pad)), y0=Math.max(0,Math.floor(Math.min(...ys)-pad)), x1=Math.min(W,Math.ceil(Math.max(...xs)+pad)), y1=Math.min(H,Math.ceil(Math.max(...ys)+pad)), w=x1-x0, h=y1-y0; if(w<=0||h<=0) continue; if(box && (x1<box[0] || x0>box[0]+box[2] || y1<box[1] || y0>box[1]+box[3])) continue;
     const Rr=R;      // buffers hold R pixels to a map unit
     tc.save(); tc.globalAlpha=1; tc.globalCompositeOperation='source-over'; tc.clearRect(x0,y0,w,h); tc.beginPath(); tc.rect(x0,y0,w,h); tc.clip(); tc.strokeStyle=tc.fillStyle='#000'; tc.lineCap=tc.lineJoin='round'; tc.lineWidth=s.size; tc.beginPath();
     if(s.pts.length===1){ tc.arc(s.pts[0][0],s.pts[0][1],s.size/2,0,7); tc.fill(); } else { s.pts.forEach((q,i)=>i?tc.lineTo(q[0],q[1]):tc.moveTo(q[0],q[1])); tc.stroke(); } tc.restore();      // the stroke, as a mask
@@ -1388,13 +1407,24 @@ function dgPaint(cell){ const W=S.w, H=S.h;
     dgSx.save(); dgSx.globalCompositeOperation='destination-in'; dgSx.setTransform(1,0,0,1,0,0); dgSx.drawImage(tmpC,x0*Rr,y0*Rr,w*Rr,h*Rr,x0*Rr,y0*Rr,w*Rr,h*Rr); dgSx.restore();      // the texture, cut to the stroke
     dgSx.save(); dgSx.globalCompositeOperation='destination-in'; dgSx.setTransform(1,0,0,1,0,0); dgSx.drawImage(dgF,x0*Rr,y0*Rr,w*Rr,h*Rr,x0*Rr,y0*Rr,w*Rr,h*Rr); dgSx.restore();      // and to the floor
     dgTx.drawImage(dgS,x0*Rr,y0*Rr,w*Rr,h*Rr,x0,y0,w,h); } }
-function composeDungeon(full){      // while something is being dragged (full is false) only the thick hatching nearest the wall is drawn, and no floor texture, to keep it quick
-  const W=S.w, H=S.h, cell=cellSz(), amt=S.dun.hatch ?? 1, ww=clamp(cell*.05,2,4.2);
+let dgDrawn=null;      // what the dungeon sheet was last drawn from: {lands, key}
+function composeDungeon(full){      /* While a room or passage is being dragged (full is false) only its surroundings are drawn again: the box round where it was and where it is now, with everything a whole
+     redraw would put there. The rest of the sheet is as it was. When that cannot be done (too much moved at once, or something other than the rooms changed) the whole sheet is drawn the quick way:
+     only the thick hatching nearest the wall, and no floor texture. Letting go always draws the whole sheet in full. */
+  const W=S.w, H=S.h, cell=cellSz(), amt=S.dun.hatch ?? 1, ww=clamp(cell*.05,2,4.2), key=[W,H,R,amt,S.dun.shadow,S.grid.type,S.grid.size,cell].join(); let box=null;
+  if(!full && !exporting && dgDrawn && dgDrawn.key===key && dgDrawn.fp===S.fpaint && dgDrawn.lands!==S.lands){ const was=new Set(dgDrawn.lands), now=new Set(S.lands), ch=[...dgDrawn.lands.filter(l=>!now.has(l)),...S.lands.filter(l=>!was.has(l))];
+    if(ch.length && ch.length<=16){ let x0=1e9, y0=1e9, x1=-1e9, y1=-1e9; for(const l of ch){ landPath(l); const q=built.get(l).bb; x0=Math.min(x0,q[0]); y0=Math.min(y0,q[1]); x1=Math.max(x1,q[2]); y1=Math.max(y1,q[3]); }
+      const pad=cell*amt*1.25+ww+cell*.11+14; x0=Math.max(0,Math.floor((x0-pad)/4)*4); y0=Math.max(0,Math.floor((y0-pad)/4)*4); x1=Math.min(W,Math.ceil((x1+pad)/4)*4); y1=Math.min(H,Math.ceil((y1+pad)/4)*4);
+      if(x1>x0 && y1>y0 && (x1-x0)*(y1-y0)<W*H*.45) box=[x0,y0,x1-x0,y1-y0]; } }
+  const fp0=dgDrawn && dgDrawn.fp; dgDrawn={lands:S.lands,key,fp:box?fp0:S.fpaint};
+  if(box){ const cs=[bc,tc,dgFx,dgTx]; for(const x of cs){ x.save(); x.beginPath(); x.rect(...box); x.clip(); } try{ dungeonSheet(true,box); } finally{ for(const x of cs) x.restore(); } }
+  else dungeonSheet(full,null); }
+function dungeonSheet(full,box){ const W=S.w, H=S.h, cell=cellSz(), amt=S.dun.hatch ?? 1, ww=clamp(cell*.05,2,4.2), hits=l=>{ if(!box) return true; landPath(l); const q=built.get(l).bb; return q[2]>=box[0] && q[0]<=box[0]+box[2] && q[3]>=box[1] && q[1]<=box[1]+box[3]; };
   bc.globalAlpha=1; bc.globalCompositeOperation='source-over'; bc.fillStyle=pat.paper||PAPER(); bc.fillRect(0,0,W,H); bc.drawImage(ageC,0,0,W,H); tnx.clearRect(0,0,W,H);
   dgFx.globalCompositeOperation='source-over'; dgFx.clearRect(0,0,W,H); dgFx.fillStyle='#000';
   for(const l of S.lands){ dgFx.globalCompositeOperation=l.mode==='sea'?'destination-out':'source-over'; dgFx.fill(landPath(l)); }
   dgFx.globalCompositeOperation='source-over';
-  if(amt>0) dgHatch(bc,distField(),cell*amt*1.15,!full);                                                                                     // the rock
+  if(amt>0) dgHatch(bc,distField(),cell*amt*1.15,!full,box);                                                                                     // the rock
   tc.globalAlpha=1; tc.globalCompositeOperation='source-over'; tc.clearRect(0,0,W,H); tc.drawImage(dgF,0,0,W,H); tc.globalCompositeOperation='source-in'; tc.fillStyle=INK; tc.fillRect(0,0,W,H); tc.globalCompositeOperation='source-over';
   for(let i=0;i<8;i++){ const a=i/8*Math.PI*2+.39; bc.drawImage(tmpC,Math.cos(a)*ww,Math.sin(a)*ww,W,H); }                                   // the wall: the floor's silhouette, nudged round
   tc.clearRect(0,0,W,H); tc.drawImage(dgF,0,0,W,H); tc.globalCompositeOperation='source-in'; tc.fillStyle=pat.paper||PAPER(); tc.fillRect(0,0,W,H); tc.globalCompositeOperation='source-atop'; tc.drawImage(ageC,0,0,W,H); tc.globalCompositeOperation='source-over';
@@ -1402,13 +1432,13 @@ function composeDungeon(full){      // while something is being dragged (full is
   dgTx.globalCompositeOperation='source-over'; dgTx.clearRect(0,0,W,H);
   if(S.grid.type!=='none'){ dgTx.globalAlpha=.3; dgTx.strokeStyle=INK; dgTx.lineWidth=.7; dgTx.stroke(gridPath()); dgTx.globalAlpha=1; dgTx.globalCompositeOperation='destination-in'; dgTx.drawImage(dgF,0,0,W,H); dgTx.globalCompositeOperation='source-over'; }
   if(full){ const rooms=S.lands.filter(l=>l.mode!=='sea' && !l.brush);      // a room's floor wins over a corridor's: a corridor's flagstones stop at the room it opens into
-    S.lands.forEach((l,i)=>{ if(l.mode==='sea'){ dgTx.globalCompositeOperation='destination-out'; dgTx.fill(landPath(l)); dgTx.globalCompositeOperation='source-over'; return; }
+    S.lands.forEach((l,i)=>{ if(!hits(l)) return; if(l.mode==='sea'){ dgTx.globalCompositeOperation='destination-out'; dgTx.fill(landPath(l)); dgTx.globalCompositeOperation='source-over'; return; }
       if(!l.brush){ dgTx.save(); dgTx.globalCompositeOperation='destination-out'; dgTx.fill(landPath(l)); dgTx.restore(); dgTexture(dgTx,l,cell); return; }
       if(!l.tex || l.tex==='none') return; landPath(l); const bb=built.get(l).bb, r=[bb[0]-2,bb[1]-2,bb[2]-bb[0]+4,bb[3]-bb[1]+4];
       tc.save(); tc.beginPath(); tc.rect(...r); tc.clip(); tc.globalAlpha=1; tc.globalCompositeOperation='source-over'; tc.clearRect(...r); dgTexture(tc,l,cell); tc.globalCompositeOperation='destination-out'; tc.fillStyle='#000';
       for(const o of rooms) tc.fill(landPath(o)); S.lands.slice(i+1).forEach(o=>{ if(o.mode==='sea') tc.fill(landPath(o)); }); tc.restore();
       dgTx.drawImage(tmpC,r[0]*R,r[1]*R,r[2]*R,r[3]*R,...r); }); }
-  if(full && S.fpaint.length) dgPaint(cell);
+  if(full && S.fpaint.length) dgPaint(cell,box);
   bc.drawImage(dgT,0,0,W,H);
   if(S.dun.shadow){ const sh=Math.max(3,cell*.11), q=Math.min(R,3), [pc,px]=mkCanvas(2.1*q,2.1*q); px.fillStyle=INK; px.fillRect(0,0,.75*q,2.1*q); const pt=bc.createPattern(pc,'repeat'); pt.setTransform(new DOMMatrix().scale(1/q));
     if(full){ tc.clearRect(0,0,W,H); tc.globalCompositeOperation='source-over'; tc.drawImage(dgF,0,0,W,H); tc.globalCompositeOperation='destination-out'; tc.drawImage(dgF,sh,0,W,H); tc.globalCompositeOperation='source-in'; tc.fillStyle=pt; tc.fillRect(0,0,W,H); tc.globalCompositeOperation='source-over'; bc.globalAlpha=.7; bc.drawImage(tmpC,0,0,W,H); bc.globalAlpha=1; }
@@ -2462,26 +2492,29 @@ function gridPath(){ const g=S.grid, key=[g.type,g.size,S.w,S.h].join(); if(grid
 function drawVectors(c,k,vp){      // vp: the part of the map in view [x0,y0,x1,y1]; only that is drawn while working. Exports pass none and draw everything.
   c.save(); c.beginPath(); c.rect(0,0,S.w,S.h); c.clip();
   if(S.grid.type!=='none' && S.kind!=='dungeon'){ c.strokeStyle='rgba(58,42,28,.28)'; c.lineWidth=1; c.stroke(gridPath()); }
-  if(S.frame!=='none') drawFrame(c);
   const one=S.layers.length===1, ss=layers.stamps.v?stampsSorted():[];
   for(const L of S.layers){ if(L.v===false) continue; const mine=o=>one || layerOf(o)===L;      // each layer in turn, bottom first: its lines, then its stamps, then its lettering
     if(layers.lines.v){ const ls=one?S.lines:S.lines.filter(mine); drawWalls(c,ls); drawStreets(c,ls); drawRoads(c,ls); drawTrails(c,ls); for(const l of ls) drawLine(c,l); }
     const hid=coverHidden(), fh=faceHidden(); if(!S.hm) for(const st of ss) if(mine(st) && !hid.has(st) && !fh.has(st) && (!vp || (st.x+st.size>vp[0] && st.x-st.size<vp[2] && st.y+st.size>vp[1] && st.y-st.size<vp[3]))) drawStamp(c,st,k);
     if(layers.labels.v) for(const l of S.labels) if(mine(l) && (!vp || (l.x>vp[0]-600 && l.x<vp[2]+600 && l.y>vp[1]-400 && l.y<vp[3]+400))) drawLabel(c,l); }
   if(!S.hm){ c.globalAlpha=1; c.globalCompositeOperation='multiply'; c.drawImage(tintC,0,0,S.w,S.h); c.globalCompositeOperation='source-over'; }
+  if(S.frame!=='none'){ frameMargin(c); drawFrame(c); }      // last of all: the map stops at its neatline, and the border is clean ink on bare paper
   c.restore();
 }
 
 /* ============================================================ view */
 const cv=$('view'), ctx=cv.getContext('2d'), stage=$('stage');
 const view={x:0,y:0,k:1}; let dirty=false, need={land:false,compose:null,realms:false}, hover=null;
+function frameInset(){ const u=Math.min(S.w,S.h), m=Math.round(u*.016), bw=Math.max(6,Math.round(u*.012)); return S.frame==='line' ? m+bw*.7 : S.frame==='graduated' ? m+bw*1.5 : 0; }      // how far in from the sheet's edge the innermost line of the border runs
+function frameMargin(c){ const i=frameInset(), W=S.w, H=S.h; if(!i) return;      // everything outside the border's inner line is the sheet itself: sea, land, roads and stamps all end at the neatline, as on a printed map
+  c.save(); c.globalAlpha=1; c.globalCompositeOperation='source-over'; c.beginPath(); c.rect(0,0,W,H); c.rect(i,i,W-2*i,H-2*i); c.clip('evenodd'); c.fillStyle=pat.paper||PAPER(); c.fillRect(0,0,W,H); if(ageC) c.drawImage(ageC,0,0,W,H); c.restore(); }
 function drawFrame(c){ const W=S.w, H=S.h, u=Math.min(W,H), m=Math.round(u*.016), bw=Math.max(6,Math.round(u*.012)); c.save(); c.strokeStyle=c.fillStyle=INK; c.lineJoin='miter';      // the neatline round the sheet; 'graduated' adds the black-and-white scale border of a sea chart
   if(S.frame==='line'){ c.lineWidth=Math.max(2,u*.004); c.strokeRect(m,m,W-2*m,H-2*m); c.lineWidth=1; c.strokeRect(m+bw*.7,m+bw*.7,W-2*m-bw*1.4,H-2*m-bw*1.4); c.restore(); return; }
-  const x0=m, y0=m, x1=W-m, y1=H-m; c.fillStyle=PAPER(); c.fillRect(x0,y0,x1-x0,bw); c.fillRect(x0,y1-bw,x1-x0,bw); c.fillRect(x0,y0,bw,y1-y0); c.fillRect(x1-bw,y0,bw,y1-y0); c.fillStyle=INK;
+  const x0=m, y0=m, x1=W-m, y1=H-m; c.fillStyle=INK;
   const run=(a,b,horiz,at)=>{ const n=Math.max(4,Math.round((b-a)/(bw*5)))*2, seg=(b-a)/n; for(let k=0;k<n;k+=2){ if(horiz) c.fillRect(a+k*seg,at+bw*.5,seg,bw*.5); else c.fillRect(at+bw*.5,a+k*seg,bw*.5,seg); if(horiz) c.fillRect(a+(k+1)*seg,at,seg,bw*.5); else c.fillRect(at,a+(k+1)*seg,bw*.5,seg); } };
   run(x0+bw,x1-bw,true,y0); run(x0+bw,x1-bw,true,y1-bw); run(y0+bw,y1-bw,false,x0); run(y0+bw,y1-bw,false,x1-bw);
   c.lineWidth=Math.max(2,u*.0035); c.strokeRect(x0,y0,x1-x0,y1-y0); c.lineWidth=1.2; c.strokeRect(x0+bw,y0+bw,x1-x0-2*bw,y1-y0-2*bw); c.lineWidth=.8; c.strokeRect(x0+bw*1.5,y0+bw*1.5,x1-x0-3*bw,y1-y0-3*bw);
-  for(const [x,y] of [[x0,y0],[x1-bw,y0],[x0,y1-bw],[x1-bw,y1-bw]]){ c.fillStyle=PAPER(); c.fillRect(x,y,bw,bw); c.strokeRect(x,y,bw,bw); c.fillStyle=INK; c.fillRect(x+bw*.3,y+bw*.3,bw*.4,bw*.4); } c.restore(); }
+  for(const [x,y] of [[x0,y0],[x1-bw,y0],[x0,y1-bw],[x1-bw,y1-bw]]){ c.strokeRect(x,y,bw,bw); c.fillStyle=INK; c.fillRect(x+bw*.3,y+bw*.3,bw*.4,bw*.4); } c.restore(); }
 let rhumbFor=null;
 let cliffLandFor=null;
 function invalidate(){ if(dirty) return; dirty=true; requestAnimationFrame(()=>{ dirty=false;
@@ -2680,10 +2713,10 @@ function generateCity(W,H,G={}){ G={size:1,density:1,walls:true,river:true,coast
   st.name=pick(syl[0])+pick(syl[1])+(G.coast?pick(['mouth','haven','port']):pick(syl[2])); { const [mc,mx]=mkCanvas(1,1); let sz=40; while(sz>18 && labelMetrics(mx,{text:st.name,size:sz,style:'title'}).width>300) sz-=2; st.stamps.push({kind:'cartouche',x:TL[0],y:TL[1],size:420,rot:0,var:2}); st.labels.push({text:st.name,x:TL[0],y:TL[1]-14,size:sz,rot:0,style:'title'},{text:'a plan of the '+(G.size<.7?'town':'city')+(G.walls?' and its walls':' and its fields'),x:TL[0],y:TL[1]+30,size:19,rot:0,style:'note'}); }
   const gn=['King’s','Bishop’s','Mill','Salt','Drovers’','Abbey','Fishers’','Tanners’','Old','Iron','Market','Bridge']; gates.forEach(g=>{ const k=Math.floor(rnd()*gn.length), q=wp(g.a,1.13); if(G.walls) st.labels.push({text:gn.splice(k,1)[0]+' Gate',x:q[0],y:q[1],size:16,rot:0,style:'town'}); });
   const dn=['Old Town','The Shambles','Temple Ward','Weavers’ Row','Tanners’ End','Castle Ward','Smiths’ Quarter','Fishgate','Cheapside','The Liberties'].filter(n=>G.walls||n!=='Fishgate'); for(let i=0;i<Math.round(2+G.size);i++){ const text=dn.splice(Math.floor(rnd()*dn.length),1)[0], hw=text.length*20*.3+10, hh=14;      // a district name goes where it sits on the fewest houses, streets and other names
-    let best=null, bs=1e9; for(let t=0;t<70;t++){ const q=wp(rnd()*6.283,.2+rnd()*.6), x0=q[0]-hw, x1=q[0]+hw, y0=q[1]-hh, y1=q[1]+hh; let sc=0;
-      for(const o of st.stamps) if(o.x>x0-8&&o.x<x1+8&&o.y>y0-8&&o.y<y1+8) sc+=3;
+    let best=null, bs=1e9; for(let t=0;t<90;t++){ const q=wp(rnd()*6.283,.15+rnd()*.5), x0=q[0]-hw, x1=q[0]+hw, y0=q[1]-hh, y1=q[1]+hh; let sc=0, near=0;      // inside the built-up part (a name out in the fields names nothing), on the fewest houses and streets, and well apart from the other district names
+      for(const o of st.stamps){ if(o.x>x0-8&&o.x<x1+8&&o.y>y0-8&&o.y<y1+8) sc+=1.3; if(Math.abs(o.x-q[0])<150&&Math.abs(o.y-q[1])<110) near++; } if(near<26) sc+=(26-near)*1.5;
       for(const l of st.lines) if(l.kind==='street' && l.width>=5) for(let k=1;k<l.pts.length;k++){ const a1=l.pts[k-1], b1=l.pts[k], n=Math.max(1,Math.ceil(dist(a1,b1)/8)); for(let m=0;m<=n;m++){ const x=a1[0]+(b1[0]-a1[0])*m/n, y=a1[1]+(b1[1]-a1[1])*m/n; if(x>x0&&x<x1&&y>y0&&y<y1) sc+=l.width>=8?2:.7; } }
-      for(const l of st.labels){ const w2=(l.text||'').length*l.size*.3+10; if(Math.abs(l.x-q[0])<hw+w2&&Math.abs(l.y-q[1])<hh+l.size*.8) sc+=80; }
+      for(const l of st.labels){ const w2=(l.text||'').length*l.size*.3+10; if(Math.abs(l.x-q[0])<hw+w2&&Math.abs(l.y-q[1])<hh+l.size*.8) sc+=80; else if(l.style==='town' && l.size===20 && Math.hypot(l.x-q[0],l.y-q[1])<230) sc+=25; }
       if(sc<bs){ bs=sc; best=q; } }
     st.labels.push({text,x:best[0],y:best[1],size:20,rot:0,style:'town'}); }
   if(river){ const k=river.findIndex(p=>p[1]>Math.max(150,C[1]-Rw*1.25)), p=river[Math.max(1,k)], n2=river[Math.max(1,k)+1]||p; st.labels.push({text:'The River '+pick(syl[0])+pick(['e','a','en','ow','ey']),x:p[0]+rw+26,y:p[1],size:19,rot:Math.round(Math.atan2(n2[1]-p[1],n2[0]-p[0])*180/Math.PI),style:'water'}); }
@@ -2742,6 +2775,7 @@ function placeStamp(p,vary,rot){ const kind=opts.stamp, base=opts.stampSizes[gro
   if(d.flip) o.flip=true;      // any stamp can be mirrored, whatever group it is in
   S.stamps=[...S.stamps,withLy(o)]; rollPending(); }
 const [hitC,hitX]=mkCanvas(1,1);
+const onPlateau=p=>S.cliffs.some(c=>c.mode==='up' && (c.h ?? 26)>0 && inLand(c,p));      // is this point on a raised plateau?
 function inLand(l,p){ landPath(l); const b=built.get(l); hitX.lineWidth=b.cw||1; return hitX.isPointInPath(b.path,p[0],p[1]) || !!(b.core && hitX.isPointInStroke(b.core,p[0],p[1])); }
 function touches(a,b){ landPath(a); landPath(b); const A=built.get(a), B=built.get(b);
   if(A.bb[0]>B.bb[2]||B.bb[0]>A.bb[2]||A.bb[1]>B.bb[3]||B.bb[1]>A.bb[3]) return false;
@@ -2861,7 +2895,7 @@ cv.addEventListener('pointerdown',e=>{
   const lmode = (e.button===2)!==(opts.landPrimary==='sea') ? 'sea' : 'land';   // right button does the opposite of the left
   if(t==='elev'){ pushUndo('Shape the land'); const st={size:Math.round(opts.elevBrush),amt:+((e.button===2?-1:1)*opts.elevAmt).toFixed(3),pts:[]}; act={type:'elev',stroke:st,pts:st.pts,pushed:true,t:0}; addPoint(act,p,0); S.elev=[...(S.elev||[]),st]; need.compose='fast'; return; }      // the Elevation brush: left raises, right lowers
   if(t==='cliff'){ const cm = (e.button===2)!==(opts.cliffPrimary==='down') ? 'down' : 'up';
-    if(opts.cliffMode==='brush'){ pushUndo(); const c={mode:cm,brush:true,pts:[],size:opts.cliffBrush,rough:opts.cliffRough,seed:rseed(),h:opts.cliffH,taper:opts.cliffTaper,dir:opts.cliffDir}; act={type:'cbrush',pts:c.pts,cliff:c,pushed:true}; addPoint(act,p,0); S.cliffs=[...S.cliffs,c]; need.compose='fast'; }
+    if(opts.cliffMode==='brush'){ pushUndo(); const flip=cm==='down' && !onPlateau(p), c={mode:flip?'up':cm,brush:true,pts:[],size:opts.cliffBrush,rough:opts.cliffRough,seed:rseed(),h:flip?-opts.cliffH:opts.cliffH,taper:opts.cliffTaper,dir:opts.cliffDir}; act={type:'cbrush',pts:c.pts,cliff:c,pushed:true}; addPoint(act,p,0); S.cliffs=[...S.cliffs,c]; need.compose='fast'; }
     else { act={type:'shape',mode:cm,cliff:true,pts:[]}; addPoint(act,p,0); } }
   else if(landBrushOn()){ pushUndo(); const land={mode:lmode,brush:true,pts:[],size:opts.landBrush,rough:opts.landRough,seed:rseed(),t:++S.tick}; act={type:'lbrush',pts:land.pts,land,pushed:true}; addPoint(act,p,0); S.lands=[...S.lands,land]; need.land=true; need.compose='fast'; }
   else if(t==='room'){ const cut=(e.button===2)!==opts.roomCut; if(opts.roomShape==='cave'){ act={type:'shape',mode:cut?'sea':'land',cave:true,pts:[]}; addPoint(act,p,0); } else act={type:'drect',shape:opts.roomShape,mode:cut?'sea':'land',a:gsnap(p),b:gsnap(p)}; }
@@ -2947,8 +2981,8 @@ function endPointer(e){
     if(w>=cellSz()*.45 && h>=cellSz()*.45){ pushUndo(); const x0=Math.min(a.a[0],a.b[0]), x1=Math.max(a.a[0],a.b[0]), y0=Math.min(a.a[1],a.b[1]), y1=Math.max(a.a[1],a.b[1]);
       S.lands=[...S.lands,{mode:a.mode,floor:1,...(a.shape==='ellipse'?{pts:ellipsePts([x0,y0],[x1,y1]),rough:0}:{sharp:true,pts:[[x0,y0],[x1,y0],[x1,y1],[x0,y1]],rough:0}),seed:rseed(),t:++S.tick,tex:opts.roomTex}]; need.land=true; need.compose='full'; } }
   else if(a.type==='shape'){ const xs=a.pts.map(p=>p[0]), ys=a.pts.map(p=>p[1]);
-    if(a.pts.length>=4 && Math.max(...xs)-Math.min(...xs)>14 && Math.max(...ys)-Math.min(...ys)>14 && a.cliff){ pushUndo();
-      S.cliffs=[...S.cliffs,{mode:a.mode,pts:resample(a.pts,10,true),rough:opts.cliffRough,seed:rseed(),h:opts.cliffH,taper:opts.cliffTaper,dir:opts.cliffDir}]; need.compose='full'; }
+    if(a.pts.length>=4 && Math.max(...xs)-Math.min(...xs)>14 && Math.max(...ys)-Math.min(...ys)>14 && a.cliff){ pushUndo(); const flip=a.mode==='down' && !a.pts.some(onPlateau);      // the opposite button: on a plateau it lowers part of it; on open ground there is nothing to lower, so it does the opposite of the Height slider (a pit, as a rule)
+      S.cliffs=[...S.cliffs,{mode:flip?'up':a.mode,pts:resample(a.pts,10,true),rough:opts.cliffRough,seed:rseed(),h:flip?-opts.cliffH:opts.cliffH,taper:opts.cliffTaper,dir:opts.cliffDir}]; need.compose='full'; }
     else if(a.pts.length>=4 && Math.max(...xs)-Math.min(...xs)>14 && Math.max(...ys)-Math.min(...ys)>14){ pushUndo();
       S.lands=[...S.lands,{mode:a.mode,pts:resample(a.pts,10,true),rough:a.cave?opts.caveRough:opts.landRough,seed:rseed(),t:++S.tick,...(a.cave?{floor:1,tex:opts.roomTex==='flag'?'dirt':opts.roomTex}:{})}]; need.land=true; need.compose='full'; } }
   else if(a.type==='line'){ if(a.pts.length>=3){ pushUndo(); S.lines=[...S.lines,withLy({kind:a.kind,pts:resample(a.pts,10,a.kind==='realm'),rough:opts.lineRough,width:opts.lineWidth[a.kind],seed:rseed(),...(a.kind==='realm'?territoryProps():{}),...(a.kind==='fence'?{style:opts.fenceStyle}:{})})]; if(a.kind==='realm'){ mergeStroke(S.lines[S.lines.length-1]); need.realms=true; renderPanel(); } if(a.kind==='river'){ need.land=true; need.compose='full'; } } }
@@ -3143,7 +3177,7 @@ function renderPanel(){ syncHint();
   if(t==='cliff') h+=`<section id="terrChips"><h2>Terrain</h2>${modeChips()}<p class="grp">Brush type</p><div class="chips" id="cliffModes"><button class="chip" data-cmode="outline" aria-pressed="${opts.cliffMode==='outline'}">Outline</button><button class="chip" data-cmode="brush" aria-pressed="${opts.cliffMode==='brush'}">Brush</button></div>
     ${opts.cliffMode==='brush'?slider('cliffBrush','Brush',20,600,2,opts.cliffBrush,num):''}${slider('cliffH','Height',-220,140,1,opts.cliffH,num)}<div class="ends"><span>deep pit</span><span>high cliff</span></div>${slider('cliffTaper','Taper',0,1,.01,opts.cliffTaper,pct)}<div class="ends"><span>even</span><span>ramps to nothing</span></div>${slider('cliffDir','Direction',-180,180,1,opts.cliffDir,deg)}<div class="ends"><span>the ramp runs towards</span><span></span></div>${slider('cliffRough','Edge',0,1,.01,opts.cliffRough,pct)}<div class="ends"><span>smooth</span><span>jagged</span></div>
     <p class="grp">Left button</p><div class="chips" id="cliffPrimary"><button class="chip" data-cprim="up" aria-pressed="${opts.cliffPrimary==='up'}">Raises</button><button class="chip" data-cprim="down" aria-pressed="${opts.cliffPrimary==='down'}">Lowers</button></div>
-    <p>The right button does the opposite. Your outline is the plateau's foot; a pit sinks inside it. Change height, taper or direction later by selecting the cliff and dragging its grip or arrow.</p></section>`;
+    <p>The right button does the opposite: a pit on open ground (as deep as the Height), or a lowered part where it crosses a plateau. Your outline is the plateau's foot; a pit sinks inside it. Change height, taper or direction later by selecting the cliff and dragging its grip or arrow.</p></section>`;
   if(t==='paint'){ const water=opts.paintLayer==='water', DEF=water?WATER:TERRAIN, cur=water?opts.water:opts.terrain, seen=new Set(), INKS=Object.fromEntries(Object.entries(DEF).filter(([k,v])=>!seen.has(v.tex)&&seen.add(v.tex))), groups=[...new Set(Object.values(INKS).map(v=>v.g))];   // paints that differ only in colour draw the same ink marks, so each mark is offered once
     h+=`<section id="terrChips"><h2>Terrain</h2>${modeChips()}
     ${groups.map(g=>`<p class="grp">${g}</p><div class="chips">${Object.entries(INKS).filter(([k,v])=>v.g===g).map(([k,v])=>`<button class="chip" data-terr="${k}" aria-pressed="${k===cur||DEF[cur]?.tex===v.tex}">${v.name}</button>`).join('')}</div>`).join('')}
@@ -3360,9 +3394,9 @@ $('mapName').addEventListener('input',e=>{ S.name=e.target.value; untouched=fals
 function blankDungeon(w,h){ return {...blankState(w,h),kind:'dungeon',grid:{type:'square',size:60},scale:{per100:8.33,unit:'feet'},name:'Untitled dungeon'}; }
 function generateDungeon(W,H,G={}){ G={rooms:1,props:1,foes:1,numbers:true,...G}; const seed=Number.isFinite(G.seed)?G.seed:rseed(), rnd=mulberry(seed), pick=a=>a[Math.floor(rnd()*a.length)], ri=(a,b)=>a+Math.floor(rnd()*(b-a+1));
   const C=60, cols=Math.floor(W/C), rows=Math.floor(H/C), st={app:'wayfarer-atlas',...blankDungeon(W,H),gen:{seed}}, rooms=[], want=clamp(Math.round(cols*rows/60*G.rooms),4,28);
-  const fits=(x,y,w,h)=>x>=2&&y>=4&&x+w<=cols-2&&y+h<=rows-2&&rooms.every(r=>x>r.x+r.w+1||x+w<r.x-1||y>r.y+r.h+1||y+h<r.y-1);
+  const fits=(x,y,w,h)=>x>=2&&y>=4&&x+w<=cols-2&&y+h<=rows-2&&!(x+w>cols-8&&y+h>rows-5)&&rooms.every(r=>x>r.x+r.w+1||x+w<r.x-1||y>r.y+r.h+1||y+h<r.y-1);
   for(let t=0;t<1200&&rooms.length<want;t++){ const q=rnd(), shape=q<.13?'round':q<.24?'L':q<.33?'cave':'rect'; let w=ri(3,9), h=ri(3,7), arm=null; if(shape==='round') w=h=ri(4,7); if(shape==='cave'){ w=ri(5,8); h=ri(4,7); } if(shape==='L'){ w=ri(4,8); h=ri(3,5); arm=[ri(2,3),ri(2,3)]; }
-    const x=ri(2,cols-w-2), y=ri(4,rows-h-2), hh=h+(arm?arm[1]:0); if(!fits(x,y,w,hh)) continue; rooms.push({x,y,w,h:hh,shape,arm,mainH:h,cx:x+w/2,cy:y+hh/2,tex:rnd()<.62?'flag':rnd()<.55?'plank':'none',props:[]}); }
+    const x=ri(2,cols-w-2), y=ri(4,rows-h-2), hh=h+(arm?arm[1]:0); if(!fits(x,y,w,hh)) continue; rooms.push({x,y,w,h:hh,shape,arm,mainH:h,cx:x+w/2,cy:y+hh/2,tex:rnd()<.62?'flag':rnd()<.55?'plank':'dirt',props:[]}); }
   if(rooms.length<2) return blankDungeon(W,H);
   const cell=q=>(Math.floor(q)+.5)*C, blocked=new Set(), links=[];
   const link=(a,b)=>{ const ax=cell(a.cx), ay=cell(a.cy), bx=cell(b.cx), by=cell(b.cy), pts=rnd()<.5?[[ax,ay],[bx,ay],[bx,by]]:[[ax,ay],[ax,by],[bx,by]]; st.lands.push({mode:'land',floor:1,sharp:true,brush:true,pts,size:C,rough:0,seed:rseed(),t:st.lands.length,tex:'flag'}); links.push({a,b,pts});
@@ -3382,17 +3416,18 @@ function generateDungeon(W,H,G={}){ G={rooms:1,props:1,foes:1,numbers:true,...G}
   rooms.forEach((r,i)=>r.theme=i===0?'empty':pick(themes));
   rooms.forEach((r,i)=>{ if(G.props<=0.05) return; const x=r.x, y=r.y, w=r.w, h=r.shape==='L'?r.mainH:r.h, th=r.theme, cx=x+w/2, cy=y+h/2, nz=Math.max(1,Math.round(G.props));
     if(r.shape==='round'){ stamp('pillar',cx,cy); if(w>=5) for(let k=0;k<4;k++){ const a=k/4*Math.PI*2+.785; stamp('roundpillar',cx+Math.cos(a)*(w/2-1.3),cy+Math.sin(a)*(h/2-1.3)); } if(rnd()<.5) stamp('sigil',cx,cy,0,.8); return; }
-    if(r.shape==='cave'){ for(let k=0;k<ri(2,4);k++) stamp('stalagmite',cx+(rnd()-.5)*w*.6,cy+(rnd()-.5)*h*.6,0,.9); if(rnd()<.5) stamp('pool',cx+(rnd()-.5)*w*.4,cy+(rnd()-.5)*h*.4); if(rnd()<.4) stamp('bones',cx+(rnd()-.5)*w*.5,cy+(rnd()-.5)*h*.5); return; }
+    if(r.shape==='cave'){ const inCave=(kind,f,k)=>{ const a=rnd()*6.283, d=Math.sqrt(rnd())*f; return stamp(kind,cx+Math.cos(a)*d*w/2,cy+Math.sin(a)*d*h/2,0,k); };      // a cave's wall wanders in and out of its box, so its things are kept to the middle of it
+      for(let k=0;k<ri(2,4);k++) inCave('stalagmite',.56,.9); if(rnd()<.5) inCave('pool',.36,1); if(rnd()<.4) inCave('bones',.5,1); return; }
     if(th==='hall' && w>=6 && h>=4){ for(let px=x+1.5;px<x+w-1;px+=2) for(const py of [y+1.5,y+h-1.5]) stamp(rnd()<.8?'pillar':'roundpillar',px,py); }
     else if(th==='library' && w>=4){ for(let px=x+1.5;px<x+w-1;px+=2) stamp('bookcase',px+.5,y+.5,0,1); stamp('table',cx,cy+.3); stamp('chair',cx-.6,cy+1.2,180*(rnd()<.5)); }
-    else if(th==='crypt' && h>=3){ const n=Math.min(4,Math.floor((w-1)/2)); for(let k=0;k<n;k++) stamp('sarcophagus',x+1.5+k*(w-2)/Math.max(n,1)+.2,cy+.2,0); stamp('altar',cx,y+.9); if(rnd()<.5) stamp('bones',x+w-1.2,y+h-1.2); }
+    else if(th==='crypt' && h>=3){ const n=Math.min(4,Math.floor((w-1)/2)); for(let k=0;k<n;k++) stamp('sarcophagus',x+1.5+k*(w-2)/Math.max(n,1)+.2,cy+(h>=4?.5:.2),0); if(h>=4) stamp('altar',cx,y+.9); if(rnd()<.5) stamp('bones',x+w-1.2,y+h-1.2); }
     else if(th==='barracks' && w>=4){ for(let px=x+1;px<x+w-.5;px+=1.7){ stamp('bed',px+.2,y+1.2,0,.8); if(h>=5) stamp('bed',px+.2,y+h-1.2,0,.8); } stamp('table',cx,cy,0,.8); }
     else if(th==='store'){ for(let k=0;k<ri(3,6)*nz;k++) stamp(rnd()<.7?'dbarrel':'treasure',x+.6+rnd()*(w-1.2),y+.6+rnd()*(h-1.2),rnd()<.5?0:90); stamp('rubble',x+w-1,y+.8,0,.7); }
-    else if(th==='shrine' && w>=4){ stamp('altar',cx,y+1); stamp('sigil',cx,cy+.6,0,.9); stamp('brazier',x+.8,y+.8); stamp('brazier',x+w-.8,y+.8); stamp('rug',cx,cy+.8,0,.6); }
-    else if(th==='dining' && w>=5){ stamp('table',cx,cy,0,1.4); for(let k=-1;k<=1;k++){ stamp('chair',cx+k*1.1,cy-1.3,180); stamp('chair',cx+k*1.1,cy+1.3,0); } stamp('throne',cx+1.9,cy,90,.9); stamp('fireplace',cx,y+.5); }
+    else if(th==='shrine' && w>=4 && h>=4){ stamp('altar',cx,y+1); stamp('sigil',cx,cy+.6,0,.9); stamp('brazier',x+.8,y+.8); stamp('brazier',x+w-.8,y+.8); stamp('rug',cx,cy+.8,0,.6); }
+    else if(th==='dining' && w>=5 && h>=4){ stamp('table',cx,cy,0,1.4); for(let k=-1;k<=1;k++){ stamp('chair',cx+k*1.1,cy-1.3,180); stamp('chair',cx+k*1.1,cy+1.3,0); } stamp('throne',cx+1.9,cy,90,.9); stamp('fireplace',cx,y+.5); }
     else if(th==='pit' && w>=4 && h>=4){ stamp('pit',cx,cy,0,1.4); stamp('plankbridge',cx,cy,0,.9); stamp('lever',x+.6,y+.6); }
     if(rnd()<.18*nz) stamp('web',x+.75,y+.75); if(rnd()<.15*nz) stamp('crack',x+rnd()*w,y+rnd()*h,rnd()<.5?0:90,.9); if(rnd()<.18*nz) stamp('torch',x+.25,y+h*.5,0,.8); });
-  const put=(kind,r)=>{ const hh=r.shape==='L'?r.mainH:r.h, fp=DUN_FOOT[kind]||1; for(let k=0;k<40;k++){ const cx=r.x+.8+rnd()*(r.w-1.6), cy=r.y+.8+rnd()*(hh-1.6); if(blocked.has(Math.floor(cx)+','+Math.floor(cy))) continue; if(r.shape==='round'&&Math.hypot((cx-r.cx)/(r.w/2),(cy-r.cy)/(r.h/2))>.8) continue; if(st.stamps.some(s=>Math.hypot(s.x-cx*C,s.y-cy*C)<(s.size+fp*C)*.42)) continue; st.stamps.push({kind,x:Math.round(cx*C),y:Math.round(cy*C),size:Math.round(fp*C),rot:Math.round(rnd()*360),v:rnd()}); return true; } return false; };
+  const put=(kind,r)=>{ const hh=r.shape==='L'?r.mainH:r.h, fp=DUN_FOOT[kind]||1; for(let k=0;k<40;k++){ const cx=r.x+.8+rnd()*(r.w-1.6), cy=r.y+.8+rnd()*(hh-1.6); if(blocked.has(Math.floor(cx)+','+Math.floor(cy))) continue; if((r.shape==='round'||r.shape==='cave')&&Math.hypot((cx-r.cx)/(r.w/2),(cy-r.cy)/(r.h/2))>(r.shape==='cave'?.62:.8)) continue; if(st.stamps.some(s=>Math.hypot(s.x-cx*C,s.y-cy*C)<(s.size+fp*C)*.42)) continue; st.stamps.push({kind,x:Math.round(cx*C),y:Math.round(cy*C),size:Math.round(fp*C),rot:Math.round(rnd()*360),v:rnd()}); return true; } return false; };
   const lair={crypt:[['skeleton',3],['zombie',2],['wraith',1]], hall:[['ogre',1],['troll',1],['minotaur',1],['golem',1]], barracks:[['goblin',4],['orc',2]], store:[['giantrat',3]], library:[['wraith',1],['golem',1],['skeleton',2]], shrine:[['fiend',1],['zombie',3]], dining:[['orc',3],['goblin',3]], pit:[['snake',2],['giantrat',2]], empty:[['direwolf',2],['giantrat',2],['zombie',2],['lizardfolk',3]], cave:[['giantspider',2],['owlbear',1],['ooze',1],['scorpion',2],['centipede',2],['snake',1]], round:[['beholder',1],['golem',1],['elemental',1],['ooze',1],['hydra',1]], big:[['drake',1],['hydra',1],['beholder',1]]};
   if(G.foes>0.05) rooms.forEach((r,i)=>{ if(i===0 || rnd()>.62*Math.min(G.foes,1.6)) return; const hh=r.shape==='L'?r.mainH:r.h, key=r.shape==='cave'?'cave':r.shape==='round'?'round':(r.w>=7&&hh>=6&&rnd()<.25)?'big':r.theme; const opts=(lair[key]||lair.empty).filter(([k])=>(DUN_FOOT[k]||1)<=Math.min(r.w,hh)-.8); if(!opts.length) return; const [kind,n]=pick(opts); for(let k=0;k<ri(1,n);k++) put(kind,r); });
   { const r=rooms[0]; if(r.shape==='rect'||r.shape==='L') stamp('stairs',r.x+1,r.y+.9); const far=rooms.slice(1).sort((a,b)=>Math.hypot(b.cx-r.cx,b.cy-r.cy)-Math.hypot(a.cx-r.cx,a.cy-r.cy))[0]; if(far&&far.shape==='rect') stamp('stairs',far.x+far.w-1,far.y+far.h-.9,180); }
@@ -3403,10 +3438,10 @@ function generateDungeon(W,H,G={}){ G={rooms:1,props:1,foes:1,numbers:true,...G}
     const room=(q)=>{ let m=1e9; for(const o of st.stamps){ if(o.kind.startsWith('ch_')) continue; m=Math.min(m,Math.hypot(o.x-q[0]*C,o.y-q[1]*C)-o.size*.5); } return m; };
     let best=cands[0], bm=-1e9; for(const q of cands){ const m=room(q); if(m>.3*C){ best=q; bm=m; break; } if(m>bm){ bm=m; best=q; } }
     [...s].forEach((d,k)=>st.stamps.push({kind:'ch_'+d,x:Math.round((best[0]+k*.3)*C),y:Math.round(best[1]*C),size:Math.round(.55*C),rot:0,v:.3,var:0})); });
-  const pre=['The Sunken','The Drowned','The Ashen','The Hollow','The Forgotten','The Gilded','The Black','Under','The Weeping'], post=['Crypt','Vault','Catacombs','Warrens','Cellars','Undercroft','Deeps','Barrows','Halls'];
+  const pre=['The Sunken','The Drowned','The Ashen','The Hollow','The Forgotten','The Gilded','The Black','The Buried','The Weeping'], post=['Crypt','Vault','Catacombs','Warrens','Cellars','Undercroft','Deeps','Barrows','Halls'];
   st.name=pick(pre)+' '+pick(post); { const [mc,mx]=mkCanvas(1,1); let sz=50; while(sz>22 && labelMetrics(mx,{text:st.name,size:sz,style:'title'}).width>W*.5) sz-=2; st.labels.push({text:st.name,x:Math.round(W/2),y:Math.round(C*1.5),size:sz,rot:0,style:'title'},{text:'the lower levels, one square to five feet',x:Math.round(W/2),y:Math.round(C*2.3),size:20,rot:0,style:'note'}); }
-  st.stamps.push({kind:'scalebar',x:W-C*4.2,y:H-C*1.3,size:200,rot:0,v:.5});
-  st.gen={kind:'dungeongen',seed,rooms:G.rooms,props:G.props,foes:G.foes,numbers:G.numbers};
+  st.stamps.push({kind:'scalebar',x:W-C*4.4,y:H-C*1.9,size:200,rot:0,v:.5});
+  st.frame='line'; st.gen={kind:'dungeongen',seed,rooms:G.rooms,props:G.props,foes:G.foes,numbers:G.numbers};
   return st; }
 function generateMap(W,H,kind,G={}){ G={land:1,mountains:1,forests:1,rivers:1,towns:1,coast:1,cliffs:1,...G};      // G: how much of each there should be (1 = the usual amount), and optionally the seed to repeat a map
   const seed=Number.isFinite(G.seed)?G.seed:rseed(), rnd=mulberry(seed), cs=20, nx=Math.floor(W/cs)+1, ny=Math.floor(H/cs)+1, N=nx*ny, at=(i,j)=>j*nx+i, pos=k=>[(k%nx)*cs, Math.floor(k/nx)*cs];
@@ -3458,10 +3493,14 @@ function generateMap(W,H,kind,G={}){ G={land:1,mountains:1,forests:1,rivers:1,to
       const up=Math.min(1,uplift[k]/.5); ridge[k]=Math.min(1,Math.max(rawRidge[k]*.8*Math.min(1,up*2)+up*.4,up)); } }      // ranges follow the collisions: the noise ridge only shapes them where there is uplift, so no mountains stand away from a collision
   const nb4=k=>{ const i=k%nx, j=(k-i)/nx, o=[]; if(i>0)o.push(k-1); if(i<nx-1)o.push(k+1); if(j>0)o.push(k-nx); if(j<ny-1)o.push(k+nx); return o; };
   const nb8=k=>{ const i=k%nx, j=(k-i)/nx, o=[]; for(let b=-1;b<=1;b++) for(let a=-1;a<=1;a++) if((a||b) && i+a>=0 && i+a<nx && j+b>=0 && j+b<ny) o.push(k+a+b*nx); return o; };
-  { const seen=new Uint8Array(N);                                  // tidy up: drop specks of land, fill puddles
+  let pondsKept=0; { const seen=new Uint8Array(N), ponds=[];                                  // tidy up: drop specks of land, fill puddles
     for(let s0=0;s0<N;s0++){ if(seen[s0]) continue; const land=elev[s0]>0, list=[s0]; seen[s0]=1; let border=false;
       for(let q=0;q<list.length;q++){ const k=list[q], i=k%nx, j=(k-i)/nx; if(i===0||j===0||i===nx-1||j===ny-1) border=true; for(const m of nb4(k)) if(!seen[m] && (elev[m]>0)===land){ seen[m]=1; list.push(m); } }
-      if(land && list.length<9) list.forEach(k=>elev[k]=-.05); if(!land && !border && list.length<6) list.forEach(k=>elev[k]=.04); if(!land && !border && list.length>=150) list.forEach(k=>elev[k]=.03); } }      // specks of land and puddles go; an enclosed 'sea' of 150 cells or more is a plain, not a lake
+      if(land && list.length<9) list.forEach(k=>elev[k]=-.05); if(!land && !border && list.length<6) list.forEach(k=>elev[k]=.04); if(!land && !border && list.length>=150) list.forEach(k=>elev[k]=.03); else if(!land && !border && list.length>=6) ponds.push(list); }
+    /* the enclosed water that is left would all become lakes, and the coast's own noise gives them thin hooked arms: each is opened (worn back a cell and grown again, which takes off arms and necks
+       under three cells across), and only the few largest stay; the rest is low ground */
+    for(const list of ponds){ const inP=new Set(list), core=list.filter(k=>nb8(k).length===8 && nb8(k).every(m=>inP.has(m))), keep=new Set(core); for(const k of core) for(const m of nb8(k)) if(inP.has(m)) keep.add(m); for(const k of list) if(!keep.has(k)) elev[k]=.03; list.kept=[...keep]; }
+    ponds.sort((p,q)=>q.kept.length-p.kept.length); ponds.forEach((list,i)=>{ if(i>=(kind==='continent'?3:2) || list.kept.length<8) list.kept.forEach(k=>elev[k]=.03); else pondsKept++; }); }      // specks of land and puddles go; an enclosed 'sea' of 150 cells or more is a plain, not a lake
   /* Lakes. A priority-flood from the border (the sea) inward: the water level at each cell is the lowest height it can drain out at, going by the cheapest way out, so a land cell below that level lies in a basin. Basins of
      five cells or more become lakes (their cells are dropped below sea level, so the shoreline tracer below draws them as water). filled[] is also the surface the rivers run down, so a river can cross a lake and leave by the far side. */
   const filled=new Float32Array(N);
@@ -3473,7 +3512,7 @@ function generateMap(W,H,kind,G={}){ G={land:1,mountains:1,forests:1,rivers:1,to
     const basin=new Uint8Array(N); for(let k=0;k<N;k++) if(elev[k]>0 && filled[k]-elev[k]>.012) basin[k]=1;
     for(let it=0;it<2;it++){ const rm=[]; for(let k=0;k<N;k++) if(basin[k] && nb8(k).reduce((t,m)=>t+basin[m],0)<4) rm.push(k); rm.forEach(k=>basin[k]=0); }      // the pointed tips and thin tails of a valley lake are taken off, so it is a body of water and not a teardrop
     const seen=new Uint8Array(N), comps=[]; for(let s0=0;s0<N;s0++){ if(!basin[s0]||seen[s0]) continue; const list=[s0]; seen[s0]=1; for(let q=0;q<list.length;q++) for(const m of nb4(list[q])) if(basin[m]&&!seen[m]){ seen[m]=1; list.push(m); } if(list.length<(kind==='continent'?12:5)) list.forEach(k=>basin[k]=0); else comps.push(list); }
-    if(kind==='continent'){ const score=L=>L.reduce((t,k)=>t+filled[k]-elev[k],0); comps.sort((a,b)=>score(b)-score(a)); comps.slice(5).forEach(L=>L.forEach(k=>basin[k]=0)); }      // a continent keeps only its few biggest, deepest lakes, or they crowd the map
+    if(kind==='continent'){ const score=L=>L.reduce((t,k)=>t+filled[k]-elev[k],0); comps.sort((a,b)=>score(b)-score(a)); comps.slice(Math.max(2,5-pondsKept)).forEach(L=>L.forEach(k=>basin[k]=0)); }      // a continent keeps only its few biggest, deepest lakes, or they crowd the map
     for(let k=0;k<N;k++) if(basin[k]) elev[k]=-.004-(filled[k]-elev[k])*.5; }      // deeper where the basin is deeper, so a shallow rim gives the shore a rounded outline and not a square one
   const isLand=k=>elev[k]>0;
   const spread=start=>{ const d=new Int32Array(N).fill(-1), q=[]; for(let k=0;k<N;k++) if(start(k)){ d[k]=0; q.push(k); } for(let h=0;h<q.length;h++) for(const m of nb4(q[h])) if(d[m]<0){ d[m]=d[q[h]]+1; q.push(m); } return d; };
@@ -3604,7 +3643,7 @@ function generateMap(W,H,kind,G={}){ G={land:1,mountains:1,forests:1,rivers:1,to
     for(let k0=0;k0<N;k0++){ if(seen[k0]||!mtn2(k0)) continue; const list=[k0]; seen[k0]=1; for(let q=0;q<list.length;q++) for(const m of nb8(list[q])) if(!seen[m]&&mtn2(m)){ seen[m]=1; list.push(m); } comps.push(list); }
     comps.sort((a,b)=>b.length-a.length); const nR=Math.max(1,Math.round((kind==='continent'?4:3)*clamp(G.mountains,.5,1.6))), big=comps.length?comps[0].length:0; comps.slice(0,nR).forEach((l,i)=>{ if(!i||l.length>=Math.max(6,big*.2)) l.forEach(k=>range.add(k)); }); }
   const peaks=[]; for(let j=2;j<ny-2;j+=2) for(let i=2;i<nx-2;i+=2){ const k=[at(i,j),at(i+1,j),at(i,j+1),at(i+1,j+1)].find(c=>range.has(c)); if(k===undefined) continue;
-    const x=i*cs+(rnd()-.5)*22+10, y=j*cs+(rnd()-.5)*18+14; if(!clear(x,y,60) || rnd()<.42) continue; { const sz0=78*.4; let wet=false; for(let q=0;q<10&&!wet;q++){ const an=q/10*6.283, px=x+Math.cos(an)*sz0, py=y+8+Math.sin(an)*sz0*.55; if(!isLand(at(clamp(Math.round(px/cs),0,nx-1),clamp(Math.round(py/cs),0,ny-1)))) wet=true; } if(wet) continue; if(st.lines.some(l=>(l.kind==='road'||l.kind==='trail') && l.pts.some(q=>Math.abs(q[0]-x)<34 && Math.abs(q[1]-y)<26))) continue; } const t=temp[k];      // a peak never stands with its foot in the sea
+    const x=i*cs+(rnd()-.5)*22+10, y=j*cs+(rnd()-.5)*18+14; if(!clear(x,y,60) || rnd()<.42) continue; { const sz0=78*.4; let wet=false; for(let q=0;q<10&&!wet;q++){ const an=q/10*6.283, px=x+Math.cos(an)*sz0, py=y+8+Math.sin(an)*sz0*.55; if(!isLand(at(clamp(Math.round(px/cs),0,nx-1),clamp(Math.round(py/cs),0,ny-1)))) wet=true; } if(wet) continue; if(st.lines.some(l=>(l.kind==='road'||l.kind==='trail') && l.pts.some(q=>Math.abs(q[0]-x)<46 && q[1]-y>-30 && q[1]-y<36))) continue; } const t=temp[k];      // a peak never stands with its foot in the sea
          // gaps in the ranges, so they read as separate peaks and not one dark mass
     st.stamps.push({kind:t<.42||ridge[k]>.95?'snowpeak':'mountain',x,y,size:Math.round(52+rnd()*26),rot:0,v:rnd(),var:Math.floor(rnd()*VARIANTS.mountain),tint:t<.3?'slate':(t>.68&&moist[k]<.38)?'rock':'stone',flip:rnd()<.5}); peaks.push([x,y]); }
   { const cap=Math.round(34*clamp(G.mountains,.4,2)), ids=st.stamps.map((s,i)=>s.kind==='mountain'||s.kind==='snowpeak'?i:-1).filter(i=>i>=0);      // never more than about this many; a few big ranges, not a rash
@@ -3668,6 +3707,16 @@ function generateMap(W,H,kind,G={}){ G={land:1,mountains:1,forests:1,rivers:1,to
       st.cliffs.push({mode:'up',pts,rough:shapeK==='ravine'?.3:shapeK==='sinkhole'?.35:.12,seed:(CR()*1e9)|0,h,taper:0,dir:-90,hollow:shapeK}); st.stamps=st.stamps.filter(o=>!(TREES.has(o.kind) && (inPolyG([o.x,o.y],pts) || edgeD([o.x,o.y],pts)<o.size*.45+8))); placed.push(pts); n++; } }
 
   /* names on the map */
+  { /* a town's name goes under it unless that puts it across a shore, a river, a peak or another name: then above, or to one side, whichever is clearest */
+    const [mcT,mxT]=mkCanvas(1,1), TK=new Set(['city','town','village','castle']), tst=st.stamps.filter(o=>TK.has(o.kind)), pk=st.stamps.filter(o=>o.kind==='mountain'||o.kind==='snowpeak'||o.kind==='highpeak'), rv=st.lines.filter(l=>l.kind==='river'), landAt=(x,y)=>x>0 && y>0 && x<W && y<H && isLand(at(clamp(Math.round(x/cs),0,nx-1),clamp(Math.round(y/cs),0,ny-1)));
+    const boxOf=(l,x,y)=>{ const w=labelMetrics(mxT,l).width/2+4; return [x-w,y-l.size*.62,x+w,y+l.size*.42]; }, meet=(p,q)=>!(p[2]<q[0]||q[2]<p[0]||p[3]<q[1]||q[3]<p[1]), placed=[];
+    for(const l of st.labels){ if(l.style!=='place') continue; const t=tst.find(o=>Math.abs(o.x-l.x)<2 && l.y>o.y && l.y-o.y<o.size+l.size); if(!t){ placed.push(boxOf(l,l.x,l.y)); continue; }
+      const sz=t.size*1.15, w=labelMetrics(mxT,l).width/2, cands=[[l.x,l.y,0],[t.x,t.y-sz*.62-l.size*.35,2],[t.x+sz*.55+w+4,t.y+sz*.12,3],[t.x-sz*.55-w-4,t.y+sz*.12,3.5]]; let best=cands[0], bs=1e9;
+      for(const c of cands){ const b=boxOf(l,c[0],c[1]); let sc=c[2], la=0, wa=0; for(let i=0;i<=6;i++) for(const yy of [b[1]+2,(b[1]+b[3])/2,b[3]-2]) landAt(b[0]+(b[2]-b[0])*i/6,yy) ? la++ : wa++; sc+=la&&wa ? 2+Math.min(la,wa)*1.2 : wa ? 3 : 0;      // a name wholly on land is best, wholly on water next, across a shore worst
+        if(b[0]<60||b[1]<60||b[2]>W-60||b[3]>H-60) sc+=40; for(const o of placed) if(meet(b,o)) sc+=50; for(const o of tst) if(o!==t && o.x>b[0]-o.size*.5 && o.x<b[2]+o.size*.5 && o.y>b[1]-o.size*.4 && o.y<b[3]+o.size*.5) sc+=14;
+        for(const o of pk) if(o.x>b[0]-o.size*.45 && o.x<b[2]+o.size*.45 && o.y>b[1]-o.size*.1 && o.y<b[3]+o.size*.55) sc+=6; let rh=0; for(const r of rv) for(const q of r.pts) if(q[0]>b[0]&&q[0]<b[2]&&q[1]>b[1]&&q[1]<b[3]) rh++; sc+=Math.min(rh,4)*2.2;
+        if(sc<bs){ bs=sc; best=c; } }
+      l.x=Math.round(best[0]); l.y=Math.round(best[1]); placed.push(boxOf(l,l.x,l.y)); } }
   const big=pick(syl[0])+pick(['a','e','i','o','ae','ia'])+pick(['ria','ron','neth','land','mar','ven','dor','this']);
   st.name = kind==='archipelago' ? 'The '+big+' Isles' : kind==='island' ? 'Isle of '+big : big;
   { let best=-1, bk=0; for(let k=0;k<N;k++){ const i=k%nx, j=(k-i)/nx; if(i>6 && i<nx-7 && j>3 && j<ny-4 && wd[k]>best){ best=wd[k]; bk=k; } }
@@ -3675,13 +3724,13 @@ function generateMap(W,H,kind,G={}){ G={land:1,mountains:1,forests:1,rivers:1,to
     const top=wd[at(Math.floor(nx/2),3)], bot=wd[at(Math.floor(nx/2),ny-4)], ry = bot>=top ? H-70 : 70; if(Math.abs(ry-y)>120 || Math.abs(W/2-x)>500) st.labels.push({text:st.name,x:W/2,y:ry,size:48,rot:0,style:'title'});
     if(peaks.length>=5){ const par=peaks.map((_,a)=>a), find=a=>par[a]===a?a:(par[a]=find(par[a])); for(let a=0;a<peaks.length;a++) for(let b=a+1;b<peaks.length;b++) if(Math.hypot(peaks[a][0]-peaks[b][0],peaks[a][1]-peaks[b][1])<150) par[find(a)]=find(b);      // the biggest knot of peaks is the range that gets the name (the mean of every peak can fall in the sea between two ranges)
       const grp=new Map(); peaks.forEach((q,a)=>{ const r=find(a); (grp.get(r)||grp.set(r,[]).get(r)).push(q); }); const rg=[...grp.values()].sort((a,b)=>b.length-a.length)[0];
-      if(rg.length>=3){ const cx=rg.reduce((a,q)=>a+q[0],0)/rg.length, cy=rg.reduce((a,q)=>a+q[1],0)/rg.length, text=name().replace(/(ford|mouth|bridge|ton|by|stead|wick)$/,'')+' '+pick(['Peaks','Mountains','Spine','Heights','Teeth']), sz=22, hw=text.length*sz*.3+12;
+      if(rg.length>=3){ const cx=rg.reduce((a,q)=>a+q[0],0)/rg.length, cy=rg.reduce((a,q)=>a+q[1],0)/rg.length, text=name().replace(/(ford|mouth|bridge|ton|by|stead|wick)$/,'')+' '+pick(['Peaks','Mountains','Spine','Heights','Teeth']), sz=22, [mcR,mxR]=mkCanvas(1,1), hw=labelMetrics(mxR,{text,size:sz,style:'range'}).width/2+14;
         /* where the name goes: near the middle of the range, wholly on land, clear of the other names (towns are named by now) */
-        const onLand=(x,y)=>x>0 && y>0 && x<W && y<H && isLand(at(clamp(Math.round(x/cs),0,nx-1),clamp(Math.round(y/cs),0,ny-1))), lbox=l=>{ const w=(l.text||'').length*l.size*.3+8; return [l.x-w,l.y-l.size*.75,l.x+w,l.y+l.size*.5]; };
+        const onLand=(x,y)=>x>0 && y>0 && x<W && y<H && isLand(at(clamp(Math.round(x/cs),0,nx-1),clamp(Math.round(y/cs),0,ny-1))), lbox=l=>{ const w=labelMetrics(mxR,l).width/2+8; return [l.x-w,l.y-l.size*.75,l.x+w,l.y+l.size*.5]; };
         const fits=(x,y)=>{ for(let f=-1;f<=1;f+=.25) for(const dy of [-sz*.7,sz*.3]) if(!onLand(x+f*hw,y+dy)) return false; const b=[x-hw,y-sz*.8,x+hw,y+sz*.5]; return !st.labels.some(l=>{ const o=lbox(l); return !(o[2]<b[0]||b[2]<o[0]||o[3]<b[1]||b[3]<o[1]); }); };
         let best=null, bs=1e9; for(const q of [[cx,cy],...rg]) for(const dy of [-75,-55,55,80,0,-110,110]) for(const dx of [0,-60,60]){ const x=q[0]+dx, y=q[1]+dy; if(!fits(x,y)) continue; const sc=Math.hypot(x-cx,(y-cy)*1.3)+(dy>0?15:0); if(sc<bs){ bs=sc; best=[x,y]; } }
         if(best) st.labels.push({text,x:Math.round(best[0]),y:Math.round(best[1]),size:sz,rot:0,style:'range',bend:.18}); } } }
-  { const [mc,mx]=mkCanvas(1,1); st.labels.forEach(l=>{ const hw=labelMetrics(mx,l).width/2+30; l.x=Math.round(clamp(l.x,hw+25,W-hw-25)); l.y=Math.round(clamp(l.y,l.size+45,H-l.size-45)); }); }      // keep every name on the sheet
+  { const [mc,mx]=mkCanvas(1,1); st.labels.forEach(l=>{ const hw=labelMetrics(mx,l).width/2+30; const ex=l.style==='water'?34:0; l.x=Math.round(clamp(l.x,hw+25+ex,W-hw-25-ex)); l.y=Math.round(clamp(l.y,l.size+45+ex,H-l.size-45-ex)); }); }      // keep every name on the sheet
   { /* a compass in whichever corner has the most open sea, clear of the names; a ruled frame and a scale */
     const cr=100, [mc2,mx2]=mkCanvas(1,1), lb=st.labels.map(l=>{ const w=labelMetrics(mx2,l).width/2+10; return [l.x-w,l.y-l.size,l.x+w,l.y+l.size*.6]; });
     let bestC=null, bsc=-1e9; for(const q of [[170,H-170],[W-170,H-170],[170,170],[W-170,170],[W*.5,H-170],[W*.5,170]]){ let land=0, n=0; for(let dx=-cr;dx<=cr;dx+=cs) for(let dy=-cr;dy<=cr;dy+=cs){ n++; const i=clamp(Math.round((q[0]+dx)/cs),0,nx-1), j=clamp(Math.round((q[1]+dy)/cs),0,ny-1); if(isLand(at(i,j))) land++; } const hit=lb.some(o=>!(o[2]<q[0]-cr||q[0]+cr<o[0]||o[3]<q[1]-cr||q[1]+cr<o[1])), sc=-land/n*100-(hit?60:0)-(q[0]>200&&q[0]<W-200?8:0); if(sc>bsc){ bsc=sc; bestC=q; } }
@@ -3689,6 +3738,8 @@ function generateMap(W,H,kind,G={}){ G={land:1,mountains:1,forests:1,rivers:1,to
     st.frame='line'; st.scale={per100:Math.round(W/32),unit:'miles'}; }
   st.height={...packHeight(nx,ny,cs,elev,Array.from({length:N},(_,k)=>isLand(k)?0:ocean[k]?1:2)), pid:packBytes(plateId), pb:packBytes(bnd), pa:packBytes(bang), anc:landAnchors(st.lands), plates:plates.map(s=>({x:Math.round(s.x),y:Math.round(s.y),dx:+s.dx.toFixed(2),dy:+s.dy.toFixed(2),c:s.continental?1:0}))};      // what the Heightmap view shows
   st.gen={kind,seed,land:G.land,mountains:G.mountains,forests:G.forests,rivers:G.rivers,towns:G.towns,coast:G.coast,cliffs:G.cliffs};
+  { const WET=new Set(['conifer','deciduous','palm','willow','reeds','cactus','dunes','boulders','hill']), rv=st.lines.filter(l=>l.kind==='river' || l.kind==='road' || l.kind==='trail');      // nothing grows in the river, or in the road: a tree, a dune or a boulder whose foot falls in the channel (or on its bank line), or on the carriageway, is taken out
+    if(rv.length) st.stamps=st.stamps.filter(o=>{ if(!WET.has(o.kind)) return true; const f=[o.x,o.y+o.size*.3], r=o.size*.32; for(const l of rv){ const w=l.kind==='river' ? (l.width||4)/2+3+r : (l.width||3)/2+2+r*.55; for(let i=1;i<l.pts.length;i++){ const a2=l.pts[i-1], b2=l.pts[i]; if(Math.min(a2[0],b2[0])-w>f[0] || Math.max(a2[0],b2[0])+w<f[0] || Math.min(a2[1],b2[1])-w>f[1] || Math.max(a2[1],b2[1])+w<f[1]) continue; if(segDist(f,a2,b2)<w) return false; } } return true; }); }
   st.stamps.forEach(q=>{ q.size=Math.round(q.size*1.15); }); st.labels.forEach(l=>{ if(l.style==='water'){ l.bend=.2; } });      // sizes in step with the stamp tool's defaults
   return st;
 }
@@ -3717,6 +3768,8 @@ function exampleMap(){
   d.cliffs.push({mode:'up',pts:blob(1330,1085,140,54,24,18),rough:.4,seed:614,h:44,taper:.85,dir:180});      // a tapered plateau: full height at its west end, sloping down to ground level in the east
   d.labels.push({text:'The Long Rise',x:1330,y:1192,size:22,rot:0,style:'note'});
   d.labels.push({text:'The Tableland',x:930,y:1098,size:24,rot:0,style:'range',bend:-.12},{text:'Ashfall Crater',x:1560,y:632,size:22,rot:0,style:'note'},{text:'The Maw',x:1575,y:1156,size:22,rot:0,style:'note'});
+  { const rv=d.lines.filter(l=>l.kind==='river'); d.stamps=d.stamps.filter(o=>!((o.kind==='conifer'||o.kind==='deciduous') && rv.some(l=>l.pts.some((q,i)=>i && segDist([o.x,o.y+o.size*.3],l.pts[i-1],q)<o.size*.3+12)))); }      // the woods stand back from the river
+  d.frame='line'; d.stamps.push({kind:'compass',x:210,y:1270,size:210,rot:0,var:1},{kind:'scalebar',x:2150,y:1395,size:200,rot:0});      // dressed as a finished sheet: border, compass and scale
   return {app:'wayfarer-atlas',...d};
 }
 
